@@ -6,7 +6,24 @@ from django.urls import reverse
 from django.apps import apps
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from unfold.admin import TabularInline as UnfoldTabularInline
-from .models import SaleOrder, SaleLine
+from .models import Customer, SaleOrder, SaleLine
+
+
+@admin.register(Customer)
+class CustomerAdmin(UnfoldModelAdmin):
+    list_display = ['name', 'tax_id', 'email', 'phone', 'is_active']
+    list_filter = ['is_active']
+    search_fields = ['name', 'tax_id', 'email']
+    
+    fieldsets = (
+        ('Información', {
+            'fields': ('name', 'tax_id', 'email', 'phone', 'address')
+        }),
+        ('Estado', {
+            'fields': ('is_active',)
+        }),
+    )
+    readonly_fields = ['created_at', 'updated_at']
 
 
 class SaleLineInline(UnfoldTabularInline):

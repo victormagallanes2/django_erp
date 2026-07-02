@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 import os
+from django.urls import reverse_lazy
+from django.utils.translation import gettext_lazy as _
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -124,11 +126,116 @@ AUTH_USER_MODEL = 'users.User'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
+
+
 UNFOLD = {
     "SITE_TITLE": "Sistema ERP",
-    "SITE_HEADER": "Panel de Administración",
+    "SITE_HEADER": "Modulos",
     "SITE_URL": "/",
-    "STYLES": [
-        lambda request: "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css",
-    ],
+    
+    "MENU": {
+        "ENABLED": False,
+    },
+    
+    "SIDEBAR": {
+        "show_search": False,
+        "show_all_applications": False,
+        "navigation": [
+            {
+                "title": "Almacén",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": "Productos",
+                        "icon": "inventory_2",
+                        "link": "/admin/warehouse/product/",
+                    },
+                    {
+                        "title": "Movimientos",
+                        "icon": "swap_horiz",
+                        "link": "/admin/warehouse/movement/",
+                    },
+                    {
+                        "title": "Ubicaciones",
+                        "icon": "location_on",
+                        "link": "/admin/warehouse/location/",
+                    },
+                ],
+            },
+            {
+                "title": "Inventario",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": "Inventarios",
+                        "icon": "storage",
+                        "link": "/admin/inventory/inventory/",
+                    },
+                    {
+                        "title": "Conteos Físicos",
+                        "icon": "fact_check",
+                        "link": "/admin/inventory/physicalcount/",
+                    },
+                    {
+                        "title": "Métodos de Valoración",
+                        "icon": "calculate",
+                        "link": "/admin/inventory/valuationmethod/",
+                    },
+                ],
+            },
+            {
+                "title": "Ventas",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": "Clientes",
+                        "icon": "person",
+                        "link": "/admin/sales/customer/",
+                    },
+                    {
+                        "title": "Órdenes de Venta",
+                        "icon": "receipt_long",
+                        "link": "/admin/sales/saleorder/",
+                    },
+                ],
+            },
+            {
+                "title": "Facturación",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": "Facturas",
+                        "icon": "receipt",
+                        "link": "/admin/invoicing/invoice/",
+                    },
+                ],
+            },
+            {
+                "title": "Configuración",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": "Empresa",
+                        "icon": "business",
+                        "link": "/admin/configuration/company/",
+                    },
+                    {
+                        "title": "Usuarios",
+                        "icon": "people",
+                        "link": "/admin/users/user/",
+                    },
+                    {
+                        "title": "Grupos",
+                        "icon": "group",
+                        "link": "/admin/auth/group/",
+                    },
+                ],
+            },
+        ],
+    },
 }
