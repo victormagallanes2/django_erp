@@ -1,4 +1,4 @@
-# warehouse/admin.py
+# warehouse/admin.py - ProductAdmin
 from django.contrib import admin
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
@@ -7,24 +7,33 @@ from .models import Product, Location, Movement
 
 @admin.register(Product)
 class ProductAdmin(UnfoldModelAdmin):
+    """Admin de productos - Solo campos de Product"""
+    
     list_display = ['image_preview', 'code', 'name', 'unit', 'is_active']
     list_filter = ['is_active', 'unit']
     search_fields = ['name', 'code']
+    
     fieldsets = (
-        ('Información', {'fields': ('name', 'code', 'description', 'unit', 'image')}),
-        ('Características', {'fields': ('weight', 'dimensions')}),
-        ('Estado', {'fields': ('is_active',)}),
-        ('Precios', {
-            'fields': ('unit_price', 'total'),
-            'description': 'El total se calcula automáticamente: Cantidad × Precio unitario'
+        ('Información', {
+            'fields': ('name', 'code', 'description', 'unit', 'image')
+        }),
+        ('Características', {
+            'fields': ('weight', 'dimensions')
+        }),
+        ('Estado', {
+            'fields': ('is_active',)
         }),
     )
+    
     readonly_fields = ['created_at', 'updated_at']
     
     @admin.display(description='Imagen')
     def image_preview(self, obj):
         if obj.image:
-            return format_html('<img src="{}" width="50" height="50" style="object-fit: cover; border-radius: 4px;" />', obj.image.url)
+            return format_html(
+                '<img src="{}" width="50" height="50" style="object-fit: cover; border-radius: 4px;" />',
+                obj.image.url
+            )
         return "Sin imagen"
 
 
@@ -37,10 +46,29 @@ class LocationAdmin(UnfoldModelAdmin):
 
 @admin.register(Movement)
 class MovementAdmin(UnfoldModelAdmin):
+    """Admin de movimientos - Aquí sí van unit_price y total"""
+    
     list_display = ['product', 'type', 'quantity', 'unit_price', 'total', 'location_from', 'location_to', 'created_at']
     list_filter = ['type', 'source_type']
-    search_fields = ['product__name', 'source_reference']
-    readonly_fields = ['user', 'created_at', 'total']
+    search_fields = ['product__name', 'product__code', 'source_reference']
+    readonly_fields = ['total', 'user', 'created_at']
+    
+    fieldsets = (
+        ('Movimiento', {
+            'fields': ('product', 'type', 'quantity')
+        }),
+        ('Precios', {
+            'fields': ('unit_price', 'total'),
+            'description': 'El total se calcula automáticamente: Cantidad × Precio unitario'
+        }),
+        ('Ubicaciones', {
+            'fields': ('location_from', 'location_to'),
+            'description': 'Para entradas solo se usa "Hasta". Para salidas solo "Desde". Para traslados ambos.'
+        }),
+        ('Información Adicional', {
+            'fields': ('source_type', 'source_reference', 'note')
+        }),
+    )
     
     def has_delete_permission(self, request, obj=None):
         return False

@@ -8,7 +8,7 @@ User = get_user_model()
 
 
 class Invoice(models.Model):
-    """Factura"""
+    """Factura - Completamente independiente"""
     
     STATUS_CHOICES = [
         ('DRAFT', 'Borrador'),
@@ -24,34 +24,54 @@ class Invoice(models.Model):
         blank=True, 
         null=True,
         verbose_name="Número de Control SENIAT",
-        help_text="Asignado por la imprenta digital autorizada (si aplica)"
     )
     
     # Datos de la empresa
     company = models.ForeignKey(
         Company,
         on_delete=models.PROTECT,
-        verbose_name="Empresa",
-        help_text="Datos de la empresa que emite la factura"
+        verbose_name="Empresa"
     )
     issuer_rif = models.CharField(max_length=20, verbose_name="RIF Emisor")
     issuer_name = models.CharField(max_length=200, verbose_name="Nombre Emisor")
     issuer_address = models.TextField(verbose_name="Dirección Emisor")
     
-    # Datos del cliente
-    customer = models.ForeignKey('sales.Customer', on_delete=models.PROTECT, verbose_name="Cliente")
-    customer_rif = models.CharField(max_length=20, verbose_name="RIF Cliente")
-    customer_address = models.TextField(verbose_name="Dirección Cliente")
-    
-    # Datos de la factura
-    sale_order = models.OneToOneField(
-        'sales.SaleOrder',
-        on_delete=models.PROTECT,
-        related_name='invoice',
-        null=True,
+    # ✅ Datos del cliente - Campos separados (en lugar de JSON)
+    customer_name = models.CharField(
+        max_length=200,
         blank=True,
-        verbose_name="Orden de Venta"
+        verbose_name="Nombre del Cliente",
+        help_text="Ejemplo: Juan Pérez"
     )
+    customer_rif = models.CharField(
+        max_length=20,
+        blank=True,
+        verbose_name="RIF / Cédula del Cliente",
+        help_text="Ejemplo: V-12345678 o J-12345678-9"
+    )
+    customer_address = models.TextField(
+        blank=True,
+        verbose_name="Dirección del Cliente",
+        help_text="Ejemplo: Calle Falsa 123, Ciudad"
+    )
+    
+    # Referencia a la orden de venta (SOLO texto)
+    sale_order_number = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Número de Orden de Venta",
+        help_text="Referencia a la orden de venta (si aplica)"
+    )
+    
+    # Concepto general
+    concept = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Concepto",
+        help_text="Usar si no hay líneas específicas"
+    )
+    
     date = models.DateField(auto_now_add=True, verbose_name="Fecha")
     status = models.CharField(
         max_length=20,
@@ -66,7 +86,6 @@ class Invoice(models.Model):
     tax = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="IVA")
     total = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Total")
     
-    # Información adicional
     note = models.TextField(blank=True, verbose_name="Nota")
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="Usuario")
     
@@ -79,7 +98,9 @@ class Invoice(models.Model):
         ordering = ['-date', '-created_at']
 
     def __str__(self):
-        return f"{self.number} - {self.customer.name}"
+        if self.customer_name:
+            return f"{self.number} - {self.customer_name}"
+        return f"{self.number} - {self.concept or 'Sin cliente'}"
 
     def calculate_totals(self):
         subtotal = sum(line.subtotal for line in self.lines.all())
@@ -93,7 +114,7 @@ class Invoice(models.Model):
 
 
 class InvoiceLine(models.Model):
-    """Línea de factura"""
+    """Línea de factura - Con campos separados"""
     
     invoice = models.ForeignKey(
         Invoice,
@@ -101,16 +122,29 @@ class InvoiceLine(models.Model):
         related_name='lines',
         verbose_name="Factura"
     )
-    product = models.ForeignKey(
-        'warehouse.Product',
-        on_delete=models.PROTECT,
-        verbose_name="Producto"
+    
+    # Campos para producto/servicio
+    product_code = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name="Código de Producto",
+        help_text="Código del producto (si aplica)"
     )
+    product_name = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Nombre del Producto/Servicio",
+        help_text="Ejemplo: 'Laptop HP 15.6' o 'Consultoría jurídica'"
+    )
+    
+    # Descripción adicional
     description = models.CharField(
         max_length=200,
         blank=True,
-        verbose_name="Descripción"
+        verbose_name="Descripción",
+        help_text="Detalle adicional (opcional)"
     )
+    
     quantity = models.IntegerField(verbose_name="Cantidad")
     unit_price = models.DecimalField(
         max_digits=10,
@@ -129,10 +163,11 @@ class InvoiceLine(models.Model):
         verbose_name_plural = "Líneas de Factura"
 
     def __str__(self):
-        return f"{self.invoice.number} - {self.product.name}"
+        name = self.product_name or self.description or 'Sin producto'
+        return f"{self.invoice.number} - {name}"
 
     def save(self, *args, **kwargs):
         self.subtotal = self.quantity * self.unit_price
-        if not self.description:
-            self.description = self.product.name
+        if not self.product_name and self.description:
+            self.product_name = self.description
         super().save(*args, **kwargs)

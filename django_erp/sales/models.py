@@ -2,14 +2,14 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from decimal import Decimal 
-
+from decimal import Decimal
+from django.apps import apps
 
 User = get_user_model()
 
 
 class Customer(models.Model):
-    """Cliente - Datos de negocio"""
+    """Cliente - Independiente"""
     
     name = models.CharField(max_length=200, verbose_name="Nombre")
     tax_id = models.CharField(
@@ -31,7 +31,7 @@ class Customer(models.Model):
         ordering = ['name']
 
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.tax_id})"
 
 
 class SaleOrder(models.Model):
@@ -45,9 +45,18 @@ class SaleOrder(models.Model):
     ]
     
     number = models.CharField(max_length=50, unique=True, verbose_name="Número")
-    customer = models.ForeignKey(Customer, on_delete=models.PROTECT, verbose_name="Cliente")
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.PROTECT,
+        verbose_name="Cliente"
+    )
     date = models.DateField(auto_now_add=True, verbose_name="Fecha")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT', verbose_name="Estado")
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='DRAFT',
+        verbose_name="Estado"
+    )
     
     subtotal = models.DecimalField(max_digits=10, decimal_places=2, default=0, editable=False, verbose_name="Subtotal")
     tax = models.DecimalField(max_digits=10, decimal_places=2, default=0, editable=False, verbose_name="Impuesto")
@@ -69,7 +78,7 @@ class SaleOrder(models.Model):
 
     def calculate_totals(self):
         subtotal = sum(line.subtotal for line in self.lines.all())
-        tax = subtotal * Decimal('0.19')  # ← Cambiar 0.19 por Decimal('0.19')
+        tax = subtotal * Decimal('0.19')
         total = subtotal + tax
         
         self.subtotal = subtotal
@@ -84,7 +93,7 @@ class SaleOrder(models.Model):
 
 
 class SaleLine(models.Model):
-    """Línea de orden de venta - CON REFERENCIAS DINÁMICAS"""
+    """Línea de venta - Producto opcional"""
     
     order = models.ForeignKey(
         SaleOrder,
@@ -93,17 +102,47 @@ class SaleLine(models.Model):
         verbose_name="Orden"
     )
     
-    # ✅ REFERENCIAS DINÁMICAS a warehouse
+    # ✅ Producto como ForeignKey condicional
     product = models.ForeignKey(
-        'warehouse.Product',  # ← Texto, no importación directa
-        on_delete=models.PROTECT,
-        verbose_name="Producto"
-    )
-    location = models.ForeignKey(
-        'warehouse.Location',  # ← Texto, no importación directa
+        'warehouse.Product',
         on_delete=models.SET_NULL,
         null=True,
-        verbose_name="Ubicación"
+        blank=True,
+        verbose_name="Producto",
+        help_text="Seleccionar si es un producto físico"
+    )
+    
+    # ✅ Ubicación como ForeignKey condicional
+    location = models.ForeignKey(
+        'warehouse.Location',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Ubicación",
+        help_text="Ubicación del producto en el almacén (si aplica)"
+    )
+    
+    # ✅ Para servicios (cuando no hay producto)
+    product_name = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Nombre del Producto/Servicio",
+        help_text="Usar para servicios o cuando no hay producto seleccionado"
+    )
+    
+    location_code = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name="Código de Ubicación",
+        help_text="Código de ubicación (si aplica)"
+    )
+    
+    # ✅ Descripción para servicios
+    description = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Descripción",
+        help_text="Detalle adicional (opcional)"
     )
     
     quantity = models.IntegerField(verbose_name="Cantidad")
@@ -124,8 +163,14 @@ class SaleLine(models.Model):
         verbose_name_plural = "Líneas de Venta"
 
     def __str__(self):
-        return f"{self.order.number} - {self.product.name}"
+        if self.product:
+            return f"{self.order.number} - {self.product.name}"
+        return f"{self.order.number} - {self.product_name or 'Servicio'}"
 
     def save(self, *args, **kwargs):
         self.subtotal = self.quantity * self.unit_price
+        if not self.product_name and self.product:
+            self.product_name = self.product.name
+        if not self.location_code and self.location:
+            self.location_code = self.location.code
         super().save(*args, **kwargs)

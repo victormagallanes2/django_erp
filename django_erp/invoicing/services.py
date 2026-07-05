@@ -3,20 +3,21 @@ from django.db import transaction
 from django.core.exceptions import ValidationError
 from decimal import Decimal
 from .models import Invoice, InvoiceLine
-from django_erp.sales.models import SaleOrder
 from django_erp.configuration.models import Company
-from django_erp.warehouse.services import WarehouseService
+from django.apps import apps
 
 
 class InvoiceService:
-    """Servicios de facturación"""
     
     @staticmethod
     @transaction.atomic
     def create_invoice_from_sale_order(sale_order_id, user=None):
-        """
-        Crear una factura a partir de una orden de venta
-        """
+        """Crear factura desde orden de venta (solo si Sales existe)"""
+        
+        if not apps.is_installed('django_erp.sales'):
+            raise ValidationError("El módulo Sales no está instalado")
+        
+        from django_erp.sales.models import SaleOrder
         sale_order = SaleOrder.objects.get(id=sale_order_id)
         
         if sale_order.status == 'DRAFT':
@@ -43,24 +44,26 @@ class InvoiceService:
         number = f"{company.invoice_prefix}-{datetime.now().strftime('%Y%m')}-{next_num:04d}"
         
         invoice = Invoice.objects.create(
-            sale_order=sale_order,
             number=number,
             company=company,
             issuer_rif=company.rif,
             issuer_name=company.name,
             issuer_address=company.address,
-            customer=sale_order.customer,
+            customer_name=sale_order.customer.name,
             customer_rif=sale_order.customer.tax_id,
             customer_address=sale_order.customer.address,
+            sale_order_number=sale_order.number,
             status='DRAFT',
             tax_rate=company.tax_rate,
             user=user
         )
         
+        # Copiar líneas
         for line in sale_order.lines.all():
             InvoiceLine.objects.create(
                 invoice=invoice,
-                product=line.product,
+                product_code=line.product.code,
+                product_name=line.product.name,
                 description=line.product.name,
                 quantity=line.quantity,
                 unit_price=line.unit_price
@@ -69,27 +72,12 @@ class InvoiceService:
         invoice.calculate_totals()
         invoice.save()
         
-        if company.control_number_required:
-            InvoiceService.request_control_number(invoice)
-        
         return invoice
-    
-    @staticmethod
-    def request_control_number(invoice):
-        """Solicitar número de control (simulado)"""
-        import datetime
-        control_number = f"CTRL-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{invoice.id:04d}"
-        invoice.control_number = control_number
-        invoice.save()
-        return control_number
     
     @staticmethod
     @transaction.atomic
     def issue_invoice(invoice, user=None):
-        """
-        Emitir una factura
-        """
-        # Solo verificar que tenga líneas
+        """Emitir una factura"""
         if not invoice.lines.exists():
             raise ValidationError("No se puede emitir una factura sin líneas")
         return invoice
@@ -97,33 +85,11 @@ class InvoiceService:
     @staticmethod
     @transaction.atomic
     def pay_invoice(invoice, user=None):
-        """
-        Registrar pago de una factura
-        """
+        """Registrar pago de una factura"""
         return invoice
     
     @staticmethod
     @transaction.atomic
     def cancel_invoice(invoice, user=None):
-        """
-        Anular una factura
-        """
-        # Si la factura tiene una orden asociada, devolver stock
-        if invoice.sale_order and invoice.sale_order.status == 'CONFIRMED':
-            for line in invoice.lines.all():
-                from django_erp.sales.models import SaleLine
-                sale_line = SaleLine.objects.filter(
-                    order=invoice.sale_order,
-                    product=line.product
-                ).first()
-                if sale_line and sale_line.location:
-                    WarehouseService.create_entry(
-                        product_id=line.product.id,
-                        quantity=line.quantity,
-                        location_to_id=sale_line.location.id,
-                        source_type='MANUAL',
-                        source_reference=f"ANULACION-{invoice.number}",
-                        note=f"Anulación de factura {invoice.number}",
-                        user=user
-                    )
+        """Anular una factura"""
         return invoice
