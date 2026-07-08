@@ -148,28 +148,6 @@ UNFOLD = {
         "show_all_applications": False,
         "navigation": [
             {
-                "title": "Configuración",
-                "separator": True,
-                "collapsible": True,
-                "items": [
-                    {
-                        "title": "Empresa",
-                        "icon": "business",
-                        "link": "/admin/configuration/company/",
-                    },
-                    {
-                        "title": "Usuarios",
-                        "icon": "people",
-                        "link": "/admin/users/user/",
-                    },
-                    {
-                        "title": "Grupos",
-                        "icon": "group",
-                        "link": "/admin/auth/group/",
-                    },
-                ],
-            },
-            {
                 "title": "Almacén",
                 "separator": True,
                 "collapsible": True,
@@ -239,6 +217,28 @@ UNFOLD = {
                         "title": "Facturas",
                         "icon": "receipt",
                         "link": "/admin/invoicing/invoice/",
+                    },
+                ],
+            },
+            {
+                "title": "Configuración",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": "Empresa",
+                        "icon": "business",
+                        "link": "/admin/configuration/company/",
+                    },
+                    {
+                        "title": "Usuarios",
+                        "icon": "people",
+                        "link": "/admin/users/user/",
+                    },
+                    {
+                        "title": "Grupos",
+                        "icon": "group",
+                        "link": "/admin/auth/group/",
                     },
                 ],
             },

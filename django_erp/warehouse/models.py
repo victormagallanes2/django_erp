@@ -19,6 +19,13 @@ class Product(models.Model):
     code = models.CharField(max_length=50, unique=True, verbose_name="Código")
     description = models.TextField(blank=True, verbose_name="Descripción")
     unit = models.CharField(max_length=10, choices=UNIT_CHOICES, default='UNIT', verbose_name="Unidad")
+
+    # ✅ NUEVO: Campo para servicios
+    is_service = models.BooleanField(
+        default=False,
+        verbose_name="¿Es servicio?",
+        help_text="Marcar si es un servicio (no requiere control de stock)"
+    )
     
     # ✅ Precio de venta (para autocompletar en ventas)
     sale_price = models.DecimalField(

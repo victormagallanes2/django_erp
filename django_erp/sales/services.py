@@ -6,41 +6,38 @@ from .models import SaleOrder
 
 
 class SaleService:
-    """Servicios de ventas - Independiente de Warehouse"""
+    """Servicios de ventas - Soporta productos y servicios"""
     
     @staticmethod
     @transaction.atomic
     def confirm_order(order, user=None):
-        """Confirmar una orden"""
+        """Confirmar una orden - Productos físicos y servicios"""
         
         for line in order.lines.all():
             if line.product:
+                # ✅ Si es servicio, no verificar stock
+                if line.product.is_service:
+                    print(f"📝 Servicio confirmado: {line.product.name}")
+                    continue
+                
+                # ✅ Si es producto físico, verificar stock
                 if apps.is_installed('django_erp.inventory'):
                     from django_erp.inventory.services import InventoryService
-                    
-                    # ✅ Si no tiene ubicación, buscar cualquier ubicación con stock
-                    location_id = line.location.id if line.location else None
-                    stock = 0
-                    
-                    if location_id:
-                        stock = InventoryService.get_stock_by_location(line.product.id, location_id)
-                    else:
-                        # Si no tiene ubicación, calcular stock total
-                        from django_erp.inventory.models import Inventory
-                        inventories = Inventory.objects.filter(product=line.product)
-                        for inv in inventories:
-                            stock += inv.quantity
-                    
+                    stock = InventoryService.get_stock_by_location(
+                        line.product.id,
+                        line.location.id if line.location else None
+                    )
                     if stock < line.quantity:
                         raise ValidationError(
                             f"Stock insuficiente para {line.product.name}. "
                             f"Disponible: {stock}, Solicitado: {line.quantity}"
                         )
                 
+                # ✅ Crear movimiento de salida para productos físicos
                 if apps.is_installed('django_erp.warehouse'):
                     from django_erp.warehouse.services import WarehouseService
                     WarehouseService.create_exit(
-                        product_id=line.product_id,
+                        product_id=line.product.id,
                         quantity=line.quantity,
                         location_from_id=line.location.id if line.location else None,
                         source_type='SALE',
@@ -69,25 +66,26 @@ class SaleService:
     @staticmethod
     @transaction.atomic
     def cancel_order(order, user=None, old_status=None):
-        """Cancelar una orden - Condicional"""
+        """Cancelar una orden"""
         
-        # ✅ Usar old_status para validar
-        if old_status in ['DELIVERED', 'CANCELLED']:
+        if order.status in ['DELIVERED', 'CANCELLED']:
             raise ValidationError("No se puede cancelar una orden entregada o ya cancelada")
         
         if old_status == 'CONFIRMED':
             for line in order.lines.all():
-                if line.product and apps.is_installed('django_erp.warehouse'):
-                    from django_erp.warehouse.services import WarehouseService
-                    WarehouseService.create_entry(
-                        product_id=line.product.id,
-                        quantity=line.quantity,
-                        location_to_id=line.location.id if line.location else None,
-                        source_type='MANUAL',
-                        source_reference=f"CANCEL-{order.number}",
-                        note=f"Cancelación de venta {order.number}",
-                        user=user or order.user
-                    )
+                # ✅ Solo devolver stock si es producto físico
+                if line.product and not line.product.is_service:
+                    if apps.is_installed('django_erp.warehouse'):
+                        from django_erp.warehouse.services import WarehouseService
+                        WarehouseService.create_entry(
+                            product_id=line.product.id,
+                            quantity=line.quantity,
+                            location_to_id=line.location.id if line.location else None,
+                            source_type='MANUAL',
+                            source_reference=f"CANCEL-{order.number}",
+                            note=f"Cancelación de venta {order.number}",
+                            user=user or order.user
+                        )
         
         return order
     

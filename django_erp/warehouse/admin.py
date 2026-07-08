@@ -7,15 +7,20 @@ from .models import Product, Location, Movement
 
 @admin.register(Product)
 class ProductAdmin(UnfoldModelAdmin):
-    """Admin de productos"""
-    
-    list_display = ['image_preview', 'code', 'name', 'sale_price', 'unit', 'is_active']
-    list_filter = ['is_active', 'unit']
+    list_display = [
+        'image_preview', 'code', 'name', 'sale_price', 'unit', 
+        'is_service_badge', 'is_active'
+    ]
+    list_filter = ['is_active', 'unit', 'is_service']
     search_fields = ['name', 'code', 'description']
     
     fieldsets = (
         ('Información', {
-            'fields': ('name', 'code', 'description', 'unit', 'image')
+            'fields': ('name', 'code', 'description', 'unit')
+        }),
+        ('Tipo de Producto', {
+            'fields': ('is_service',),
+            'description': 'Marcar como "Servicio" si no requiere control de stock'
         }),
         ('Precios', {
             'fields': ('sale_price',)
@@ -23,12 +28,21 @@ class ProductAdmin(UnfoldModelAdmin):
         ('Características', {
             'fields': ('weight', 'dimensions')
         }),
+        ('Imagen', {
+            'fields': ('image',)
+        }),
         ('Estado', {
             'fields': ('is_active',)
         }),
     )
     
     readonly_fields = ['created_at', 'updated_at']
+    
+    @admin.display(description='Tipo')
+    def is_service_badge(self, obj):
+        if obj.is_service:
+            return "🛋️ Servicio"
+        return "📦 Producto"
     
     @admin.display(description='Imagen')
     def image_preview(self, obj):
