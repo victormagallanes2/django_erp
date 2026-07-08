@@ -11,11 +11,9 @@ from .models import Customer, SaleOrder, SaleLine
 
 @admin.register(Customer)
 class CustomerAdmin(UnfoldModelAdmin):
-    """Admin de clientes"""
-    
     list_display = ['name', 'tax_id', 'email', 'phone', 'is_active']
     list_filter = ['is_active']
-    search_fields = ['name', 'tax_id', 'email']
+    search_fields = ['name', 'tax_id', 'email', 'phone']
     
     fieldsets = (
         ('Información', {
@@ -29,13 +27,11 @@ class CustomerAdmin(UnfoldModelAdmin):
 
 
 class SaleLineInline(UnfoldTabularInline):
-    """Líneas de venta inline"""
-    
     model = SaleLine
     extra = 1
     fields = ['product', 'location', 'quantity', 'unit_price', 'subtotal']
     readonly_fields = ['subtotal']
-    autocomplete_fields = ['product']  # Solo product con autocomplete
+    autocomplete_fields = ['product']
     
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
@@ -46,15 +42,47 @@ class SaleLineInline(UnfoldTabularInline):
 
 
 class SaleOrderForm(forms.ModelForm):
-    """Formulario personalizado para SaleOrder"""
+    """Formulario personalizado con totales calculados en tiempo real"""
+    
+    # ✅ Crear campos adicionales para mostrar totales (no vinculados al modelo)
+    subtotal_display = forms.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        disabled=True,
+        label="Subtotal",
+        initial=0.00
+    )
+    tax_display = forms.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        disabled=True,
+        label="IVA (19%)",
+        initial=0.00
+    )
+    total_display = forms.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        disabled=True,
+        label="Total",
+        initial=0.00
+    )
     
     class Meta:
         model = SaleOrder
-        fields = '__all__'
+        fields = ['number', 'customer', 'status', 'note']
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         instance = kwargs.get('instance')
+        
+        # ✅ Inicializar campos de totales con valores del modelo si existen
+        if instance and instance.pk:
+            self.initial['subtotal_display'] = instance.subtotal
+            self.initial['tax_display'] = instance.tax
+            self.initial['total_display'] = instance.total
         
         if not instance or not instance.pk:
             from datetime import datetime
@@ -98,8 +126,6 @@ class SaleOrderForm(forms.ModelForm):
 
 @admin.register(SaleOrder)
 class SaleOrderAdmin(UnfoldModelAdmin):
-    """Admin de órdenes de venta"""
-    
     form = SaleOrderForm
     
     list_display = ['number', 'customer', 'date', 'total', 'status', 'created_at']
@@ -107,15 +133,18 @@ class SaleOrderAdmin(UnfoldModelAdmin):
     search_fields = ['number', 'customer__name']
     
     inlines = [SaleLineInline]
+    
     autocomplete_fields = ['customer']
     
+    # ✅ fieldsets con campos de totales calculados
     fieldsets = (
-        ('Información', {
+        ('Información de la Orden', {
             'fields': ('number', 'customer', 'status')
         }),
-        ('Totales', {
-            'fields': ('subtotal', 'tax', 'total'),
+        ('Totales en Tiempo Real', {
+            'fields': ('subtotal_display', 'tax_display', 'total_display'),
             'classes': ('tab',),
+            'description': 'Los totales se actualizan automáticamente al modificar las líneas'
         }),
         ('Información Adicional', {
             'fields': ('note',),
@@ -123,7 +152,7 @@ class SaleOrderAdmin(UnfoldModelAdmin):
         }),
     )
     
-    readonly_fields = ['subtotal', 'tax', 'total', 'user', 'date', 'created_at', 'updated_at']
+    readonly_fields = ['user', 'date', 'created_at', 'updated_at']
     
     class Media:
         js = ('admin/js/sale_order_admin.js',)
@@ -134,7 +163,11 @@ class SaleOrderAdmin(UnfoldModelAdmin):
         if not obj.user:
             obj.user = request.user
         
-        # Si es nueva orden, guardar primero para obtener ID
+        # ✅ Guardar los valores calculados en el modelo
+        obj.subtotal = form.cleaned_data.get('subtotal_display', 0)
+        obj.tax = form.cleaned_data.get('tax_display', 0)
+        obj.total = form.cleaned_data.get('total_display', 0)
+        
         if not obj.pk:
             super().save_model(request, obj, form, change)
             return
@@ -164,10 +197,8 @@ class SaleOrderAdmin(UnfoldModelAdmin):
             super().save_model(request, obj, form, change)
     
     def save_formset(self, request, form, formset, change):
-        # Guardar formset
         super().save_formset(request, form, formset, change)
         
-        # ✅ Verificar que todas las líneas tienen ubicación
         for line in form.instance.lines.all():
             if line.product and not line.location:
                 from django_erp.inventory.models import Inventory
@@ -175,7 +206,6 @@ class SaleOrderAdmin(UnfoldModelAdmin):
                 if inventory and inventory.location:
                     line.location = inventory.location
                     line.save()
-                    print(f"✅ Ubicación asignada a {line.product.name}: {line.location.code}")
         
         form.instance.calculate_totals()
         form.instance.save()
