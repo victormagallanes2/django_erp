@@ -1,4 +1,4 @@
-# warehouse/admin.py - ProductAdmin
+# warehouse/admin.py
 from django.contrib import admin
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
@@ -7,15 +7,18 @@ from .models import Product, Location, Movement
 
 @admin.register(Product)
 class ProductAdmin(UnfoldModelAdmin):
-    """Admin de productos - Solo campos de Product"""
+    """Admin de productos"""
     
-    list_display = ['image_preview', 'code', 'name', 'unit', 'is_active']
+    list_display = ['image_preview', 'code', 'name', 'sale_price', 'unit', 'is_active']
     list_filter = ['is_active', 'unit']
-    search_fields = ['name', 'code']
+    search_fields = ['name', 'code', 'description']
     
     fieldsets = (
         ('Información', {
             'fields': ('name', 'code', 'description', 'unit', 'image')
+        }),
+        ('Precios', {
+            'fields': ('sale_price',)
         }),
         ('Características', {
             'fields': ('weight', 'dimensions')
@@ -39,6 +42,8 @@ class ProductAdmin(UnfoldModelAdmin):
 
 @admin.register(Location)
 class LocationAdmin(UnfoldModelAdmin):
+    """Admin de ubicaciones"""
+    
     list_display = ['code', 'name', 'parent', 'is_active']
     list_filter = ['is_active']
     search_fields = ['code', 'name']
@@ -46,7 +51,7 @@ class LocationAdmin(UnfoldModelAdmin):
 
 @admin.register(Movement)
 class MovementAdmin(UnfoldModelAdmin):
-    """Admin de movimientos - Aquí sí van unit_price y total"""
+    """Admin de movimientos"""
     
     list_display = ['product', 'type', 'quantity', 'unit_price', 'total', 'location_from', 'location_to', 'created_at']
     list_filter = ['type', 'source_type']

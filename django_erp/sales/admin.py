@@ -11,26 +11,43 @@ from .models import Customer, SaleOrder, SaleLine
 
 @admin.register(Customer)
 class CustomerAdmin(UnfoldModelAdmin):
+    """Admin de clientes"""
+    
     list_display = ['name', 'tax_id', 'email', 'phone', 'is_active']
     list_filter = ['is_active']
     search_fields = ['name', 'tax_id', 'email']
     
     fieldsets = (
-        ('Información', {'fields': ('name', 'tax_id', 'email', 'phone', 'address')}),
-        ('Estado', {'fields': ('is_active',)}),
+        ('Información', {
+            'fields': ('name', 'tax_id', 'email', 'phone', 'address')
+        }),
+        ('Estado', {
+            'fields': ('is_active',)
+        }),
     )
     readonly_fields = ['created_at', 'updated_at']
 
 
 class SaleLineInline(UnfoldTabularInline):
+    """Líneas de venta inline"""
+    
     model = SaleLine
     extra = 1
-    fields = ['product', 'location', 'product_name', 'location_code', 'description', 'quantity', 'unit_price', 'subtotal']
+    fields = ['product', 'location', 'quantity', 'unit_price', 'subtotal']
     readonly_fields = ['subtotal']
-    autocomplete_fields = ['product', 'location']
+    autocomplete_fields = ['product']  # Solo product con autocomplete
+    
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        from django_erp.warehouse.models import Product, Location
+        formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
+        formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
+        return formset
 
 
 class SaleOrderForm(forms.ModelForm):
+    """Formulario personalizado para SaleOrder"""
+    
     class Meta:
         model = SaleOrder
         fields = '__all__'
@@ -81,6 +98,8 @@ class SaleOrderForm(forms.ModelForm):
 
 @admin.register(SaleOrder)
 class SaleOrderAdmin(UnfoldModelAdmin):
+    """Admin de órdenes de venta"""
+    
     form = SaleOrderForm
     
     list_display = ['number', 'customer', 'date', 'total', 'status', 'created_at']
@@ -88,6 +107,7 @@ class SaleOrderAdmin(UnfoldModelAdmin):
     search_fields = ['number', 'customer__name']
     
     inlines = [SaleLineInline]
+    autocomplete_fields = ['customer']
     
     fieldsets = (
         ('Información', {
@@ -105,13 +125,20 @@ class SaleOrderAdmin(UnfoldModelAdmin):
     
     readonly_fields = ['subtotal', 'tax', 'total', 'user', 'date', 'created_at', 'updated_at']
     
+    class Media:
+        js = ('admin/js/sale_order_admin.js',)
+    
     def save_model(self, request, obj, form, change):
         from .services import SaleService
         
         if not obj.user:
             obj.user = request.user
         
-        # Guardar estado anterior (ANTES de modificar el objeto)
+        # Si es nueva orden, guardar primero para obtener ID
+        if not obj.pk:
+            super().save_model(request, obj, form, change)
+            return
+        
         if change and obj.pk:
             old_obj = SaleOrder.objects.get(pk=obj.pk)
             old_status = old_obj.status
@@ -122,15 +149,33 @@ class SaleOrderAdmin(UnfoldModelAdmin):
         
         if old_status != new_status:
             if new_status == 'CONFIRMED':
+                super().save_model(request, obj, form, change)
                 obj.status = 'CONFIRMED'
                 SaleService.confirm_order(obj, request.user)
             elif new_status == 'CANCELLED':
-                # ✅ Pasar old_status para saber si estaba confirmada
                 SaleService.cancel_order(obj, request.user, old_status)
                 obj.status = 'CANCELLED'
+                super().save_model(request, obj, form, change)
             elif new_status == 'DELIVERED':
                 obj.status = 'DELIVERED'
                 SaleService.deliver_order(obj, request.user)
+                super().save_model(request, obj, form, change)
+        else:
+            super().save_model(request, obj, form, change)
+    
+    def save_formset(self, request, form, formset, change):
+        # Guardar formset
+        super().save_formset(request, form, formset, change)
         
-        # Guardar en base de datos
-        super().save_model(request, obj, form, change)
+        # ✅ Verificar que todas las líneas tienen ubicación
+        for line in form.instance.lines.all():
+            if line.product and not line.location:
+                from django_erp.inventory.models import Inventory
+                inventory = Inventory.objects.filter(product=line.product).first()
+                if inventory and inventory.location:
+                    line.location = inventory.location
+                    line.save()
+                    print(f"✅ Ubicación asignada a {line.product.name}: {line.location.code}")
+        
+        form.instance.calculate_totals()
+        form.instance.save()

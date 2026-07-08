@@ -20,6 +20,14 @@ class Product(models.Model):
     description = models.TextField(blank=True, verbose_name="Descripción")
     unit = models.CharField(max_length=10, choices=UNIT_CHOICES, default='UNIT', verbose_name="Unidad")
     
+    # ✅ Precio de venta (para autocompletar en ventas)
+    sale_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        verbose_name="Precio de venta"
+    )
+    
     # Características físicas
     weight = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Peso (kg)")
     dimensions = models.CharField(max_length=100, blank=True, verbose_name="Dimensiones (LxAxA)")

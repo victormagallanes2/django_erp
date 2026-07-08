@@ -47,7 +47,7 @@ INSTALLED_APPS = [
     'django_erp.warehouse',
     'django_erp.inventory',
     'django_erp.sales',
-     #'django_erp.invoicing',
+    'django_erp.invoicing',
 ]
 
 MIDDLEWARE = [
@@ -119,6 +119,12 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [
+    BASE_DIR / 'django_erp' / 'static',
+]
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 AUTH_USER_MODEL = 'users.User'
 
@@ -224,18 +230,18 @@ UNFOLD = {
                     },
                 ],
             },
-            #  {
-            #     "title": "Facturación",
-            #     "separator": True,
-            #     "collapsible": True,
-            #     "items": [
-            #         {
-            #             "title": "Facturas",
-            #             "icon": "receipt",
-            #             "link": "/admin/invoicing/invoice/",
-            #         },
-            #     ],
-            # },
+             {
+                "title": "Facturación",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": "Facturas",
+                        "icon": "receipt",
+                        "link": "/admin/invoicing/invoice/",
+                    },
+                ],
+            },
 
         ],
     },

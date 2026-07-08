@@ -17,10 +17,20 @@ class SaleService:
             if line.product:
                 if apps.is_installed('django_erp.inventory'):
                     from django_erp.inventory.services import InventoryService
-                    stock = InventoryService.get_stock_by_location(
-                        line.product.id,
-                        line.location.id if line.location else None
-                    )
+                    
+                    # ✅ Si no tiene ubicación, buscar cualquier ubicación con stock
+                    location_id = line.location.id if line.location else None
+                    stock = 0
+                    
+                    if location_id:
+                        stock = InventoryService.get_stock_by_location(line.product.id, location_id)
+                    else:
+                        # Si no tiene ubicación, calcular stock total
+                        from django_erp.inventory.models import Inventory
+                        inventories = Inventory.objects.filter(product=line.product)
+                        for inv in inventories:
+                            stock += inv.quantity
+                    
                     if stock < line.quantity:
                         raise ValidationError(
                             f"Stock insuficiente para {line.product.name}. "
@@ -30,7 +40,7 @@ class SaleService:
                 if apps.is_installed('django_erp.warehouse'):
                     from django_erp.warehouse.services import WarehouseService
                     WarehouseService.create_exit(
-                        product_id=line.product.id,
+                        product_id=line.product_id,
                         quantity=line.quantity,
                         location_from_id=line.location.id if line.location else None,
                         source_type='SALE',
@@ -42,6 +52,17 @@ class SaleService:
                     print(f"ℹ️ Warehouse no instalado. No se reduce stock para {line.product.name}")
             else:
                 print(f"📝 Servicio confirmado: {line.product_name or line.description or 'Servicio'}")
+        
+        order.status = 'CONFIRMED'
+        order.save()
+        
+        # ✅ Si Invoicing está instalado, generar factura
+        if apps.is_installed('django_erp.invoicing'):
+            try:
+                from django_erp.invoicing.services import InvoiceService
+                InvoiceService.create_invoice_from_sale_order(order.id, user)
+            except Exception as e:
+                print(f"⚠️ Error al generar factura: {e}")
         
         return order
     
