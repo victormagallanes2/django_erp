@@ -174,3 +174,225 @@ class SaleLine(models.Model):
         if not self.location_code and self.location:
             self.location_code = self.location.code
         super().save(*args, **kwargs)
+
+
+class CashRegister(models.Model):
+    """Registro de caja - Integrado en Sales"""
+    
+    STATUS_CHOICES = [
+        ('OPEN', 'Abierta'),
+        ('CLOSED', 'Cerrada'),
+        ('APPROVED', 'Aprobada'),
+        ('CANCELLED', 'Cancelada'),
+    ]
+    
+    number = models.CharField(
+        max_length=50, 
+        unique=True, 
+        verbose_name="Número",
+        editable=True  # ← No editable en el admin
+    )
+
+    user = models.ForeignKey(
+        User, 
+        on_delete=models.PROTECT, 
+        verbose_name="Cajero",
+        related_name='cash_registers'
+    )
+    
+    opened_at = models.DateTimeField(auto_now_add=True, verbose_name="Apertura")
+    closed_at = models.DateTimeField(null=True, blank=True, verbose_name="Cierre")
+    date = models.DateField(auto_now_add=True, verbose_name="Fecha")
+    
+    initial_amount = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0,
+        verbose_name="Dinero inicial"
+    )
+    
+    total_sales = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0,
+        verbose_name="Total ventas"
+    )
+    total_expenses = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0,
+        verbose_name="Total gastos"
+    )
+    total_withdrawals = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0,
+        verbose_name="Total retiros"
+    )
+    expected_total = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0,
+        verbose_name="Total esperado"
+    )
+    
+    counted_total = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        verbose_name="Dinero contado"
+    )
+    
+    breakdown = models.JSONField(
+        default=dict, 
+        blank=True,
+        verbose_name="Desglose",
+        help_text='{"100": 5, "50": 3, "20": 10}'
+    )
+    
+    difference = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        verbose_name="Diferencia"
+    )
+    
+    status = models.CharField(
+        max_length=20, 
+        choices=STATUS_CHOICES, 
+        default='OPEN',
+        verbose_name="Estado"
+    )
+    
+    note = models.TextField(blank=True, verbose_name="Notas")
+    
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+
+    class Meta:
+        verbose_name = "Cierre de Caja"
+        verbose_name_plural = "Cierres de Caja"
+        ordering = ['-date', '-opened_at']
+
+    def __str__(self):
+        return f"{self.number} - {self.user.username} - {self.date}"
+
+
+    def save(self, *args, **kwargs):
+        """Generar número automáticamente si no existe"""
+        if not self.number:
+            from datetime import datetime
+            date_str = datetime.now().strftime('%Y%m%d')
+            last = CashRegister.objects.filter(
+                number__startswith=f'CAJA-{date_str}'
+            ).order_by('number').last()
+            
+            if last:
+                try:
+                    last_num = int(last.number.split('-')[-1])
+                    next_num = last_num + 1
+                except (ValueError, IndexError):
+                    next_num = 1
+            else:
+                next_num = 1
+            
+            self.number = f'CAJA-{date_str}-{next_num:04d}'
+        
+        super().save(*args, **kwargs)
+
+
+    def calculate_totals(self):
+        from django.db.models import Sum
+        
+        self.total_sales = self.transactions.filter(type='SALE').aggregate(
+            total=Sum('amount')
+        )['total'] or 0
+        
+        self.total_expenses = self.transactions.filter(type='EXPENSE').aggregate(
+            total=Sum('amount')
+        )['total'] or 0
+        
+        self.total_withdrawals = self.transactions.filter(type='WITHDRAWAL').aggregate(
+            total=Sum('amount')
+        )['total'] or 0
+        
+        self.expected_total = (
+            self.initial_amount + 
+            self.total_sales - 
+            self.total_expenses - 
+            self.total_withdrawals
+        )
+        self.save()
+        return self.expected_total
+
+    def close(self, counted_total, breakdown=None, note=''):
+        if self.status != 'OPEN':
+            raise ValidationError("Solo se puede cerrar una caja abierta")
+        
+        from django.utils import timezone
+        self.counted_total = counted_total
+        self.breakdown = breakdown or {}
+        self.difference = self.expected_total - counted_total
+        self.closed_at = timezone.now()
+        self.status = 'CLOSED'
+        if note:
+            self.note = note
+        self.save()
+        return self.difference
+
+
+class CashTransaction(models.Model):
+    """Transacción de caja"""
+    
+    TYPE_CHOICES = [
+        ('SALE', 'Venta'),
+        ('EXPENSE', 'Gasto'),
+        ('WITHDRAWAL', 'Retiro'),
+        ('DEPOSIT', 'Depósito'),
+        ('ADJUSTMENT', 'Ajuste'),
+    ]
+    
+    register = models.ForeignKey(
+        CashRegister, 
+        on_delete=models.CASCADE, 
+        related_name='transactions',
+        verbose_name="Caja"
+    )
+    type = models.CharField(
+        max_length=20, 
+        choices=TYPE_CHOICES,
+        verbose_name="Tipo"
+    )
+    amount = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2,
+        verbose_name="Monto"
+    )
+    description = models.CharField(
+        max_length=200,
+        verbose_name="Descripción"
+    )
+    reference = models.CharField(
+        max_length=100, 
+        blank=True,
+        verbose_name="Referencia"
+    )
+    user = models.ForeignKey(
+        User, 
+        on_delete=models.PROTECT,
+        verbose_name="Usuario"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Creado"
+    )
+
+    class Meta:
+        verbose_name = "Transacción de Caja"
+        verbose_name_plural = "Transacciones de Caja"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.get_type_display()} - {self.amount} - {self.description}"

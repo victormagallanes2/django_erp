@@ -206,6 +206,16 @@ UNFOLD = {
                         "icon": "receipt_long",
                         "link": "/admin/sales/saleorder/",
                     },
+                    {
+                        "title": "Cierres de caja",
+                        "icon": "receipt_long",
+                        "link": "/admin/sales/cashregister/",
+                    },
+                    {
+                        "title": "Transacciones de Caja",
+                        "icon": "receipt_long",
+                        "link": "/admin/sales/cashtransaction/",
+                    },
                 ],
             },
              {

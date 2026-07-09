@@ -7,6 +7,7 @@ from django.apps import apps
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from unfold.admin import TabularInline as UnfoldTabularInline
 from .models import Customer, SaleOrder, SaleLine
+from .models import CashRegister, CashTransaction
 
 
 @admin.register(Customer)
@@ -209,3 +210,108 @@ class SaleOrderAdmin(UnfoldModelAdmin):
         
         form.instance.calculate_totals()
         form.instance.save()
+
+
+@admin.register(CashRegister)
+class CashRegisterAdmin(UnfoldModelAdmin):
+    list_display = [
+        'number', 'user', 'date', 'status_badge', 
+        'total_sales', 'expected_total', 'counted_total', 'difference'
+    ]
+    list_filter = ['status', 'date']
+    search_fields = ['number', 'user__username']
+    
+    fieldsets = (
+        ('Información', {
+            'fields': ('number', 'user', 'status')
+        }),
+        ('Dinero', {
+            'fields': ('initial_amount', 'total_sales', 'total_expenses', 
+                       'total_withdrawals', 'expected_total')
+        }),
+        ('Cierre', {
+            'fields': ('counted_total', 'breakdown', 'difference', 'note'),
+            'classes': ('tab',),
+        }),
+        ('Fechas', {
+            'fields': ('opened_at', 'closed_at'),
+            'classes': ('tab',),
+        }),
+    )
+    
+    readonly_fields = [
+        'opened_at', 'closed_at', 'total_sales', 
+        'total_expenses', 'total_withdrawals', 'expected_total'
+    ]
+    
+    # ✅ Generar número en get_form
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        
+        # ✅ Si es una nueva caja, generar número inicial
+        if obj is None:
+            from datetime import datetime
+            date_str = datetime.now().strftime('%Y%m%d')
+            last = CashRegister.objects.filter(
+                number__startswith=f'CAJA-{date_str}'
+            ).order_by('number').last()
+            
+            if last:
+                try:
+                    last_num = int(last.number.split('-')[-1])
+                    next_num = last_num + 1
+                except (ValueError, IndexError):
+                    next_num = 1
+            else:
+                next_num = 1
+            
+            # ✅ Usar base_fields para establecer el valor inicial
+            form.base_fields['number'].initial = f'CAJA-{date_str}-{next_num:04d}'
+            form.base_fields['number'].disabled = True
+        
+        return form
+    
+    def save_model(self, request, obj, form, change):
+        # ✅ Si no tiene número, generarlo antes de guardar
+        if not obj.number:
+            from datetime import datetime
+            date_str = datetime.now().strftime('%Y%m%d')
+            last = CashRegister.objects.filter(
+                number__startswith=f'CAJA-{date_str}'
+            ).order_by('number').last()
+            
+            if last:
+                try:
+                    last_num = int(last.number.split('-')[-1])
+                    next_num = last_num + 1
+                except (ValueError, IndexError):
+                    next_num = 1
+            else:
+                next_num = 1
+            
+            obj.number = f'CAJA-{date_str}-{next_num:04d}'
+        
+        super().save_model(request, obj, form, change)
+    
+    @admin.display(description='Estado')
+    def status_badge(self, obj):
+        colors = {
+            'OPEN': ('#28a745', '✅ Abierta'),
+            'CLOSED': ('#17a2b8', '🔒 Cerrada'),
+            'APPROVED': ('#28a745', '✅ Aprobada'),
+            'CANCELLED': ('#dc3545', '❌ Cancelada'),
+        }
+        color, label = colors.get(obj.status, ('#6c757d', obj.status))
+        return format_html(
+            '<span style="background: {}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 12px;">{}</span>',
+            color,
+            label
+        )
+
+
+@admin.register(CashTransaction)
+class CashTransactionAdmin(UnfoldModelAdmin):
+    list_display = ['register', 'type', 'amount', 'description', 'user', 'created_at']
+    list_filter = ['type']
+    search_fields = ['description', 'reference']
+    readonly_fields = ['created_at']
