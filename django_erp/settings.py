@@ -134,6 +134,160 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 
 
+def get_menu_items(request):
+    """Genera el menú según los permisos del usuario"""
+    
+    user = request.user
+    
+    if not user.is_authenticated:
+        return []
+    
+    navigation = []
+    
+    # ✅ Dashboard (siempre visible)
+    
+    # ✅ Almacén
+    if user.has_perm('warehouse.view_product') or user.has_perm('warehouse.view_movement'):
+        warehouse_items = []
+        
+        if user.has_perm('warehouse.view_product'):
+            warehouse_items.append({
+                "title": "Productos",
+                "icon": "inventory_2",
+                "link": "/admin/warehouse/product/",
+            })
+        
+        if user.has_perm('warehouse.view_movement'):
+            warehouse_items.append({
+                "title": "Movimientos",
+                "icon": "swap_horiz",
+                "link": "/admin/warehouse/movement/",
+            })
+        
+        if user.has_perm('warehouse.view_location'):
+            warehouse_items.append({
+                "title": "Ubicaciones",
+                "icon": "location_on",
+                "link": "/admin/warehouse/location/",
+            })
+        
+        if warehouse_items:
+            navigation.append({
+                "title": "Almacén",
+                "separator": True,
+                "collapsible": True,
+                "items": warehouse_items,
+            })
+    
+    # ✅ Inventario
+    if user.has_perm('inventory.view_inventory'):
+        navigation.append({
+            "title": "Inventario",
+            "separator": True,
+            "collapsible": True,
+            "items": [
+                {
+                    "title": "Inventarios",
+                    "icon": "storage",
+                    "link": "/admin/inventory/inventory/",
+                },
+                {
+                    "title": "Conteos Físicos",
+                    "icon": "fact_check",
+                    "link": "/admin/inventory/physicalcount/",
+                },
+                {
+                    "title": "Métodos de Valoración",
+                    "icon": "calculate",
+                    "link": "/admin/inventory/valuationmethod/",
+                },
+            ]
+        })
+    
+    # ✅ Ventas
+    if user.has_perm('sales.view_saleorder') or user.has_perm('sales.view_customer'):
+        sales_items = []
+        
+        if user.has_perm('sales.view_customer'):
+            sales_items.append({
+                "title": "Clientes",
+                "icon": "person",
+                "link": "/admin/sales/customer/",
+            })
+        
+        if user.has_perm('sales.view_saleorder'):
+            sales_items.append({
+                "title": "Órdenes de Venta",
+                "icon": "receipt_long",
+                "link": "/admin/sales/saleorder/",
+            })
+        
+        if user.has_perm('sales.view_cashregister'):
+            sales_items.append({
+                "title": "Cierres de caja",
+                "icon": "payments",
+                "link": "/admin/sales/cashregister/",
+            })
+        
+        if user.has_perm('sales.view_cashtransaction'):
+            sales_items.append({
+                "title": "Transacciones de Caja",
+                "icon": "receipt_long",
+                "link": "/admin/sales/cashtransaction/",
+            })
+        
+        if sales_items:
+            navigation.append({
+                "title": "Ventas",
+                "separator": True,
+                "collapsible": True,
+                "items": sales_items,
+            })
+    
+    # ✅ Facturación
+    if user.has_perm('invoicing.view_invoice'):
+        navigation.append({
+            "title": "Facturación",
+            "separator": True,
+            "collapsible": True,
+            "items": [
+                {
+                    "title": "Facturas",
+                    "icon": "receipt",
+                    "link": "/admin/invoicing/invoice/",
+                },
+            ]
+        })
+    
+    # ✅ Configuración (solo administradores)
+    if user.is_superuser:
+        navigation.append({
+            "title": "Configuración",
+            "separator": True,
+            "collapsible": True,
+            "items": [
+                {
+                    "title": "Empresa",
+                    "icon": "business",
+                    "link": "/admin/configuration/company/",
+                },
+                {
+                    "title": "Usuarios",
+                    "icon": "people",
+                    "link": "/admin/users/user/",  # ← Tu URL correcta
+                },
+                {
+                    "title": "Grupos",
+                    "icon": "group",
+                    "link": "/admin/auth/group/",
+                },
+            ]
+        })
+    
+    return navigation
+
+
+# ✅ Configuración de UNFOLD
 UNFOLD = {
     "SITE_TITLE": "Sistema ERP",
     "SITE_HEADER": "Modulos",
@@ -146,113 +300,6 @@ UNFOLD = {
     "SIDEBAR": {
         "show_search": False,
         "show_all_applications": False,
-        "navigation": [
-            {
-                "title": "Almacén",
-                "separator": True,
-                "collapsible": True,
-                "items": [
-                    {
-                        "title": "Productos",
-                        "icon": "inventory_2",
-                        "link": "/admin/warehouse/product/",
-                    },
-                    {
-                        "title": "Movimientos",
-                        "icon": "swap_horiz",
-                        "link": "/admin/warehouse/movement/",
-                    },
-                    {
-                        "title": "Ubicaciones",
-                        "icon": "location_on",
-                        "link": "/admin/warehouse/location/",
-                    },
-                ],
-            },
-            {
-                "title": "Inventario",
-                "separator": True,
-                "collapsible": True,
-                "items": [
-                    {
-                        "title": "Inventarios",
-                        "icon": "storage",
-                        "link": "/admin/inventory/inventory/",
-                    },
-                    {
-                        "title": "Conteos Físicos",
-                        "icon": "fact_check",
-                        "link": "/admin/inventory/physicalcount/",
-                    },
-                    {
-                        "title": "Métodos de Valoración",
-                        "icon": "calculate",
-                        "link": "/admin/inventory/valuationmethod/",
-                    },
-                ],
-            },
-            {
-                "title": "Ventas",
-                "separator": True,
-                "collapsible": True,
-                "items": [
-                    {
-                        "title": "Clientes",
-                        "icon": "person",
-                        "link": "/admin/sales/customer/",
-                    },
-                    {
-                        "title": "Órdenes de Venta",
-                        "icon": "receipt_long",
-                        "link": "/admin/sales/saleorder/",
-                    },
-                    {
-                        "title": "Cierres de caja",
-                        "icon": "receipt_long",
-                        "link": "/admin/sales/cashregister/",
-                    },
-                    {
-                        "title": "Transacciones de Caja",
-                        "icon": "receipt_long",
-                        "link": "/admin/sales/cashtransaction/",
-                    },
-                ],
-            },
-             {
-                "title": "Facturación",
-                "separator": True,
-                "collapsible": True,
-                "items": [
-                    {
-                        "title": "Facturas",
-                        "icon": "receipt",
-                        "link": "/admin/invoicing/invoice/",
-                    },
-                ],
-            },
-            {
-                "title": "Configuración",
-                "separator": True,
-                "collapsible": True,
-                "items": [
-                    {
-                        "title": "Empresa",
-                        "icon": "business",
-                        "link": "/admin/configuration/company/",
-                    },
-                    {
-                        "title": "Usuarios",
-                        "icon": "people",
-                        "link": "/admin/users/user/",
-                    },
-                    {
-                        "title": "Grupos",
-                        "icon": "group",
-                        "link": "/admin/auth/group/",
-                    },
-                ],
-            },
-
-        ],
+        "navigation": get_menu_items,
     },
 }

@@ -96,6 +96,14 @@ class Invoice(models.Model):
         verbose_name = "Factura"
         verbose_name_plural = "Facturas"
         ordering = ['-date', '-created_at']
+        permissions = [
+            ("can_view_invoice", "Puede ver facturas"),
+            ("can_edit_invoice", "Puede editar facturas"),
+            ("can_delete_invoice", "Puede eliminar facturas"),
+            ("can_issue_invoice", "Puede emitir facturas"),
+            ("can_pay_invoice", "Puede pagar facturas"),
+            ("can_cancel_invoice", "Puede anular facturas"),
+        ]
 
     def __str__(self):
         if self.customer_name:
@@ -161,6 +169,10 @@ class InvoiceLine(models.Model):
     class Meta:
         verbose_name = "Línea de Factura"
         verbose_name_plural = "Líneas de Factura"
+        permissions = [
+            ("can_view_invoiceline", "Puede ver líneas de factura"),
+            ("can_edit_invoiceline", "Puede editar líneas de factura"),
+        ]
 
     def __str__(self):
         name = self.product_name or self.description or 'Sin producto'

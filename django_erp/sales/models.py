@@ -29,6 +29,11 @@ class Customer(models.Model):
         verbose_name = "Cliente"
         verbose_name_plural = "Clientes"
         ordering = ['name']
+        permissions = [
+            ("can_view_customer", "Puede ver clientes"),
+            ("can_edit_customer", "Puede editar clientes"),
+            ("can_delete_customer", "Puede eliminar clientes"),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.tax_id})"
@@ -72,6 +77,15 @@ class SaleOrder(models.Model):
         verbose_name = "Orden de Venta"
         verbose_name_plural = "Órdenes de Venta"
         ordering = ['-date', '-created_at']
+        permissions = [
+            ("can_view_saleorder", "Puede ver órdenes de venta"),
+            ("can_edit_saleorder", "Puede editar órdenes de venta"),
+            ("can_delete_saleorder", "Puede eliminar órdenes de venta"),
+            ("can_confirm_order", "Puede confirmar órdenes de venta"),
+            ("can_cancel_order", "Puede cancelar órdenes de venta"),
+            ("can_deliver_order", "Puede entregar órdenes de venta"),
+            ("can_view_reports", "Puede ver reportes de ventas"),
+        ]
 
     def __str__(self):
         return f"{self.number} - {self.customer.name}"
@@ -275,6 +289,11 @@ class CashRegister(models.Model):
         verbose_name = "Cierre de Caja"
         verbose_name_plural = "Cierres de Caja"
         ordering = ['-date', '-opened_at']
+        permissions = [
+            ("can_open_register", "Puede abrir caja"),
+            ("can_close_register", "Puede cerrar caja"),
+            ("can_view_register", "Puede ver cierres de caja"),
+        ]
 
     def __str__(self):
         return f"{self.number} - {self.user.username} - {self.date}"

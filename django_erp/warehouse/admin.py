@@ -37,6 +37,18 @@ class ProductAdmin(UnfoldModelAdmin):
     )
     
     readonly_fields = ['created_at', 'updated_at']
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.has_perm('warehouse.view_product')
+    
+    def has_add_permission(self, request):
+        return request.user.has_perm('warehouse.add_product')
+    
+    def has_change_permission(self, request, obj=None):
+        return request.user.has_perm('warehouse.change_product')
+    
+    def has_delete_permission(self, request, obj=None):
+        return request.user.has_perm('warehouse.delete_product')
     
     @admin.display(description='Tipo')
     def is_service_badge(self, obj):

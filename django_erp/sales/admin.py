@@ -154,6 +154,27 @@ class SaleOrderAdmin(UnfoldModelAdmin):
     )
     
     readonly_fields = ['user', 'date', 'created_at', 'updated_at']
+
+    def has_add_permission(self, request):
+        return request.user.has_perm('sales.add_saleorder')
+    
+    def has_change_permission(self, request, obj=None):
+        return request.user.has_perm('sales.change_saleorder')
+    
+    def has_delete_permission(self, request, obj=None):
+        return request.user.has_perm('sales.delete_saleorder')
+    
+    def has_view_permission(self, request, obj=None):
+        return request.user.has_perm('sales.view_saleorder')
+    
+    # ✅ Acciones solo si tiene permiso
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if not request.user.has_perm('sales.can_confirm_order'):
+            actions.pop('confirm_order', None)
+        if not request.user.has_perm('sales.can_cancel_order'):
+            actions.pop('cancel_order', None)
+        return actions
     
     class Media:
         js = ('admin/js/sale_order_admin.js',)

@@ -53,6 +53,13 @@ class Product(models.Model):
         verbose_name = "Producto"
         verbose_name_plural = "Productos"
         ordering = ['name']
+        permissions = [
+            ("can_view_product", "Puede ver productos"),
+            ("can_edit_product", "Puede editar productos"),
+            ("can_delete_product", "Puede eliminar productos"),
+            ("can_import_products", "Puede importar productos"),
+            ("can_export_products", "Puede exportar productos"),
+        ]
 
     def __str__(self):
         return f"{self.code} - {self.name}"
@@ -77,6 +84,10 @@ class Location(models.Model):
         verbose_name = "Ubicación"
         verbose_name_plural = "Ubicaciones"
         ordering = ['code']
+        permissions = [
+            ("can_view_location", "Puede ver ubicaciones"),
+            ("can_edit_location", "Puede editar ubicaciones"),
+        ]
 
     def __str__(self):
         return f"{self.code} - {self.name}"
@@ -129,6 +140,11 @@ class Movement(models.Model):
         verbose_name = "Movimiento"
         verbose_name_plural = "Movimientos"
         ordering = ['-created_at']
+        permissions = [
+            ("can_view_movement", "Puede ver movimientos"),
+            ("can_edit_movement", "Puede editar movimientos"),
+            ("can_delete_movement", "Puede eliminar movimientos"),
+        ]
 
     def __str__(self):
         return f"{self.get_type_display()} - {self.product.name} - {self.quantity}"

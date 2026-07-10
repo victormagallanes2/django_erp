@@ -35,6 +35,10 @@ class Inventory(models.Model):
         verbose_name = "Inventario"
         verbose_name_plural = "Inventarios"
         unique_together = [['product', 'location']]
+        permissions = [
+            ("can_view_inventory", "Puede ver inventarios"),
+            ("can_edit_inventory", "Puede editar inventarios"),
+        ]
     
     def __str__(self):
         return f"{self.product.name} - {self.location.code}: {self.quantity}"
@@ -63,6 +67,10 @@ class ValuationMethod(models.Model):
     class Meta:
         verbose_name = "Método de Valoración"
         verbose_name_plural = "Métodos de Valoración"
+        permissions = [
+            ("can_view_valuationmethod", "Puede ver métodos de valoración"),
+            ("can_edit_valuationmethod", "Puede editar métodos de valoración"),
+        ]
     
     def __str__(self):
         return f"{self.product.name} - {self.get_method_display()}"
@@ -107,6 +115,11 @@ class PhysicalCount(models.Model):
         verbose_name = "Conteo Físico"
         verbose_name_plural = "Conteos Físicos"
         ordering = ['-count_date']
+        permissions = [
+            ("can_view_physicalcount", "Puede ver conteos físicos"),
+            ("can_create_physicalcount", "Puede crear conteos físicos"),
+            ("can_confirm_physicalcount", "Puede confirmar conteos físicos"),
+        ]
     
     def __str__(self):
         return f"{self.product.name} - {self.count_date}"
