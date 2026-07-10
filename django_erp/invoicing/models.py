@@ -3,6 +3,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from decimal import Decimal
 from django_erp.configuration.models import Company
+from simple_history.models import HistoricalRecords
 
 User = get_user_model()
 
@@ -91,6 +92,7 @@ class Invoice(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = "Factura"
@@ -165,6 +167,8 @@ class InvoiceLine(models.Model):
         editable=False,
         verbose_name="Subtotal"
     )
+
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = "Línea de Factura"

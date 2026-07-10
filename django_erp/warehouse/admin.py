@@ -2,17 +2,20 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
+from simple_history.admin import SimpleHistoryAdmin
 from .models import Product, Location, Movement
 
 
+
 @admin.register(Product)
-class ProductAdmin(UnfoldModelAdmin):
+class ProductAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
     list_display = [
         'image_preview', 'code', 'name', 'sale_price', 'unit', 
         'is_service_badge', 'is_active'
     ]
     list_filter = ['is_active', 'unit', 'is_service']
     search_fields = ['name', 'code', 'description']
+    history_list_display = ['history_user', 'history_date', 'history_change_reason']
     
     fieldsets = (
         ('Información', {
@@ -67,7 +70,7 @@ class ProductAdmin(UnfoldModelAdmin):
 
 
 @admin.register(Location)
-class LocationAdmin(UnfoldModelAdmin):
+class LocationAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
     """Admin de ubicaciones"""
     
     list_display = ['code', 'name', 'parent', 'is_active']
@@ -76,7 +79,7 @@ class LocationAdmin(UnfoldModelAdmin):
 
 
 @admin.register(Movement)
-class MovementAdmin(UnfoldModelAdmin):
+class MovementAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
     """Admin de movimientos"""
     
     list_display = ['product', 'type', 'quantity', 'unit_price', 'total', 'location_from', 'location_to', 'created_at']

@@ -1,6 +1,7 @@
 # inventory/models.py
 from django.db import models
 from django.contrib.auth import get_user_model
+from simple_history.models import HistoricalRecords
 
 # ✅ NO importamos nada de warehouse
 # ✅ Usamos referencias dinámicas
@@ -30,6 +31,7 @@ class Inventory(models.Model):
     total_value = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Valor total")
     
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    history = HistoricalRecords()
     
     class Meta:
         verbose_name = "Inventario"
@@ -63,6 +65,7 @@ class ValuationMethod(models.Model):
     )
     method = models.CharField(max_length=10, choices=METHOD_CHOICES, default='AVERAGE', verbose_name="Método")
     standard_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Costo estándar")
+    history = HistoricalRecords()
     
     class Meta:
         verbose_name = "Método de Valoración"
@@ -110,6 +113,7 @@ class PhysicalCount(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    history = HistoricalRecords()
     
     class Meta:
         verbose_name = "Conteo Físico"

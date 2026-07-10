@@ -2,6 +2,7 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from simple_history.models import HistoricalRecords
 from decimal import Decimal
 from django.apps import apps
 
@@ -24,6 +25,7 @@ class Customer(models.Model):
     is_active = models.BooleanField(default=True, verbose_name="Activo")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = "Cliente"
@@ -72,6 +74,7 @@ class SaleOrder(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = "Orden de Venta"
@@ -171,6 +174,8 @@ class SaleLine(models.Model):
         editable=False,
         verbose_name="Subtotal"
     )
+
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = "Línea de Venta"
@@ -284,6 +289,7 @@ class CashRegister(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = "Cierre de Caja"

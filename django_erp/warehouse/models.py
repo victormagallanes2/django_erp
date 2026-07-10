@@ -1,6 +1,7 @@
 # warehouse/models.py
 from django.db import models
 from django.contrib.auth import get_user_model
+from simple_history.models import HistoricalRecords
 
 User = get_user_model()
 
@@ -49,6 +50,11 @@ class Product(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
 
+    history = HistoricalRecords(
+        verbose_name="Historial",
+        history_user_id_field=models.IntegerField(null=True, blank=True)
+    )
+
     class Meta:
         verbose_name = "Producto"
         verbose_name_plural = "Productos"
@@ -79,6 +85,7 @@ class Location(models.Model):
     # Auditoría
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = "Ubicación"
@@ -135,6 +142,8 @@ class Movement(models.Model):
         editable=False,
         verbose_name="Total"
     )
+
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = "Movimiento"
