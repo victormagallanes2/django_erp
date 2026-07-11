@@ -67,7 +67,7 @@ ROOT_URLCONF = 'django_erp.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'django_erp' / 'templates',],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -283,6 +283,11 @@ def get_menu_items(request):
                     "title": "Grupos",
                     "icon": "group",
                     "link": "/admin/auth/group/",
+                },
+                {
+                    "title": "Respaldos",
+                    "icon": "backup",
+                    "link": "/admin/configuration/backup/",
                 },
             ]
         })

@@ -1,6 +1,13 @@
 # configuration/models.py
 from django.db import models
 from django.core.exceptions import ValidationError
+from django.contrib.auth import get_user_model
+from simple_history.models import HistoricalRecords
+
+import os
+
+
+User = get_user_model()
 
 
 class Company(models.Model):
@@ -79,3 +86,48 @@ class Company(models.Model):
     def get_active(cls):
         """Obtener la empresa activa"""
         return cls.objects.filter(is_active=True).first()
+
+
+class Backup(models.Model):
+    """Modelo para gestionar respaldos de la base de datos"""
+    
+    STATUS_CHOICES = [
+        ('PENDING', 'Pendiente'),
+        ('PROCESSING', 'Procesando'),
+        ('COMPLETED', 'Completado'),
+        ('FAILED', 'Fallido'),
+    ]
+    
+    name = models.CharField(max_length=200, verbose_name="Nombre")
+    file_path = models.CharField(max_length=500, verbose_name="Ruta del archivo")
+    file_size = models.IntegerField(default=0, verbose_name="Tamaño (bytes)")
+    
+    database_type = models.CharField(max_length=50, default='sqlite', verbose_name="Tipo")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING', verbose_name="Estado")
+    
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
+    completed_at = models.DateTimeField(null=True, blank=True, verbose_name="Completado")
+    
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="Usuario")
+    note = models.TextField(blank=True, verbose_name="Notas")
+    
+    history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = "Respaldo"
+        verbose_name_plural = "Respaldos"
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.name} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+    
+    @property
+    def file_size_display(self):
+        if self.file_size < 1024:
+            return f"{self.file_size} B"
+        elif self.file_size < 1024 * 1024:
+            return f"{self.file_size / 1024:.2f} KB"
+        elif self.file_size < 1024 * 1024 * 1024:
+            return f"{self.file_size / (1024 * 1024):.2f} MB"
+        else:
+            return f"{self.file_size / (1024 * 1024 * 1024):.2f} GB"
