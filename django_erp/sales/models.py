@@ -187,11 +187,19 @@ class SaleLine(models.Model):
         return f"{self.order.number} - {self.product_name or 'Servicio'}"
 
     def save(self, *args, **kwargs):
+        # ✅ Validación para evitar None
+        if self.quantity is None:
+            self.quantity = 0
+        if self.unit_price is None:
+            self.unit_price = 0
+        
         self.subtotal = self.quantity * self.unit_price
+        
         if not self.product_name and self.product:
             self.product_name = self.product.name
         if not self.location_code and self.location:
             self.location_code = self.location.code
+        
         super().save(*args, **kwargs)
 
 

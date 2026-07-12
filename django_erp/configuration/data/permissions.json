@@ -1,0 +1,1712 @@
+[
+  {
+    "model": "auth.permission",
+    "pk": 1,
+    "fields": {
+      "name": "Can add log entry",
+      "content_type": 1,
+      "codename": "add_logentry"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 2,
+    "fields": {
+      "name": "Can change log entry",
+      "content_type": 1,
+      "codename": "change_logentry"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 3,
+    "fields": {
+      "name": "Can delete log entry",
+      "content_type": 1,
+      "codename": "delete_logentry"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 4,
+    "fields": {
+      "name": "Can view log entry",
+      "content_type": 1,
+      "codename": "view_logentry"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 9,
+    "fields": {
+      "name": "Can add group",
+      "content_type": 2,
+      "codename": "add_group"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 10,
+    "fields": {
+      "name": "Can change group",
+      "content_type": 2,
+      "codename": "change_group"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 11,
+    "fields": {
+      "name": "Can delete group",
+      "content_type": 2,
+      "codename": "delete_group"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 12,
+    "fields": {
+      "name": "Can view group",
+      "content_type": 2,
+      "codename": "view_group"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 5,
+    "fields": {
+      "name": "Can add permission",
+      "content_type": 3,
+      "codename": "add_permission"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 6,
+    "fields": {
+      "name": "Can change permission",
+      "content_type": 3,
+      "codename": "change_permission"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 7,
+    "fields": {
+      "name": "Can delete permission",
+      "content_type": 3,
+      "codename": "delete_permission"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 8,
+    "fields": {
+      "name": "Can view permission",
+      "content_type": 3,
+      "codename": "view_permission"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 171,
+    "fields": {
+      "name": "Can add Respaldo",
+      "content_type": 33,
+      "codename": "add_backup"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 172,
+    "fields": {
+      "name": "Can change Respaldo",
+      "content_type": 33,
+      "codename": "change_backup"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 173,
+    "fields": {
+      "name": "Can delete Respaldo",
+      "content_type": 33,
+      "codename": "delete_backup"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 174,
+    "fields": {
+      "name": "Can view Respaldo",
+      "content_type": 33,
+      "codename": "view_backup"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 25,
+    "fields": {
+      "name": "Can add Configuración de la Empresa",
+      "content_type": 7,
+      "codename": "add_company"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 26,
+    "fields": {
+      "name": "Can change Configuración de la Empresa",
+      "content_type": 7,
+      "codename": "change_company"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 27,
+    "fields": {
+      "name": "Can delete Configuración de la Empresa",
+      "content_type": 7,
+      "codename": "delete_company"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 28,
+    "fields": {
+      "name": "Can view Configuración de la Empresa",
+      "content_type": 7,
+      "codename": "view_company"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 175,
+    "fields": {
+      "name": "Can add Moneda",
+      "content_type": 35,
+      "codename": "add_currency"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 176,
+    "fields": {
+      "name": "Can change Moneda",
+      "content_type": 35,
+      "codename": "change_currency"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 177,
+    "fields": {
+      "name": "Can delete Moneda",
+      "content_type": 35,
+      "codename": "delete_currency"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 178,
+    "fields": {
+      "name": "Can view Moneda",
+      "content_type": 35,
+      "codename": "view_currency"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 187,
+    "fields": {
+      "name": "Can add Tasa de Cambio",
+      "content_type": 36,
+      "codename": "add_exchangerate"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 188,
+    "fields": {
+      "name": "Can change Tasa de Cambio",
+      "content_type": 36,
+      "codename": "change_exchangerate"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 189,
+    "fields": {
+      "name": "Can delete Tasa de Cambio",
+      "content_type": 36,
+      "codename": "delete_exchangerate"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 190,
+    "fields": {
+      "name": "Can view Tasa de Cambio",
+      "content_type": 36,
+      "codename": "view_exchangerate"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 167,
+    "fields": {
+      "name": "Can add historical Respaldo",
+      "content_type": 34,
+      "codename": "add_historicalbackup"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 168,
+    "fields": {
+      "name": "Can change historical Respaldo",
+      "content_type": 34,
+      "codename": "change_historicalbackup"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 169,
+    "fields": {
+      "name": "Can delete historical Respaldo",
+      "content_type": 34,
+      "codename": "delete_historicalbackup"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 170,
+    "fields": {
+      "name": "Can view historical Respaldo",
+      "content_type": 34,
+      "codename": "view_historicalbackup"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 179,
+    "fields": {
+      "name": "Can add historical Moneda",
+      "content_type": 37,
+      "codename": "add_historicalcurrency"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 180,
+    "fields": {
+      "name": "Can change historical Moneda",
+      "content_type": 37,
+      "codename": "change_historicalcurrency"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 181,
+    "fields": {
+      "name": "Can delete historical Moneda",
+      "content_type": 37,
+      "codename": "delete_historicalcurrency"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 182,
+    "fields": {
+      "name": "Can view historical Moneda",
+      "content_type": 37,
+      "codename": "view_historicalcurrency"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 183,
+    "fields": {
+      "name": "Can add historical Tasa de Cambio",
+      "content_type": 38,
+      "codename": "add_historicalexchangerate"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 184,
+    "fields": {
+      "name": "Can change historical Tasa de Cambio",
+      "content_type": 38,
+      "codename": "change_historicalexchangerate"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 185,
+    "fields": {
+      "name": "Can delete historical Tasa de Cambio",
+      "content_type": 38,
+      "codename": "delete_historicalexchangerate"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 186,
+    "fields": {
+      "name": "Can view historical Tasa de Cambio",
+      "content_type": 38,
+      "codename": "view_historicalexchangerate"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 13,
+    "fields": {
+      "name": "Can add content type",
+      "content_type": 4,
+      "codename": "add_contenttype"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 14,
+    "fields": {
+      "name": "Can change content type",
+      "content_type": 4,
+      "codename": "change_contenttype"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 15,
+    "fields": {
+      "name": "Can delete content type",
+      "content_type": 4,
+      "codename": "delete_contenttype"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 16,
+    "fields": {
+      "name": "Can view content type",
+      "content_type": 4,
+      "codename": "view_contenttype"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 135,
+    "fields": {
+      "name": "Can add historical Inventario",
+      "content_type": 24,
+      "codename": "add_historicalinventory"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 136,
+    "fields": {
+      "name": "Can change historical Inventario",
+      "content_type": 24,
+      "codename": "change_historicalinventory"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 137,
+    "fields": {
+      "name": "Can delete historical Inventario",
+      "content_type": 24,
+      "codename": "delete_historicalinventory"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 138,
+    "fields": {
+      "name": "Can view historical Inventario",
+      "content_type": 24,
+      "codename": "view_historicalinventory"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 131,
+    "fields": {
+      "name": "Can add historical Conteo Físico",
+      "content_type": 25,
+      "codename": "add_historicalphysicalcount"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 132,
+    "fields": {
+      "name": "Can change historical Conteo Físico",
+      "content_type": 25,
+      "codename": "change_historicalphysicalcount"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 133,
+    "fields": {
+      "name": "Can delete historical Conteo Físico",
+      "content_type": 25,
+      "codename": "delete_historicalphysicalcount"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 134,
+    "fields": {
+      "name": "Can view historical Conteo Físico",
+      "content_type": 25,
+      "codename": "view_historicalphysicalcount"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 139,
+    "fields": {
+      "name": "Can add historical Método de Valoración",
+      "content_type": 26,
+      "codename": "add_historicalvaluationmethod"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 140,
+    "fields": {
+      "name": "Can change historical Método de Valoración",
+      "content_type": 26,
+      "codename": "change_historicalvaluationmethod"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 141,
+    "fields": {
+      "name": "Can delete historical Método de Valoración",
+      "content_type": 26,
+      "codename": "delete_historicalvaluationmethod"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 142,
+    "fields": {
+      "name": "Can view historical Método de Valoración",
+      "content_type": 26,
+      "codename": "view_historicalvaluationmethod"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 65,
+    "fields": {
+      "name": "Can add Inventario",
+      "content_type": 16,
+      "codename": "add_inventory"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 97,
+    "fields": {
+      "name": "Puede editar inventarios",
+      "content_type": 16,
+      "codename": "can_edit_inventory"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 96,
+    "fields": {
+      "name": "Puede ver inventarios",
+      "content_type": 16,
+      "codename": "can_view_inventory"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 66,
+    "fields": {
+      "name": "Can change Inventario",
+      "content_type": 16,
+      "codename": "change_inventory"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 67,
+    "fields": {
+      "name": "Can delete Inventario",
+      "content_type": 16,
+      "codename": "delete_inventory"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 68,
+    "fields": {
+      "name": "Can view Inventario",
+      "content_type": 16,
+      "codename": "view_inventory"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 69,
+    "fields": {
+      "name": "Can add Conteo Físico",
+      "content_type": 17,
+      "codename": "add_physicalcount"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 93,
+    "fields": {
+      "name": "Puede confirmar conteos físicos",
+      "content_type": 17,
+      "codename": "can_confirm_physicalcount"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 92,
+    "fields": {
+      "name": "Puede crear conteos físicos",
+      "content_type": 17,
+      "codename": "can_create_physicalcount"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 91,
+    "fields": {
+      "name": "Puede ver conteos físicos",
+      "content_type": 17,
+      "codename": "can_view_physicalcount"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 70,
+    "fields": {
+      "name": "Can change Conteo Físico",
+      "content_type": 17,
+      "codename": "change_physicalcount"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 71,
+    "fields": {
+      "name": "Can delete Conteo Físico",
+      "content_type": 17,
+      "codename": "delete_physicalcount"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 72,
+    "fields": {
+      "name": "Can view Conteo Físico",
+      "content_type": 17,
+      "codename": "view_physicalcount"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 61,
+    "fields": {
+      "name": "Can add Método de Valoración",
+      "content_type": 18,
+      "codename": "add_valuationmethod"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 95,
+    "fields": {
+      "name": "Puede editar métodos de valoración",
+      "content_type": 18,
+      "codename": "can_edit_valuationmethod"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 94,
+    "fields": {
+      "name": "Puede ver métodos de valoración",
+      "content_type": 18,
+      "codename": "can_view_valuationmethod"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 62,
+    "fields": {
+      "name": "Can change Método de Valoración",
+      "content_type": 18,
+      "codename": "change_valuationmethod"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 63,
+    "fields": {
+      "name": "Can delete Método de Valoración",
+      "content_type": 18,
+      "codename": "delete_valuationmethod"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 64,
+    "fields": {
+      "name": "Can view Método de Valoración",
+      "content_type": 18,
+      "codename": "view_valuationmethod"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 159,
+    "fields": {
+      "name": "Can add historical Factura",
+      "content_type": 31,
+      "codename": "add_historicalinvoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 160,
+    "fields": {
+      "name": "Can change historical Factura",
+      "content_type": 31,
+      "codename": "change_historicalinvoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 161,
+    "fields": {
+      "name": "Can delete historical Factura",
+      "content_type": 31,
+      "codename": "delete_historicalinvoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 162,
+    "fields": {
+      "name": "Can view historical Factura",
+      "content_type": 31,
+      "codename": "view_historicalinvoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 163,
+    "fields": {
+      "name": "Can add historical Línea de Factura",
+      "content_type": 32,
+      "codename": "add_historicalinvoiceline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 164,
+    "fields": {
+      "name": "Can change historical Línea de Factura",
+      "content_type": 32,
+      "codename": "change_historicalinvoiceline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 165,
+    "fields": {
+      "name": "Can delete historical Línea de Factura",
+      "content_type": 32,
+      "codename": "delete_historicalinvoiceline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 166,
+    "fields": {
+      "name": "Can view historical Línea de Factura",
+      "content_type": 32,
+      "codename": "view_historicalinvoiceline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 41,
+    "fields": {
+      "name": "Can add Factura",
+      "content_type": 11,
+      "codename": "add_invoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 116,
+    "fields": {
+      "name": "Puede anular facturas",
+      "content_type": 11,
+      "codename": "can_cancel_invoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 113,
+    "fields": {
+      "name": "Puede eliminar facturas",
+      "content_type": 11,
+      "codename": "can_delete_invoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 112,
+    "fields": {
+      "name": "Puede editar facturas",
+      "content_type": 11,
+      "codename": "can_edit_invoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 114,
+    "fields": {
+      "name": "Puede emitir facturas",
+      "content_type": 11,
+      "codename": "can_issue_invoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 115,
+    "fields": {
+      "name": "Puede pagar facturas",
+      "content_type": 11,
+      "codename": "can_pay_invoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 111,
+    "fields": {
+      "name": "Puede ver facturas",
+      "content_type": 11,
+      "codename": "can_view_invoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 42,
+    "fields": {
+      "name": "Can change Factura",
+      "content_type": 11,
+      "codename": "change_invoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 43,
+    "fields": {
+      "name": "Can delete Factura",
+      "content_type": 11,
+      "codename": "delete_invoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 44,
+    "fields": {
+      "name": "Can view Factura",
+      "content_type": 11,
+      "codename": "view_invoice"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 45,
+    "fields": {
+      "name": "Can add Línea de Factura",
+      "content_type": 12,
+      "codename": "add_invoiceline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 118,
+    "fields": {
+      "name": "Puede editar líneas de factura",
+      "content_type": 12,
+      "codename": "can_edit_invoiceline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 117,
+    "fields": {
+      "name": "Puede ver líneas de factura",
+      "content_type": 12,
+      "codename": "can_view_invoiceline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 46,
+    "fields": {
+      "name": "Can change Línea de Factura",
+      "content_type": 12,
+      "codename": "change_invoiceline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 47,
+    "fields": {
+      "name": "Can delete Línea de Factura",
+      "content_type": 12,
+      "codename": "delete_invoiceline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 48,
+    "fields": {
+      "name": "Can view Línea de Factura",
+      "content_type": 12,
+      "codename": "view_invoiceline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 77,
+    "fields": {
+      "name": "Can add Cierre de Caja",
+      "content_type": 19,
+      "codename": "add_cashregister"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 109,
+    "fields": {
+      "name": "Puede cerrar caja",
+      "content_type": 19,
+      "codename": "can_close_register"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 108,
+    "fields": {
+      "name": "Puede abrir caja",
+      "content_type": 19,
+      "codename": "can_open_register"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 110,
+    "fields": {
+      "name": "Puede ver cierres de caja",
+      "content_type": 19,
+      "codename": "can_view_register"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 78,
+    "fields": {
+      "name": "Can change Cierre de Caja",
+      "content_type": 19,
+      "codename": "change_cashregister"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 79,
+    "fields": {
+      "name": "Can delete Cierre de Caja",
+      "content_type": 19,
+      "codename": "delete_cashregister"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 80,
+    "fields": {
+      "name": "Can view Cierre de Caja",
+      "content_type": 19,
+      "codename": "view_cashregister"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 73,
+    "fields": {
+      "name": "Can add Transacción de Caja",
+      "content_type": 20,
+      "codename": "add_cashtransaction"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 74,
+    "fields": {
+      "name": "Can change Transacción de Caja",
+      "content_type": 20,
+      "codename": "change_cashtransaction"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 75,
+    "fields": {
+      "name": "Can delete Transacción de Caja",
+      "content_type": 20,
+      "codename": "delete_cashtransaction"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 76,
+    "fields": {
+      "name": "Can view Transacción de Caja",
+      "content_type": 20,
+      "codename": "view_cashtransaction"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 49,
+    "fields": {
+      "name": "Can add Cliente",
+      "content_type": 13,
+      "codename": "add_customer"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 100,
+    "fields": {
+      "name": "Puede eliminar clientes",
+      "content_type": 13,
+      "codename": "can_delete_customer"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 99,
+    "fields": {
+      "name": "Puede editar clientes",
+      "content_type": 13,
+      "codename": "can_edit_customer"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 98,
+    "fields": {
+      "name": "Puede ver clientes",
+      "content_type": 13,
+      "codename": "can_view_customer"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 50,
+    "fields": {
+      "name": "Can change Cliente",
+      "content_type": 13,
+      "codename": "change_customer"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 51,
+    "fields": {
+      "name": "Can delete Cliente",
+      "content_type": 13,
+      "codename": "delete_customer"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 52,
+    "fields": {
+      "name": "Can view Cliente",
+      "content_type": 13,
+      "codename": "view_customer"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 147,
+    "fields": {
+      "name": "Can add historical Cierre de Caja",
+      "content_type": 27,
+      "codename": "add_historicalcashregister"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 148,
+    "fields": {
+      "name": "Can change historical Cierre de Caja",
+      "content_type": 27,
+      "codename": "change_historicalcashregister"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 149,
+    "fields": {
+      "name": "Can delete historical Cierre de Caja",
+      "content_type": 27,
+      "codename": "delete_historicalcashregister"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 150,
+    "fields": {
+      "name": "Can view historical Cierre de Caja",
+      "content_type": 27,
+      "codename": "view_historicalcashregister"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 155,
+    "fields": {
+      "name": "Can add historical Cliente",
+      "content_type": 28,
+      "codename": "add_historicalcustomer"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 156,
+    "fields": {
+      "name": "Can change historical Cliente",
+      "content_type": 28,
+      "codename": "change_historicalcustomer"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 157,
+    "fields": {
+      "name": "Can delete historical Cliente",
+      "content_type": 28,
+      "codename": "delete_historicalcustomer"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 158,
+    "fields": {
+      "name": "Can view historical Cliente",
+      "content_type": 28,
+      "codename": "view_historicalcustomer"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 151,
+    "fields": {
+      "name": "Can add historical Línea de Venta",
+      "content_type": 29,
+      "codename": "add_historicalsaleline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 152,
+    "fields": {
+      "name": "Can change historical Línea de Venta",
+      "content_type": 29,
+      "codename": "change_historicalsaleline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 153,
+    "fields": {
+      "name": "Can delete historical Línea de Venta",
+      "content_type": 29,
+      "codename": "delete_historicalsaleline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 154,
+    "fields": {
+      "name": "Can view historical Línea de Venta",
+      "content_type": 29,
+      "codename": "view_historicalsaleline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 143,
+    "fields": {
+      "name": "Can add historical Orden de Venta",
+      "content_type": 30,
+      "codename": "add_historicalsaleorder"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 144,
+    "fields": {
+      "name": "Can change historical Orden de Venta",
+      "content_type": 30,
+      "codename": "change_historicalsaleorder"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 145,
+    "fields": {
+      "name": "Can delete historical Orden de Venta",
+      "content_type": 30,
+      "codename": "delete_historicalsaleorder"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 146,
+    "fields": {
+      "name": "Can view historical Orden de Venta",
+      "content_type": 30,
+      "codename": "view_historicalsaleorder"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 53,
+    "fields": {
+      "name": "Can add Línea de Venta",
+      "content_type": 14,
+      "codename": "add_saleline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 54,
+    "fields": {
+      "name": "Can change Línea de Venta",
+      "content_type": 14,
+      "codename": "change_saleline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 55,
+    "fields": {
+      "name": "Can delete Línea de Venta",
+      "content_type": 14,
+      "codename": "delete_saleline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 56,
+    "fields": {
+      "name": "Can view Línea de Venta",
+      "content_type": 14,
+      "codename": "view_saleline"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 57,
+    "fields": {
+      "name": "Can add Orden de Venta",
+      "content_type": 15,
+      "codename": "add_saleorder"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 105,
+    "fields": {
+      "name": "Puede cancelar órdenes de venta",
+      "content_type": 15,
+      "codename": "can_cancel_order"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 104,
+    "fields": {
+      "name": "Puede confirmar órdenes de venta",
+      "content_type": 15,
+      "codename": "can_confirm_order"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 103,
+    "fields": {
+      "name": "Puede eliminar órdenes de venta",
+      "content_type": 15,
+      "codename": "can_delete_saleorder"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 106,
+    "fields": {
+      "name": "Puede entregar órdenes de venta",
+      "content_type": 15,
+      "codename": "can_deliver_order"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 102,
+    "fields": {
+      "name": "Puede editar órdenes de venta",
+      "content_type": 15,
+      "codename": "can_edit_saleorder"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 107,
+    "fields": {
+      "name": "Puede ver reportes de ventas",
+      "content_type": 15,
+      "codename": "can_view_reports"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 101,
+    "fields": {
+      "name": "Puede ver órdenes de venta",
+      "content_type": 15,
+      "codename": "can_view_saleorder"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 58,
+    "fields": {
+      "name": "Can change Orden de Venta",
+      "content_type": 15,
+      "codename": "change_saleorder"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 59,
+    "fields": {
+      "name": "Can delete Orden de Venta",
+      "content_type": 15,
+      "codename": "delete_saleorder"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 60,
+    "fields": {
+      "name": "Can view Orden de Venta",
+      "content_type": 15,
+      "codename": "view_saleorder"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 17,
+    "fields": {
+      "name": "Can add session",
+      "content_type": 5,
+      "codename": "add_session"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 18,
+    "fields": {
+      "name": "Can change session",
+      "content_type": 5,
+      "codename": "change_session"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 19,
+    "fields": {
+      "name": "Can delete session",
+      "content_type": 5,
+      "codename": "delete_session"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 20,
+    "fields": {
+      "name": "Can view session",
+      "content_type": 5,
+      "codename": "view_session"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 21,
+    "fields": {
+      "name": "Can add user",
+      "content_type": 6,
+      "codename": "add_user"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 22,
+    "fields": {
+      "name": "Can change user",
+      "content_type": 6,
+      "codename": "change_user"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 23,
+    "fields": {
+      "name": "Can delete user",
+      "content_type": 6,
+      "codename": "delete_user"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 24,
+    "fields": {
+      "name": "Can view user",
+      "content_type": 6,
+      "codename": "view_user"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 123,
+    "fields": {
+      "name": "Can add historical Ubicación",
+      "content_type": 21,
+      "codename": "add_historicallocation"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 124,
+    "fields": {
+      "name": "Can change historical Ubicación",
+      "content_type": 21,
+      "codename": "change_historicallocation"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 125,
+    "fields": {
+      "name": "Can delete historical Ubicación",
+      "content_type": 21,
+      "codename": "delete_historicallocation"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 126,
+    "fields": {
+      "name": "Can view historical Ubicación",
+      "content_type": 21,
+      "codename": "view_historicallocation"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 127,
+    "fields": {
+      "name": "Can add historical Movimiento",
+      "content_type": 22,
+      "codename": "add_historicalmovement"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 128,
+    "fields": {
+      "name": "Can change historical Movimiento",
+      "content_type": 22,
+      "codename": "change_historicalmovement"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 129,
+    "fields": {
+      "name": "Can delete historical Movimiento",
+      "content_type": 22,
+      "codename": "delete_historicalmovement"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 130,
+    "fields": {
+      "name": "Can view historical Movimiento",
+      "content_type": 22,
+      "codename": "view_historicalmovement"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 119,
+    "fields": {
+      "name": "Can add Historial",
+      "content_type": 23,
+      "codename": "add_historicalproduct"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 120,
+    "fields": {
+      "name": "Can change Historial",
+      "content_type": 23,
+      "codename": "change_historicalproduct"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 121,
+    "fields": {
+      "name": "Can delete Historial",
+      "content_type": 23,
+      "codename": "delete_historicalproduct"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 122,
+    "fields": {
+      "name": "Can view Historial",
+      "content_type": 23,
+      "codename": "view_historicalproduct"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 29,
+    "fields": {
+      "name": "Can add Ubicación",
+      "content_type": 8,
+      "codename": "add_location"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 87,
+    "fields": {
+      "name": "Puede editar ubicaciones",
+      "content_type": 8,
+      "codename": "can_edit_location"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 86,
+    "fields": {
+      "name": "Puede ver ubicaciones",
+      "content_type": 8,
+      "codename": "can_view_location"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 30,
+    "fields": {
+      "name": "Can change Ubicación",
+      "content_type": 8,
+      "codename": "change_location"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 31,
+    "fields": {
+      "name": "Can delete Ubicación",
+      "content_type": 8,
+      "codename": "delete_location"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 32,
+    "fields": {
+      "name": "Can view Ubicación",
+      "content_type": 8,
+      "codename": "view_location"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 33,
+    "fields": {
+      "name": "Can add Movimiento",
+      "content_type": 9,
+      "codename": "add_movement"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 90,
+    "fields": {
+      "name": "Puede eliminar movimientos",
+      "content_type": 9,
+      "codename": "can_delete_movement"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 89,
+    "fields": {
+      "name": "Puede editar movimientos",
+      "content_type": 9,
+      "codename": "can_edit_movement"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 88,
+    "fields": {
+      "name": "Puede ver movimientos",
+      "content_type": 9,
+      "codename": "can_view_movement"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 34,
+    "fields": {
+      "name": "Can change Movimiento",
+      "content_type": 9,
+      "codename": "change_movement"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 35,
+    "fields": {
+      "name": "Can delete Movimiento",
+      "content_type": 9,
+      "codename": "delete_movement"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 36,
+    "fields": {
+      "name": "Can view Movimiento",
+      "content_type": 9,
+      "codename": "view_movement"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 37,
+    "fields": {
+      "name": "Can add Producto",
+      "content_type": 10,
+      "codename": "add_product"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 83,
+    "fields": {
+      "name": "Puede eliminar productos",
+      "content_type": 10,
+      "codename": "can_delete_product"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 82,
+    "fields": {
+      "name": "Puede editar productos",
+      "content_type": 10,
+      "codename": "can_edit_product"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 85,
+    "fields": {
+      "name": "Puede exportar productos",
+      "content_type": 10,
+      "codename": "can_export_products"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 84,
+    "fields": {
+      "name": "Puede importar productos",
+      "content_type": 10,
+      "codename": "can_import_products"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 81,
+    "fields": {
+      "name": "Puede ver productos",
+      "content_type": 10,
+      "codename": "can_view_product"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 38,
+    "fields": {
+      "name": "Can change Producto",
+      "content_type": 10,
+      "codename": "change_product"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 39,
+    "fields": {
+      "name": "Can delete Producto",
+      "content_type": 10,
+      "codename": "delete_product"
+    }
+  },
+  {
+    "model": "auth.permission",
+    "pk": 40,
+    "fields": {
+      "name": "Can view Producto",
+      "content_type": 10,
+      "codename": "view_product"
+    }
+  }
+]

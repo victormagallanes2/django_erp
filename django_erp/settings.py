@@ -285,6 +285,16 @@ def get_menu_items(request):
                     "link": "/admin/auth/group/",
                 },
                 {
+                    "title": "Monedas",
+                    "icon": "attach_money",
+                    "link": "/admin/configuration/currency/",
+                },
+                {
+                    "title": "Tasas de Cambio",
+                    "icon": "swap_horiz",
+                    "link": "/admin/configuration/exchangerate/",
+                },
+                {
                     "title": "Respaldos",
                     "icon": "backup",
                     "link": "/admin/configuration/backup/",

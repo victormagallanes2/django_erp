@@ -1,0 +1,38 @@
+[
+  {
+    "model": "configuration.currency",
+    "pk": 2,
+    "fields": {
+      "code": "BS",
+      "name": "Bolívar",
+      "symbol": "Bs.",
+      "decimal_places": 2,
+      "is_base": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "configuration.currency",
+    "pk": 3,
+    "fields": {
+      "code": "EUR",
+      "name": "Euro",
+      "symbol": "€",
+      "decimal_places": 2,
+      "is_base": false,
+      "is_active": true
+    }
+  },
+  {
+    "model": "configuration.currency",
+    "pk": 1,
+    "fields": {
+      "code": "USD",
+      "name": "US Dollar",
+      "symbol": "$",
+      "decimal_places": 2,
+      "is_base": true,
+      "is_active": true
+    }
+  }
+]

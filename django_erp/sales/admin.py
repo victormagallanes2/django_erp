@@ -8,6 +8,7 @@ from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from unfold.admin import TabularInline as UnfoldTabularInline
 from .models import Customer, SaleOrder, SaleLine
 from .models import CashRegister, CashTransaction
+from decimal import Decimal, ROUND_HALF_UP
 
 
 @admin.register(Customer)
@@ -29,7 +30,7 @@ class CustomerAdmin(UnfoldModelAdmin):
 
 class SaleLineInline(UnfoldTabularInline):
     model = SaleLine
-    extra = 1
+    extra = 0
     fields = ['product', 'location', 'quantity', 'unit_price', 'subtotal']
     readonly_fields = ['subtotal']
     autocomplete_fields = ['product']
@@ -39,36 +40,88 @@ class SaleLineInline(UnfoldTabularInline):
         from django_erp.warehouse.models import Product, Location
         formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
         formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
+        formset.form.base_fields['unit_price'].initial = 0
+        formset.form.base_fields['quantity'].initial = 1
         return formset
+    
+    @admin.display(description='Precio en Bs.')
+    def price_bs_display(self, obj):
+        """Mostrar precio en Bolívares"""
+        if obj.unit_price and obj.unit_price > 0:
+            try:
+                from django_erp.configuration.models import ExchangeRate
+                rate = ExchangeRate.get_today_rate('USD', 'BS')
+                if rate:
+                    price_bs = obj.unit_price * rate
+                    return f"Bs. {price_bs:.2f}"
+                else:
+                    return "Sin tasa"
+            except Exception as e:
+                return f"Error: {str(e)}"
+        return "-"
 
 
 class SaleOrderForm(forms.ModelForm):
-    """Formulario personalizado con totales calculados en tiempo real"""
-    
-    # ✅ Crear campos adicionales para mostrar totales (no vinculados al modelo)
     subtotal_display = forms.DecimalField(
         max_digits=10,
         decimal_places=2,
         required=False,
         disabled=True,
-        label="Subtotal",
+        label="Subtotal (USD)",
         initial=0.00
     )
+    
+    subtotal_bs_display = forms.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        required=False,
+        disabled=True,
+        label="Subtotal (Bs.)",
+        initial=0.00
+    )
+    
     tax_display = forms.DecimalField(
         max_digits=10,
         decimal_places=2,
         required=False,
         disabled=True,
-        label="IVA (19%)",
+        label="IVA (USD)",
         initial=0.00
     )
+    
+    tax_bs_display = forms.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        required=False,
+        disabled=True,
+        label="IVA (Bs.)",
+        initial=0.00
+    )
+    
     total_display = forms.DecimalField(
         max_digits=10,
         decimal_places=2,
         required=False,
         disabled=True,
-        label="Total",
+        label="Total (USD)",
         initial=0.00
+    )
+    
+    total_bs_display = forms.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        required=False,
+        disabled=True,
+        label="Total (Bs.)",
+        initial=0.00,
+        help_text="Convertido según tasa del día"
+    )
+    
+    rate_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Tasa del día",
+        initial="1 USD = Bs. 0.00"
     )
     
     class Meta:
@@ -79,11 +132,25 @@ class SaleOrderForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         instance = kwargs.get('instance')
         
-        # ✅ Inicializar campos de totales con valores del modelo si existen
-        if instance and instance.pk:
-            self.initial['subtotal_display'] = instance.subtotal
-            self.initial['tax_display'] = instance.tax
-            self.initial['total_display'] = instance.total
+        from django_erp.configuration.models import ExchangeRate
+        rate = ExchangeRate.get_today_rate('USD', 'BS')
+        if rate:
+            self.initial['rate_display'] = f"1 USD = Bs. {rate:.2f}"
+        else:
+            self.initial['rate_display'] = "No hay tasa configurada"
+        
+        if instance and instance.total:
+            if rate:
+                # ✅ Convertir a Decimal con 2 decimales usando ROUND_HALF_UP
+                self.initial['subtotal_bs_display'] = Decimal(str(instance.subtotal * rate)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                self.initial['tax_bs_display'] = Decimal(str(instance.tax * rate)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                self.initial['total_bs_display'] = Decimal(str(instance.total * rate)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            else:
+                self.initial['total_bs_display'] = instance.total
+        else:
+            self.initial['subtotal_bs_display'] = Decimal('0.00')
+            self.initial['tax_bs_display'] = Decimal('0.00')
+            self.initial['total_bs_display'] = Decimal('0.00')
         
         if not instance or not instance.pk:
             from datetime import datetime
@@ -139,18 +206,23 @@ class SaleOrderAdmin(UnfoldModelAdmin):
     
     # ✅ fieldsets con campos de totales calculados
     fieldsets = (
-        ('Información de la Orden', {
-            'fields': ('number', 'customer', 'status')
-        }),
-        ('Totales en Tiempo Real', {
-            'fields': ('subtotal_display', 'tax_display', 'total_display'),
-            'classes': ('tab',),
-            'description': 'Los totales se actualizan automáticamente al modificar las líneas'
-        }),
-        ('Información Adicional', {
-            'fields': ('note',),
-            'classes': ('tab',),
-        }),
+    ('Información de la Orden', {
+        'fields': ('number', 'customer', 'status')
+    }),
+    ('Totales en Tiempo Real', {
+        'fields': (
+            ('subtotal_display', 'subtotal_bs_display'),  # ← Ahora existen ambos
+            ('tax_display', 'tax_bs_display'),            # ← Ahora existen ambos
+            ('total_display', 'total_bs_display'),        # ← Ya existe
+            'rate_display',
+        ),
+        'classes': ('tab', 'wide'),
+        'description': 'Los totales se actualizan automáticamente al modificar las líneas'
+    }),
+    ('Información Adicional', {
+        'fields': ('note',),
+        'classes': ('tab',),
+    }),
     )
     
     readonly_fields = ['user', 'date', 'created_at', 'updated_at']

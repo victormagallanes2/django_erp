@@ -8,15 +8,14 @@ from simple_history.admin import SimpleHistoryAdmin
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from .models import Company, Backup
 from .services import BackupService
+from .models import Currency, ExchangeRate
 import os
 
 
 @admin.register(Company)
-class CompanyAdmin(UnfoldModelAdmin):
-    """Configuración de la empresa"""
-    
-    list_display = ['logo_preview', 'name', 'rif', 'tax_rate', 'currency', 'is_active']
-    list_filter = ['is_active', 'currency']
+class CompanyAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+    list_display = ['logo_preview', 'name', 'rif', 'tax_rate', 'is_active']
+    list_filter = ['is_active']
     search_fields = ['name', 'rif']
     
     fieldsets = (
@@ -27,13 +26,12 @@ class CompanyAdmin(UnfoldModelAdmin):
             'fields': ('address', 'phone', 'email', 'website')
         }),
         ('Configuración Fiscal', {
-            'fields': ('tax_rate', 'currency'),
+            'fields': ('tax_rate',),
             'classes': ('tab',),
         }),
         ('Configuración de Facturación', {
             'fields': ('invoice_prefix', 'control_number_required'),
             'classes': ('tab',),
-            'description': 'Configuración específica para facturación electrónica'
         }),
         ('Estado', {
             'fields': ('is_active',),
@@ -42,6 +40,7 @@ class CompanyAdmin(UnfoldModelAdmin):
     )
     
     readonly_fields = ['created_at', 'updated_at']
+    
     
     @admin.display(description='Logo')
     def logo_preview(self, obj):
@@ -53,14 +52,13 @@ class CompanyAdmin(UnfoldModelAdmin):
         return "Sin logo"
     
     def has_delete_permission(self, request, obj=None):
-        """Prevenir eliminación de la empresa activa"""
         if obj and obj.is_active:
             return False
         return super().has_delete_permission(request, obj)
 
 
 @admin.register(Backup)
-class BackupAdmin(SimpleHistoryAdmin):
+class BackupAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
     """Admin de respaldos - Solo crear"""
     
     # ✅ Usar template personalizado
@@ -131,3 +129,47 @@ class BackupAdmin(SimpleHistoryAdmin):
     def get_actions(self, request):
         # Retornar diccionario vacío para eliminar todas las acciones
         return {}
+
+
+@admin.register(Currency)
+class CurrencyAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+    """Admin de monedas"""
+    
+    list_display = ['code', 'name', 'symbol', 'is_base_badge', 'is_active']
+    list_filter = ['is_active', 'is_base']
+    search_fields = ['code', 'name']
+    
+    fieldsets = (
+        ('Información', {
+            'fields': ('code', 'name', 'symbol', 'decimal_places')
+        }),
+        ('Configuración', {
+            'fields': ('is_base', 'is_active'),
+            'description': 'Solo una moneda puede ser la base del sistema'
+        }),
+    )
+    
+    @admin.display(description='Moneda Base')
+    def is_base_badge(self, obj):
+        if obj.is_base:
+            return "✅ Base"
+        return "-"
+
+@admin.register(ExchangeRate)
+class ExchangeRateAdmin( UnfoldModelAdmin, SimpleHistoryAdmin):
+    list_display = ['from_currency', 'to_currency', 'rate_display', 'date', 'source', 'user']
+    list_filter = ['from_currency', 'to_currency', 'date']
+    search_fields = ['source']
+    
+    fieldsets = (
+        ('Tasa de Cambio', {
+            'fields': ('from_currency', 'to_currency', 'rate')
+        }),
+        ('Información', {
+            'fields': ('source', 'user')
+        }),
+    )
+    
+    @admin.display(description='Tasa')
+    def rate_display(self, obj):
+        return f"{obj.rate:.2f}"

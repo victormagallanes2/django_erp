@@ -4,7 +4,7 @@ import shutil
 from datetime import datetime
 from django.conf import settings
 from django.utils import timezone
-from .models import Company, Backup
+from .models import Company, Backup, Currency
 
 
 class CompanyService:
@@ -61,3 +61,62 @@ class BackupService:
     def get_backups():
         """Obtener todos los respaldos"""
         return Backup.objects.all().order_by('-created_at')
+
+
+class CurrencyService:
+    """Servicio de conversión de monedas"""
+    
+    @staticmethod
+    def get_base_currency():
+        """Obtener moneda base del sistema"""
+        return Currency.get_base()
+    
+    @staticmethod
+    def get_base_symbol():
+        """Obtener símbolo de la moneda base"""
+        base = Currency.get_base()
+        return base.symbol if base else '$'
+    
+    @staticmethod
+    def get_local_currency():
+        """Obtener moneda local (BS para Venezuela)"""
+        try:
+            return Currency.objects.get(code='BS')
+        except Currency.DoesNotExist:
+            return None
+    
+    @staticmethod
+    def get_local_symbol():
+        """Obtener símbolo de la moneda local"""
+        local = CurrencyService.get_local_currency()
+        return local.symbol if local else 'Bs.'
+    
+    @staticmethod
+    def convert_to_local(amount_usd):
+        """Convertir USD a moneda local"""
+        try:
+            rate = ExchangeRate.get_today_rate('USD', 'BS')
+            return amount_usd * rate
+        except:
+            return amount_usd
+    
+    @staticmethod
+    def get_today_rate():
+        """Obtener tasa del día"""
+        try:
+            return ExchangeRate.get_today_rate('USD', 'BS')
+        except:
+            return None
+    
+    @staticmethod
+    def format_price(price, currency_code=None):
+        """Formatear precio con símbolo de moneda"""
+        if currency_code is None:
+            base = Currency.get_base()
+            currency_code = base.code if base else 'USD'
+        
+        try:
+            currency = Currency.objects.get(code=currency_code)
+            return f"{currency.symbol} {price:.{currency.decimal_places}f}"
+        except Currency.DoesNotExist:
+            return f"${price:.2f}"

@@ -1,21 +1,24 @@
 # warehouse/admin.py
 from django.contrib import admin
 from django.utils.html import format_html
-from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from simple_history.admin import SimpleHistoryAdmin
+from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from .models import Product, Location, Movement
-
+from django_erp.configuration.services import CurrencyService
 
 
 @admin.register(Product)
-class ProductAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+class ProductAdmin(SimpleHistoryAdmin, UnfoldModelAdmin):
+    """Admin de productos con precios en USD y BS"""
+    
     list_display = [
-        'image_preview', 'code', 'name', 'sale_price', 'unit', 
-        'is_service_badge', 'is_active'
+        'image_preview', 'code', 'name', 
+        'price_usd_display',
+        'price_bs_display',
+        'unit', 'is_service_badge', 'is_active'
     ]
     list_filter = ['is_active', 'unit', 'is_service']
     search_fields = ['name', 'code', 'description']
-    history_list_display = ['history_user', 'history_date', 'history_change_reason']
     
     fieldsets = (
         ('Información', {
@@ -23,35 +26,88 @@ class ProductAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
         }),
         ('Tipo de Producto', {
             'fields': ('is_service',),
-            'description': 'Marcar como "Servicio" si no requiere control de stock'
         }),
-        ('Precios', {
-            'fields': ('sale_price',)
+        ('Precio en USD (Moneda Base)', {
+            'fields': ('price',),
+            'description': 'Precio en dólares americanos (USD)'
+        }),
+        ('Precio en Bolívares', {
+            'fields': ('price_bs_info',),
+            'description': 'Precio convertido a Bolívares según tasa del día'
         }),
         ('Características', {
-            'fields': ('weight', 'dimensions')
-        }),
-        ('Imagen', {
-            'fields': ('image',)
+            'fields': ('weight', 'dimensions', 'image')
         }),
         ('Estado', {
             'fields': ('is_active',)
         }),
     )
     
-    readonly_fields = ['created_at', 'updated_at']
-
-    def has_view_permission(self, request, obj=None):
-        return request.user.has_perm('warehouse.view_product')
+    readonly_fields = ['created_at', 'updated_at', 'price_bs_info']
     
-    def has_add_permission(self, request):
-        return request.user.has_perm('warehouse.add_product')
+    @admin.display(description='Precio (USD)')
+    def price_usd_display(self, obj):
+        """Mostrar precio en USD con símbolo"""
+        return f"$ {obj.price:.2f}"
     
-    def has_change_permission(self, request, obj=None):
-        return request.user.has_perm('warehouse.change_product')
+    @admin.display(description='Precio (Bs.)')
+    def price_bs_display(self, obj):
+        """Mostrar precio en Bolívares con símbolo"""
+        try:
+            from django_erp.configuration.models import ExchangeRate
+            
+            # ✅ Obtener tasa del día
+            rate = ExchangeRate.get_today_rate('USD', 'BS')
+            if rate:
+                price_bs = obj.price * rate
+                return f"Bs. {price_bs:.2f}"
+            return "Sin tasa"
+        except:
+            return "Error"
     
-    def has_delete_permission(self, request, obj=None):
-        return request.user.has_perm('warehouse.delete_product')
+    @admin.display(description='Precio en Bs. (hoy)')
+    def price_bs_info(self, obj):
+        """Mostrar precio en Bolívares con tasa actual"""
+        try:
+            from django_erp.configuration.models import ExchangeRate
+            from django_erp.configuration.models import Currency
+            
+            rate = ExchangeRate.get_today_rate('USD', 'BS')
+            if not rate:
+                return "No hay tasa configurada"
+            
+            price_bs = obj.price * rate
+            local = Currency.objects.get(code='BS')
+            
+            return format_html(
+                '<div style="padding: 10px; background: #f8f9fa; border-radius: 4px;">'
+                '<strong>{}</strong><br>'
+                'Tasa del día: 1 USD = {} {}<br>'
+                'Precio: {} {:.2f}'
+                '</div>',
+                obj.name,
+                rate,
+                local.symbol,
+                local.symbol,
+                price_bs
+            )
+        except Exception as e:
+            return f"Error: {str(e)}"
+    
+    @admin.display(description='Tipo')
+    def is_service_badge(self, obj):
+        if obj.is_service:
+            return "🛋️ Servicio"
+        return "📦 Producto"
+    
+    @admin.display(description='Imagen')
+    def image_preview(self, obj):
+        if obj.image:
+            return format_html(
+                '<img src="{}" width="50" height="50" style="object-fit: cover; border-radius: 4px;" />',
+                obj.image.url
+            )
+        return "Sin imagen"
     
     @admin.display(description='Tipo')
     def is_service_badge(self, obj):
