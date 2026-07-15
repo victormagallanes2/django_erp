@@ -22,6 +22,7 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/sales/', include('django_erp.sales.urls')),
+    path('admin/invoicing/', include('django_erp.invoicing.urls')),
     path('admin/', admin.site.urls),
 ]
 

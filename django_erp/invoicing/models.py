@@ -36,6 +36,14 @@ class Invoice(models.Model):
     issuer_rif = models.CharField(max_length=20, verbose_name="RIF Emisor")
     issuer_name = models.CharField(max_length=200, verbose_name="Nombre Emisor")
     issuer_address = models.TextField(verbose_name="Dirección Emisor")
+
+    customer = models.ForeignKey(
+        'sales.Customer',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Cliente"
+    )
     
     # ✅ Datos del cliente - Campos separados (en lugar de JSON)
     customer_name = models.CharField(
@@ -122,6 +130,15 @@ class Invoice(models.Model):
         self.total = total
         return subtotal, tax, total
 
+    def save(self, *args, **kwargs):
+        # ✅ Si hay un cliente seleccionado, guardar sus datos en los campos de texto
+        if self.customer:
+            self.customer_name = self.customer.name
+            self.customer_rif = self.customer.tax_id
+            self.customer_address = self.customer.address
+        
+        super().save(*args, **kwargs)
+
 
 class InvoiceLine(models.Model):
     """Línea de factura - Con campos separados"""
@@ -131,6 +148,14 @@ class InvoiceLine(models.Model):
         on_delete=models.CASCADE,
         related_name='lines',
         verbose_name="Factura"
+    )
+
+    product = models.ForeignKey(
+        'warehouse.Product',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Producto"
     )
     
     # Campos para producto/servicio
@@ -168,6 +193,12 @@ class InvoiceLine(models.Model):
         verbose_name="Subtotal"
     )
 
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        from django_erp.warehouse.models import Product
+        formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
+        return formset
+
     history = HistoricalRecords()
 
     class Meta:
@@ -183,7 +214,29 @@ class InvoiceLine(models.Model):
         return f"{self.invoice.number} - {name}"
 
     def save(self, *args, **kwargs):
+        # ✅ Si hay producto, guardar nombre y código
+        if self.product:
+            self.product_code = self.product.code
+            self.product_name = self.product.name
+        
+        # ✅ Si NO hay producto pero hay código, buscar el producto
+        elif self.product_code:
+            from django_erp.warehouse.models import Product
+            try:
+                product = Product.objects.get(code=self.product_code)
+                self.product = product
+                self.product_name = product.name
+            except Product.DoesNotExist:
+                pass
+        
+        if self.quantity is None:
+            self.quantity = 0
+        if self.unit_price is None:
+            self.unit_price = 0
+        
         self.subtotal = self.quantity * self.unit_price
-        if not self.product_name and self.description:
-            self.product_name = self.description
+        
+        if not self.product_name and self.product_code:
+            self.product_name = self.product_code
+        
         super().save(*args, **kwargs)

@@ -49,6 +49,7 @@ class InvoiceService:
             issuer_rif=company.rif,
             issuer_name=company.name,
             issuer_address=company.address,
+            customer=sale_order.customer,
             customer_name=sale_order.customer.name,
             customer_rif=sale_order.customer.tax_id,
             customer_address=sale_order.customer.address,

@@ -12,19 +12,128 @@ from django_erp.configuration.models import Company
 
 class InvoiceLineInline(UnfoldTabularInline):
     model = InvoiceLine
-    extra = 1
-    fields = ['product_code', 'product_name', 'description', 'quantity', 'unit_price', 'subtotal']
+    extra = 0
+    fields = ['product', 'quantity', 'unit_price', 'subtotal']  # ← Igual que Sales
     readonly_fields = ['subtotal']
+    autocomplete_fields = ['product']  # ← Igual que Sales
+    
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        from django_erp.warehouse.models import Product
+        formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
+        formset.form.base_fields['unit_price'].initial = 0
+        formset.form.base_fields['quantity'].initial = 1
+        return formset
+    
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.select_related('product')
 
 
 class InvoiceForm(forms.ModelForm):
+    # ✅ Campos para totales en USD (como Sales)
+    subtotal_display = forms.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        disabled=True,
+        label="Subtotal (USD)",
+        initial=0.00
+    )
+    
+    tax_display = forms.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        disabled=True,
+        label="IVA (USD)",
+        initial=0.00
+    )
+    
+    total_display = forms.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        disabled=True,
+        label="Total (USD)",
+        initial=0.00
+    )
+    
+    # ✅ Campos para totales en Bs. (como Sales)
+    subtotal_bs_display = forms.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        required=False,
+        disabled=True,
+        label="Subtotal (Bs.)",
+        initial=0.00
+    )
+    
+    tax_bs_display = forms.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        required=False,
+        disabled=True,
+        label="IVA (Bs.)",
+        initial=0.00
+    )
+    
+    total_bs_display = forms.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        required=False,
+        disabled=True,
+        label="Total (Bs.)",
+        initial=0.00,
+        help_text="Convertido según tasa del día"
+    )
+    
+    rate_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Tasa del día",
+        initial="1 USD = Bs. 0.00"
+    )
+
     class Meta:
         model = Invoice
         fields = '__all__'
+        widgets = {
+            'product_code': forms.TextInput(attrs={'readonly': 'readonly'}),
+            'product_name': forms.TextInput(attrs={'readonly': 'readonly'}),
+        }
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         instance = kwargs.get('instance')
+        if instance and instance.customer:
+            self.initial['customer_name'] = instance.customer.name
+            self.initial['customer_rif'] = instance.customer.tax_id
+            self.initial['customer_address'] = instance.customer.address
+
+        from django_erp.configuration.models import ExchangeRate
+        rate = ExchangeRate.get_today_rate('USD', 'BS')
+        if rate:
+            self.initial['rate_display'] = f"1 USD = Bs. {rate:.2f}"
+        else:
+            self.initial['rate_display'] = "No hay tasa configurada"
+        
+        if instance and instance.pk:
+            self.initial['subtotal_display'] = instance.subtotal
+            self.initial['tax_display'] = instance.tax
+            self.initial['total_display'] = instance.total
+            
+            if rate:
+                self.initial['subtotal_bs_display'] = instance.subtotal * rate
+                self.initial['tax_bs_display'] = instance.tax * rate
+                self.initial['total_bs_display'] = instance.total * rate
+        else:
+            self.initial['subtotal_display'] = 0.00
+            self.initial['tax_display'] = 0.00
+            self.initial['total_display'] = 0.00
+            self.initial['subtotal_bs_display'] = 0.00
+            self.initial['tax_bs_display'] = 0.00
+            self.initial['total_bs_display'] = 0.00
         
         # Autollenar datos de la empresa si es nueva factura
         if not instance or not instance.pk:
@@ -92,29 +201,41 @@ class InvoiceAdmin(UnfoldModelAdmin):
     
     list_display = ['number', 'customer_name', 'customer_rif', 'issuer_rif', 'date', 'total', 'status', 'created_at']
     list_filter = ['status', 'date']
-    search_fields = ['number', 'customer_name', 'customer_rif', 'concept']
+    search_fields = ['number', 'customer__name', 'customer_rif', 'concept']
     
     inlines = [InvoiceLineInline]
+    autocomplete_fields = ['customer']
     
     fieldsets = (
+        ('Totales', {
+            'fields': (
+                ('subtotal_display', 'subtotal_bs_display'),
+                ('tax_display', 'tax_bs_display'),
+                ('total_display', 'total_bs_display'),
+                'rate_display',
+            ),
+            'classes': ('tab', 'wide'),
+            'description': 'Los totales se muestran en USD y Bs. según tasa del día'
+        }),
         ('Información', {
-            'fields': ('number', 'customer_name', 'customer_rif', 'customer_address', 'sale_order_number', 'concept', 'status')
+            'fields': ('number', 'customer', 'sale_order_number', 'status')
         }),
         ('Datos Fiscales del Emisor', {
             'fields': ('issuer_rif', 'issuer_name', 'issuer_address'),
             'classes': ('tab',),
         }),
-        ('Totales', {
-            'fields': ('subtotal', 'tax_rate', 'tax', 'total'),
-            'classes': ('tab',),
-        }),
+
         ('Información Adicional', {
             'fields': ('note',),
             'classes': ('tab',),
         }),
+
     )
     
     readonly_fields = ['date', 'subtotal', 'tax', 'total', 'user', 'created_at', 'updated_at']
+
+    class Media:
+        js = ('admin/js/invoice_admin.js',)
     
     def save_model(self, request, obj, form, change):
         from .services import InvoiceService
@@ -148,6 +269,12 @@ class InvoiceAdmin(UnfoldModelAdmin):
                 InvoiceService.cancel_invoice(obj, request.user)
         
         super().save_model(request, obj, form, change)
+
+    @admin.display(description='Cliente')
+    def customer_display(self, obj):
+        if obj.customer:
+            return f"{obj.customer.name} ({obj.customer.tax_id})"
+        return obj.customer_name or "Sin cliente"
     
     def save_formset(self, request, form, formset, change):
         super().save_formset(request, form, formset, change)
