@@ -13,6 +13,7 @@ from .models import CashRegister, CashTransaction
 from .helpers import get_open_register
 from decimal import Decimal, ROUND_HALF_UP
 from django.utils import timezone
+from django_erp.configuration.models import ExchangeRate
 
 
 @admin.register(Customer)
@@ -106,6 +107,7 @@ class SaleOrderForm(forms.ModelForm):
         fields = ['number', 'customer', 'status', 'note']
     
     def __init__(self, *args, **kwargs):
+        self._request = kwargs.pop('request', None)
         super().__init__(*args, **kwargs)
         instance = kwargs.get('instance')
         
@@ -177,6 +179,36 @@ class SaleOrderForm(forms.ModelForm):
                 self.fields['status'].choices = [
                     ('CANCELLED', 'Cancelada'),
                 ]
+
+    def clean(self):
+        """✅ Validar que haya caja abierta para confirmar"""
+        cleaned_data = super().clean()
+        status = cleaned_data.get('status')
+        
+        # Solo validar si se está confirmando
+        if status == 'CONFIRMED':
+            from .helpers import has_open_register
+            
+            # Intentar obtener el usuario del request
+            user = None
+            if hasattr(self, '_request') and self._request:
+                user = self._request.user
+            elif self.instance and self.instance.user:
+                user = self.instance.user
+            
+            if user and not has_open_register(user):
+                from django.urls import reverse
+                from django.utils.html import format_html
+                
+                open_cash_url = reverse('admin:sales_cashregister_add')
+                error_msg = format_html(
+                    '❌ No hay una caja abierta. '
+                    '<a href="{}" target="_blank" style="font-weight: bold;">Haz clic aquí para abrir una caja</a>',
+                    open_cash_url
+                )
+                self.add_error('status', error_msg)
+        
+        return cleaned_data
 
 
 @admin.action(description='🔄 Reconfirmar orden (forzar reducción de stock)')
@@ -281,6 +313,12 @@ class SaleOrderAdmin(UnfoldModelAdmin):
     
     class Media:
         js = ('admin/js/sale_order_admin.js',)
+
+    def get_form(self, request, obj=None, **kwargs):
+        """Pasar el request al formulario para validación"""
+        form = super().get_form(request, obj, **kwargs)
+        form._request = request
+        return form
     
     def save_model(self, request, obj, form, change):
         """Guardar la orden (sin calcular totales aquí)"""
@@ -448,26 +486,54 @@ def close_register_action(modeladmin, request, queryset):
 
 @admin.register(CashRegister)
 class CashRegisterAdmin(UnfoldModelAdmin):
-    list_display = ['number', 'user', 'date', 'status_badge', 'total_sales', 'expected_total', 'counted_total', 'difference']
+    list_display = [
+        'number', 
+        'user', 
+        'date', 
+        'status_badge',
+        'total_sales_usd_display',
+        'total_sales_bs_display',
+        'expected_total_usd_display',
+        'difference_usd_display',
+    ]
     list_filter = ['status', 'date']
     search_fields = ['number', 'user__username']
     actions = [open_register_action, close_register_action]
     
     fieldsets = (
         ('Información', {'fields': ('number', 'user', 'status')}),
-        ('Dinero', {'fields': ('initial_amount', 'total_sales', 'total_expenses', 'total_withdrawals', 'expected_total')}),
-        ('Cierre', {'fields': ('counted_total', 'breakdown', 'difference', 'note'), 'classes': ('tab',)}),
-        ('Fechas', {'fields': ('opened_at', 'closed_at'), 'classes': ('tab',)}),
+        ('Dinero', {
+            'fields': (
+                'initial_amount', 
+                'total_sales', 
+                'total_expenses', 
+                'total_withdrawals', 
+                'expected_total'
+            )
+        }),
+        ('Cierre', {
+            'fields': ('counted_total', 'breakdown', 'difference', 'note'),
+            'classes': ('tab',),
+        }),
+        ('Fechas', {
+            'fields': ('opened_at', 'closed_at'),
+            'classes': ('tab',),
+        }),
     )
     
-    readonly_fields = ['opened_at', 'closed_at', 'total_sales', 'total_expenses', 'total_withdrawals', 'expected_total']
+    readonly_fields = [
+        'opened_at', 'closed_at', 'total_sales', 
+        'total_expenses', 'total_withdrawals', 'expected_total'
+    ]
     
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
         if obj is None:
             from datetime import datetime
             date_str = datetime.now().strftime('%Y%m%d')
-            last = CashRegister.objects.filter(number__startswith=f'CAJA-{date_str}').order_by('number').last()
+            last = CashRegister.objects.filter(
+                number__startswith=f'CAJA-{date_str}'
+            ).order_by('number').last()
             next_num = int(last.number.split('-')[-1]) + 1 if last else 1
             form.base_fields['number'].initial = f'CAJA-{date_str}-{next_num:04d}'
             form.base_fields['number'].disabled = True
@@ -477,7 +543,9 @@ class CashRegisterAdmin(UnfoldModelAdmin):
         if not obj.number:
             from datetime import datetime
             date_str = datetime.now().strftime('%Y%m%d')
-            last = CashRegister.objects.filter(number__startswith=f'CAJA-{date_str}').order_by('number').last()
+            last = CashRegister.objects.filter(
+                number__startswith=f'CAJA-{date_str}'
+            ).order_by('number').last()
             next_num = int(last.number.split('-')[-1]) + 1 if last else 1
             obj.number = f'CAJA-{date_str}-{next_num:04d}'
         super().save_model(request, obj, form, change)
@@ -495,13 +563,71 @@ class CashRegisterAdmin(UnfoldModelAdmin):
             '<span style="background: {}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 12px;">{}</span>',
             color, label
         )
+    
+    # ✅ Métodos para mostrar montos en USD y Bs.
+    
+    @admin.display(description='Total Ventas (USD)')
+    def total_sales_usd_display(self, obj):
+        return f"$ {obj.total_sales:,.2f}"
+    
+    @admin.display(description='Total Ventas (Bs.)')
+    def total_sales_bs_display(self, obj):
+        try:
+            rate = ExchangeRate.get_today_rate('USD', 'BS')
+            if rate:
+                value_bs = obj.total_sales * rate
+                return f"Bs. {value_bs:,.2f}"
+            return "Sin tasa"
+        except:
+            return "Error"
+    
+    @admin.display(description='Total Esperado (USD)')
+    def expected_total_usd_display(self, obj):
+        return f"$ {obj.expected_total:,.2f}"
+    
+    @admin.display(description='Diferencia (USD)')
+    def difference_usd_display(self, obj):
+        if obj.difference is not None:
+            try:
+                diff = Decimal(str(obj.difference))
+                color = 'green' if diff >= 0 else 'red'
+                return format_html(
+                    '<span style="color: {};">$ {:.2f}</span>',
+                    color,
+                    diff
+                )
+            except:
+                return "$ 0.00"
+        return "-"
+
 
 
 @admin.register(CashTransaction)
 class CashTransactionAdmin(UnfoldModelAdmin):
-    list_display = ['register', 'type', 'amount', 'description', 'user', 'created_at']
+    list_display = [
+        'register', 
+        'type', 
+        'amount_usd_display',
+        'amount_bs_display',
+        'description', 
+        'user', 
+        'created_at'
+    ]
     list_filter = ['type']
     search_fields = ['description', 'reference']
     readonly_fields = ['created_at']
-
-
+    
+    @admin.display(description='Monto (USD)')
+    def amount_usd_display(self, obj):
+        return f"$ {obj.amount:,.2f}"
+    
+    @admin.display(description='Monto (Bs.)')
+    def amount_bs_display(self, obj):
+        try:
+            rate = ExchangeRate.get_today_rate('USD', 'BS')
+            if rate:
+                value_bs = obj.amount * rate
+                return f"Bs. {value_bs:,.2f}"
+            return "Sin tasa"
+        except:
+            return "Error"
