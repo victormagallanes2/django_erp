@@ -7,6 +7,8 @@ from django_erp.inventory.models import Inventory
 from django_erp.configuration.services import CurrencyService
 from django_erp.configuration.models import ExchangeRate, Currency
 from decimal import Decimal
+from .models import CashRegister
+from django.shortcuts import render
 
 
 @staff_member_required
@@ -53,3 +55,20 @@ def get_product_price(request):
         return JsonResponse(response_data)
     except Product.DoesNotExist:
         return JsonResponse({'error': 'Product not found'}, status=404)
+
+
+
+@staff_member_required
+def cash_register_status(request):
+    """Vista para ver el estado de la caja del usuario actual"""
+    register = CashRegister.objects.filter(
+        user=request.user,
+        status='OPEN'
+    ).first()
+    
+    context = {
+        'register': register,
+        'has_open_register': register is not None,
+    }
+    
+    return render(request, 'admin/sales/cash_register_status.html', context)

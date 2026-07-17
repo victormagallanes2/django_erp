@@ -5,6 +5,7 @@ from simple_history.admin import SimpleHistoryAdmin
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from .models import Product, Location, Movement
 from django_erp.configuration.services import CurrencyService
+from django_erp.configuration.models import ExchangeRate, Currency
 
 
 @admin.register(Product)
@@ -134,7 +135,18 @@ class LocationAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
 class MovementAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
     """Admin de movimientos"""
     
-    list_display = ['product', 'type', 'quantity', 'unit_price', 'total', 'location_from', 'location_to', 'created_at']
+    list_display = [
+        'product', 
+        'type', 
+        'quantity', 
+        'unit_price_usd_display',  # ✅ Precio en USD
+        'unit_price_bs_display',   # ✅ Precio en Bs.
+        'total_usd_display',       # ✅ Total en USD
+        'total_bs_display',        # ✅ Total en Bs.
+        'location_from', 
+        'location_to', 
+        'created_at'
+    ]
     list_filter = ['type', 'source_type']
     search_fields = ['product__name', 'product__code', 'source_reference']
     readonly_fields = ['total', 'user', 'created_at']
@@ -161,32 +173,37 @@ class MovementAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
             obj.user = request.user
         super().save_model(request, obj, form, change)
 
-    @admin.display(description='Precio Unitario')
-    def unit_price_display(self, obj):
-        """Mostrar precio unitario con símbolo USD"""
-        if obj.unit_price:
-            return f"$ {obj.unit_price:.2f}"
-        return "$ 0.00"
+    # ✅ Métodos para mostrar precios en USD y Bs.
+    @admin.display(description='Precio (USD)')
+    def unit_price_usd_display(self, obj):
+        """Mostrar precio unitario en USD"""
+        return f"$ {obj.unit_price:.2f}"
     
-    @admin.display(description='Total')
-    def total_display(self, obj):
-        """Mostrar total con símbolo USD"""
-        if obj.total:
-            return f"$ {obj.total:.2f}"
-        return "$ 0.00"
+    @admin.display(description='Precio (Bs.)')
+    def unit_price_bs_display(self, obj):
+        """Mostrar precio unitario en Bs."""
+        try:
+            rate = ExchangeRate.get_today_rate('USD', 'BS')
+            if rate:
+                price_bs = obj.unit_price * rate
+                return f"Bs. {price_bs:.2f}"
+            return "Sin tasa"
+        except Exception as e:
+            return f"Error: {str(e)}"
     
-    @admin.display(description='Total en Bs.')
+    @admin.display(description='Total (USD)')
+    def total_usd_display(self, obj):
+        """Mostrar total en USD"""
+        return f"$ {obj.total:.2f}"
+    
+    @admin.display(description='Total (Bs.)')
     def total_bs_display(self, obj):
-        """Mostrar total en Bolívares"""
-        if obj.total and obj.total > 0:
-            try:
-                from django_erp.configuration.models import ExchangeRate
-                rate = ExchangeRate.get_today_rate('USD', 'BS')
-                if rate:
-                    total_bs = obj.total * rate
-                    return f"Bs. {total_bs:.2f}"
-                else:
-                    return "Sin tasa"
-            except:
-                return "Error"
-        return "-"
+        """Mostrar total en Bs."""
+        try:
+            rate = ExchangeRate.get_today_rate('USD', 'BS')
+            if rate:
+                total_bs = obj.total * rate
+                return f"Bs. {total_bs:.2f}"
+            return "Sin tasa"
+        except:
+            return "Error"

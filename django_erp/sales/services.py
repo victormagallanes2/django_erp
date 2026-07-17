@@ -33,17 +33,18 @@ class SaleService:
                             f"Disponible: {stock}, Solicitado: {line.quantity}"
                         )
                 
-                # ✅ Crear movimiento de salida para productos físicos
+                # ✅ Crear movimiento de salida para productos físicos con precio
                 if apps.is_installed('django_erp.warehouse'):
                     from django_erp.warehouse.services import WarehouseService
                     WarehouseService.create_exit(
                         product_id=line.product.id,
                         quantity=line.quantity,
                         location_from_id=line.location.id if line.location else None,
+                        unit_price=line.unit_price,
                         source_type='SALE',
                         source_reference=order.number,
                         note=f"Venta {order.number} - {order.customer.name}",
-                        user=user
+                        user=user or order.user
                     )
                 else:
                     print(f"ℹ️ Warehouse no instalado. No se reduce stock para {line.product.name}")
@@ -57,7 +58,7 @@ class SaleService:
         if apps.is_installed('django_erp.invoicing'):
             try:
                 from django_erp.invoicing.services import InvoiceService
-                InvoiceService.create_invoice_from_sale_order(order.id, user)
+                InvoiceService.create_invoice_from_sale_order(order.id, user or order.user)
             except Exception as e:
                 print(f"⚠️ Error al generar factura: {e}")
         

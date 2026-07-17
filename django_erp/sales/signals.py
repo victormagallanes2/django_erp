@@ -1,68 +1,68 @@
-# sales/signals.py
+# sales/signals.py - VERSIÓN SIMPLIFICADA (sin pre_save)
 from django.db.models.signals import post_save
-from django.dispatch import Signal
-from .models import SaleOrder
+from django.dispatch import Signal, receiver
 from .models import SaleOrder, CashTransaction, CashRegister
-from django.dispatch import receiver
 import logging
 
 logger = logging.getLogger(__name__)
 
-# ✅ Señal que se emite cuando una orden se confirma
+# Señal que se emite cuando una orden se confirma
 order_confirmed = Signal()
 
 
-def on_order_status_change(sender, instance, created, **kwargs):
-    """Detectar cuando el estado cambia a CONFIRMED"""
-    if not created:
-        try:
-            old_instance = SaleOrder.objects.get(pk=instance.pk)
-            if old_instance.status == 'DRAFT' and instance.status == 'CONFIRMED':
-                order_confirmed.send(sender=SaleOrder, order=instance)
-        except SaleOrder.DoesNotExist:
-            pass
-
-
-# ✅ Conectar la señal solo si Sales está instalado
-try:
-    post_save.connect(on_order_status_change, sender=SaleOrder)
-except Exception as e:
-    print(f"⚠️ Error connecting signal: {e}")
-
-
-@receiver(post_save, sender=SaleOrder)
-def register_sale_in_cash(sender, instance, created, **kwargs):
+@receiver(order_confirmed)
+def register_sale_in_cash(sender, order, **kwargs):
     """Cuando se confirma una venta, registrarla en la caja abierta"""
+    print(f"🔴 SIGNAL: register_sale_in_cash called for {order.number}")
     
-    # ✅ SOLO cuando la orden se confirma (status cambia a CONFIRMED)
-    if instance.status == 'CONFIRMED' and instance.user:
-        try:
-            # ✅ Verificar si ya existe transacción para esta orden
-            existing = CashTransaction.objects.filter(
-                reference=instance.number,
-                type='SALE'
-            ).exists()
-            
-            if existing:
-                logger.info(f"ℹ️ Transacción ya existe para {instance.number}")
-                return
-            
-            register = CashRegister.objects.get(
-                user=instance.user,
-                status='OPEN'
-            )
-            
-            CashTransaction.objects.create(
-                register=register,
-                type='SALE',
-                amount=instance.total,
-                description=f"Venta {instance.number} - {instance.customer.name}",
-                reference=instance.number,
-                user=instance.user
-            )
-            
-            register.calculate_totals()
-            logger.info(f"✅ Venta {instance.number} registrada en caja")
-            
-        except CashRegister.DoesNotExist:
-            logger.info(f"ℹ️ No hay caja abierta para {instance.user.username}")
+    try:
+        # ✅ Buscar caja abierta para este usuario
+        user = getattr(order, '_status_changed_by', order.user)
+        print(f"   Usuario: {user}")
+        
+        register = CashRegister.objects.filter(
+            user=user,
+            status='OPEN'
+        ).first()
+        
+        if not register:
+            print(f"   ❌ No hay caja abierta para {user.username}")
+            logger.warning(f"⚠️ No hay caja abierta para {user.username}")
+            return
+        
+        print(f"   ✅ Caja encontrada: {register.number}")
+        
+        # ✅ Verificar si ya existe transacción para esta orden
+        existing = CashTransaction.objects.filter(
+            reference=order.number,
+            type='SALE'
+        ).exists()
+        
+        if existing:
+            print(f"   ⚠️ Transacción ya existe para {order.number}")
+            return
+        
+        # ✅ Crear transacción
+        print(f"   Creando transacción para {order.number}")
+        transaction = CashTransaction.objects.create(
+            register=register,
+            type='SALE',
+            amount=order.total,
+            description=f"Venta {order.number} - {order.customer.name}",
+            reference=order.number,
+            user=user
+        )
+        print(f"   ✅ Transacción creada: {transaction.id}")
+        
+        # ✅ Recalcular totales de la caja
+        register.calculate_totals()
+        print(f"   ✅ Totales recalculados")
+        print(f"      Total ventas: {register.total_sales}")
+        print(f"      Total esperado: {register.expected_total}")
+        logger.info(f"✅ Venta {order.number} registrada en caja {register.number}")
+        
+    except Exception as e:
+        print(f"   ❌ ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        logger.error(f"❌ Error al registrar venta en caja: {e}")

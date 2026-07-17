@@ -217,7 +217,7 @@ class CashRegister(models.Model):
         max_length=50, 
         unique=True, 
         verbose_name="Número",
-        editable=True  # ← No editable en el admin
+        editable=True
     )
 
     user = models.ForeignKey(
@@ -312,6 +312,65 @@ class CashRegister(models.Model):
     def __str__(self):
         return f"{self.number} - {self.user.username} - {self.date}"
 
+    def calculate_totals(self):
+        """Calcular totales de la caja"""
+        from django.db.models import Sum
+        
+        # ✅ Calcular ventas
+        total_sales = self.transactions.filter(
+            type='SALE'
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        # ✅ Calcular gastos
+        total_expenses = self.transactions.filter(
+            type='EXPENSE'
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        # ✅ Calcular retiros
+        total_withdrawals = self.transactions.filter(
+            type='WITHDRAWAL'
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        # ✅ Actualizar campos
+        self.total_sales = total_sales
+        self.total_expenses = total_expenses
+        self.total_withdrawals = total_withdrawals
+        self.expected_total = (
+            self.initial_amount + 
+            self.total_sales - 
+            self.total_expenses - 
+            self.total_withdrawals
+        )
+        
+        # ✅ Guardar sin recursión
+        super().save(update_fields=[
+            'total_sales', 'total_expenses', 
+            'total_withdrawals', 'expected_total'
+        ])
+        
+        return self.expected_total
+
+    def close(self, counted_total, breakdown=None, note=''):
+        """Cerrar caja"""
+        if self.status != 'OPEN':
+            raise ValidationError("Solo se puede cerrar una caja abierta")
+        
+        from django.utils import timezone
+        
+        # ✅ Recalcular antes de cerrar
+        self.calculate_totals()
+        
+        self.counted_total = counted_total
+        self.breakdown = breakdown or {}
+        self.difference = self.expected_total - counted_total
+        self.closed_at = timezone.now()
+        self.status = 'CLOSED'
+        
+        if note:
+            self.note = note
+        
+        self.save()
+        return self.difference
 
     def save(self, *args, **kwargs):
         """Generar número automáticamente si no existe"""
@@ -333,47 +392,21 @@ class CashRegister(models.Model):
             
             self.number = f'CAJA-{date_str}-{next_num:04d}'
         
+        # ✅ Si se está abriendo, asegurar que no haya otra caja abierta
+        if self.status == 'OPEN' and self.pk is None:
+            # Verificar si ya hay una caja abierta para este usuario
+            existing_open = CashRegister.objects.filter(
+                user=self.user,
+                status='OPEN'
+            ).exists()
+            
+            if existing_open:
+                raise ValidationError(
+                    f"El usuario {self.user.username} ya tiene una caja abierta. "
+                    "Debe cerrarla antes de abrir una nueva."
+                )
+        
         super().save(*args, **kwargs)
-
-
-    def calculate_totals(self):
-        from django.db.models import Sum
-        
-        self.total_sales = self.transactions.filter(type='SALE').aggregate(
-            total=Sum('amount')
-        )['total'] or 0
-        
-        self.total_expenses = self.transactions.filter(type='EXPENSE').aggregate(
-            total=Sum('amount')
-        )['total'] or 0
-        
-        self.total_withdrawals = self.transactions.filter(type='WITHDRAWAL').aggregate(
-            total=Sum('amount')
-        )['total'] or 0
-        
-        self.expected_total = (
-            self.initial_amount + 
-            self.total_sales - 
-            self.total_expenses - 
-            self.total_withdrawals
-        )
-        self.save()
-        return self.expected_total
-
-    def close(self, counted_total, breakdown=None, note=''):
-        if self.status != 'OPEN':
-            raise ValidationError("Solo se puede cerrar una caja abierta")
-        
-        from django.utils import timezone
-        self.counted_total = counted_total
-        self.breakdown = breakdown or {}
-        self.difference = self.expected_total - counted_total
-        self.closed_at = timezone.now()
-        self.status = 'CLOSED'
-        if note:
-            self.note = note
-        self.save()
-        return self.difference
 
 
 class CashTransaction(models.Model):
