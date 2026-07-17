@@ -1,16 +1,44 @@
 # inventory/admin.py
 from django.contrib import admin
+from django.utils.html import format_html
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from .models import Inventory, ValuationMethod, PhysicalCount
 from .services import InventoryService
+from django_erp.configuration.models import ExchangeRate
 
 
 @admin.register(Inventory)
 class InventoryAdmin(UnfoldModelAdmin):
-    list_display = ['product', 'location', 'quantity', 'total_value', 'updated_at']
+    list_display = [
+        'product',
+        'location',
+        'quantity',
+        'total_value_usd_display',
+        'total_value_bs_display',
+        'updated_at'
+    ]
     list_filter = ['location']
     search_fields = ['product__name', 'product__code']
     readonly_fields = ['updated_at']
+
+
+
+    # ✅ Campo: Total en USD
+    @admin.display(description='Valor total (USD)')
+    def total_value_usd_display(self, obj):
+        return f"$ {obj.total_value:,.2f}"
+
+    # ✅ Campo: Total en Bs. (convertido)
+    @admin.display(description='Valor total (Bs.)')
+    def total_value_bs_display(self, obj):
+        try:
+            rate = ExchangeRate.get_today_rate('USD', 'BS')
+            if rate:
+                value_bs = obj.total_value * rate
+                return f"Bs. {value_bs:,.2f}"
+            return "Sin tasa"
+        except Exception:
+            return "Error"
 
 
 @admin.register(ValuationMethod)

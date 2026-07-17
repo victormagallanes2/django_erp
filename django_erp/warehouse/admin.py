@@ -31,10 +31,6 @@ class ProductAdmin(SimpleHistoryAdmin, UnfoldModelAdmin):
             'fields': ('price',),
             'description': 'Precio en dólares americanos (USD)'
         }),
-        ('Precio en Bolívares', {
-            'fields': ('price_bs_info',),
-            'description': 'Precio convertido a Bolívares según tasa del día'
-        }),
         ('Características', {
             'fields': ('weight', 'dimensions', 'image')
         }),
@@ -142,14 +138,11 @@ class MovementAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
     list_filter = ['type', 'source_type']
     search_fields = ['product__name', 'product__code', 'source_reference']
     readonly_fields = ['total', 'user', 'created_at']
+    autocomplete_fields = ['product']
     
     fieldsets = (
         ('Movimiento', {
-            'fields': ('product', 'type', 'quantity')
-        }),
-        ('Precios', {
-            'fields': ('unit_price', 'total'),
-            'description': 'El total se calcula automáticamente: Cantidad × Precio unitario'
+            'fields': ('product', 'type', 'quantity', 'unit_price')
         }),
         ('Ubicaciones', {
             'fields': ('location_from', 'location_to'),
@@ -167,3 +160,33 @@ class MovementAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
         if not obj.user:
             obj.user = request.user
         super().save_model(request, obj, form, change)
+
+    @admin.display(description='Precio Unitario')
+    def unit_price_display(self, obj):
+        """Mostrar precio unitario con símbolo USD"""
+        if obj.unit_price:
+            return f"$ {obj.unit_price:.2f}"
+        return "$ 0.00"
+    
+    @admin.display(description='Total')
+    def total_display(self, obj):
+        """Mostrar total con símbolo USD"""
+        if obj.total:
+            return f"$ {obj.total:.2f}"
+        return "$ 0.00"
+    
+    @admin.display(description='Total en Bs.')
+    def total_bs_display(self, obj):
+        """Mostrar total en Bolívares"""
+        if obj.total and obj.total > 0:
+            try:
+                from django_erp.configuration.models import ExchangeRate
+                rate = ExchangeRate.get_today_rate('USD', 'BS')
+                if rate:
+                    total_bs = obj.total * rate
+                    return f"Bs. {total_bs:.2f}"
+                else:
+                    return "Sin tasa"
+            except:
+                return "Error"
+        return "-"
