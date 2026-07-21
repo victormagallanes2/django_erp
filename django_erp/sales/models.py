@@ -5,6 +5,8 @@ from django.core.exceptions import ValidationError
 from simple_history.models import HistoricalRecords
 from decimal import Decimal
 from django.apps import apps
+import uuid
+
 
 User = get_user_model()
 
@@ -43,7 +45,45 @@ class Customer(models.Model):
 
 class SaleOrder(models.Model):
     """Orden de venta"""
+
+    # ✅ NUEVO: UUID
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="ID Universal"
+    )
     
+    # ✅ NUEVO: Estado de sincronización
+    SYNC_STATUS_CHOICES = [
+        ('PENDING', 'Pendiente de sincronizar'),
+        ('SYNCING', 'Sincronizando...'),
+        ('SYNCED', 'Sincronizada'),
+        ('FAILED', 'Error en sincronización'),
+    ]
+    
+    sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        default='PENDING',
+        verbose_name="Estado de sincronización"
+    )
+    
+    # ✅ NUEVO: Device ID
+    device_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="Dispositivo de creación"
+    )
+    
+    # ✅ NUEVO: Fecha de creación local
+    created_at_local = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Creado localmente"
+    )
+
     STATUS_CHOICES = [
         ('DRAFT', 'Borrador'),
         ('CONFIRMED', 'Confirmada'),
@@ -90,6 +130,8 @@ class SaleOrder(models.Model):
             ("can_view_reports", "Puede ver reportes de ventas"),
         ]
 
+
+
     def __str__(self):
         return f"{self.number} - {self.customer.name}"
 
@@ -104,6 +146,9 @@ class SaleOrder(models.Model):
         return subtotal, tax, total
 
     def save(self, *args, **kwargs):
+        # ✅ NUEVO: Generar UUID si no tiene
+        if not self.uuid:
+            self.uuid = uuid.uuid4()
         super().save(*args, **kwargs)
         self.calculate_totals()
         super().save(*args, **kwargs)
@@ -111,7 +156,16 @@ class SaleOrder(models.Model):
 
 class SaleLine(models.Model):
     """Línea de venta - Producto opcional"""
-    
+
+    # ✅ NUEVO: UUID
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="ID Universal"
+    )
+
     order = models.ForeignKey(
         SaleOrder,
         on_delete=models.CASCADE,
@@ -181,6 +235,7 @@ class SaleLine(models.Model):
         verbose_name = "Línea de Venta"
         verbose_name_plural = "Líneas de Venta"
 
+
     def __str__(self):
         if self.product:
             return f"{self.order.number} - {self.product.name}"
@@ -199,7 +254,9 @@ class SaleLine(models.Model):
             self.product_name = self.product.name
         if not self.location_code and self.location:
             self.location_code = self.location.code
-        
+        # ✅ NUEVO: Generar UUID si no tiene
+        if not self.uuid:
+            self.uuid = uuid.uuid4()
         super().save(*args, **kwargs)
 
 

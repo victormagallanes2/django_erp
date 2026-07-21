@@ -235,7 +235,8 @@ class InvoiceAdmin(UnfoldModelAdmin):
     readonly_fields = ['date', 'subtotal', 'tax', 'total', 'user', 'created_at', 'updated_at']
 
     class Media:
-        js = ('admin/js/invoice_admin.js',)
+        js = ('admin/js/invoice_admin.js', 'admin/js/offline_manager.js',)
+
     
     def save_model(self, request, obj, form, change):
         from .services import InvoiceService

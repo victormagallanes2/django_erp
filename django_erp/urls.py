@@ -18,9 +18,19 @@ from django.contrib import admin
 from django.urls import path, include 
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.decorators.http import require_http_methods
+from django.http import JsonResponse
 
+
+# ✅ Health Check para verificar conexión real
+@require_http_methods(["GET", "HEAD"])
+def health_check(request):
+    """Endpoint para verificar que el servidor está respondiendo"""
+    return JsonResponse({'status': 'ok', 'timestamp': '2026-01-19'})
 
 urlpatterns = [
+    # ✅ Health Check (para detectar conexión real)
+    path('admin/health-check/', health_check, name='health_check'),
     path('admin/sales/', include('django_erp.sales.urls')),
     path('admin/invoicing/', include('django_erp.invoicing.urls')),
     path('admin/', admin.site.urls),

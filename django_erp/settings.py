@@ -14,6 +14,7 @@ from pathlib import Path
 import os
 from django.urls import reverse_lazy
 from django.utils.translation import gettext_lazy as _
+from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -85,12 +86,33 @@ WSGI_APPLICATION = 'django_erp.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+# ✅ CONFIGURACIÓN DE BASES DE DATOS
+load_dotenv()
+
 DATABASES = {
+    # ✅ Base de datos PRINCIPAL (servidor central)
     'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DB_NAME', 'erp_database'),
+        'USER': os.getenv('DB_USER', 'erp_user'),
+        'PASSWORD': os.getenv('DB_PASSWORD', 'erp2026'),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '5432'),
+        'OPTIONS': {
+            'options': '-c search_path=public'
+        }
+    },
+    
+    # ✅ Base de datos LOCAL (PC del vendedor)
+    'local': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': BASE_DIR / 'db_local.sqlite3',
+        # SQLite no necesita usuario, contraseña, host ni puerto
     }
 }
+
+# ✅ ROUTER para decidir qué base de datos usar
+DATABASE_ROUTERS = ['django_erp.db_routers.OfflineRouter']
 
 
 # Password validation

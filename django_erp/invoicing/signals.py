@@ -1,28 +1,51 @@
 # invoicing/signals.py
 from django.apps import apps
+from django.dispatch import receiver
 import logging
 
 logger = logging.getLogger(__name__)
 
-
-# ✅ Verificar si Sales está instalado antes de importar
 if apps.is_installed('django_erp.sales'):
     try:
         from django_erp.sales.signals import order_confirmed
-        from django.dispatch import receiver
         
         @receiver(order_confirmed)
         def on_order_confirmed(sender, order, **kwargs):
-            """Cuando una orden se confirma, generar factura automáticamente"""
+            """✅ ÚNICA señal que crea la factura"""
             try:
                 from .services import InvoiceService
-                invoice = InvoiceService.create_invoice_from_sale_order(order.id, order.user)
-                logger.info(f"✅ Factura {invoice.number} generada para {order.number}")
+                
+                print(f"🔴 Creando factura para orden {order.number}")
+                
+                # ✅ ✅ ✅ Verificar si la orden YA tiene factura
+                if hasattr(order, 'invoice') and order.invoice:
+                    print(f"   ⚠️ La orden {order.number} YA tiene factura")
+                    return
+                
+                # ✅ ✅ ✅ Verificar si ya se creó una factura para esta orden
+                from django_erp.invoicing.models import Invoice
+                existing = Invoice.objects.filter(
+                    sale_order_number=order.number
+                ).exists()
+                
+                if existing:
+                    print(f"   ⚠️ Ya existe una factura para la orden {order.number}")
+                    return
+                
+                # ✅ Crear factura
+                invoice = InvoiceService.create_invoice_from_sale_order(order.id)
+                print(f"   ✅ Factura {invoice.number} creada")
+                logger.info(f'✅ Factura {invoice.number} generada para {order.number}')
+                
             except Exception as e:
-                logger.error(f"❌ Error al generar factura para {order.number}: {e}")
+                print(f"   ❌ ERROR: {e}")
+                import traceback
+                traceback.print_exc()
+                logger.error(f'❌ Error al generar factura para {order.number}: {e}')
         
-        logger.info("✅ Signals de Invoicing conectadas a Sales")
+        print('✅ Invoicing signals conectadas a Sales')
+        
     except ImportError as e:
-        logger.warning(f"⚠️ No se pudieron conectar signals: {e}")
+        print(f'⚠️ Error: {e}')
 else:
-    logger.info("ℹ️ Sales no está instalado. Invoicing funciona en modo independiente.")
+    print('ℹ️ Sales no está instalado')

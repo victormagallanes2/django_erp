@@ -1,0 +1,65 @@
+<!-- templates/admin/base_site.html -->
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}
+    {{ block.super }}
+    
+    <!-- ❌ DESACTIVADO TEMPORALMENTE: Offline Manager -->
+    <!-- 
+    <script src="{% static 'admin/js/offline_manager.js' %}"></script>
+    -->
+    
+    <!-- ✅ Estilos básicos para ocultar elementos offline -->
+    <style>
+        /* ✅ Ocultar todos los elementos de la interfaz offline */
+        #offline-badge, 
+        #sync-button-header, 
+        #force-offline-btn, 
+        #force-online-btn,
+        .connection-indicator,
+        #connection-status-container,
+        #offline-banner {
+            display: none !important;
+        }
+        
+        /* ✅ También ocultar en el header de Unfold */
+        .connection-indicator,
+        [id*="offline"],
+        [id*="sync-button"] {
+            display: none !important;
+        }
+    </style>
+{% endblock %}
+
+{% block branding %}
+    <div id="site-name">
+        <a href="{% url 'admin:index' %}">
+            {{ site_header|default:_('Django administration') }}
+            
+            <!-- ❌ Eliminados los indicadores offline -->
+            <!-- 
+            <span class="connection-indicator" id="connection-status-container">
+                <span class="dot online" id="connection-dot"></span>
+                <span id="connection-text">Online</span>
+            </span>
+            <span id="offline-badge">0</span>
+            <button id="sync-button-header">🔄 Sincronizar</button>
+            <button id="force-offline-btn">📴 Modo Offline</button>
+            <button id="force-online-btn">📶 Modo Online</button>
+            -->
+        </a>
+    </div>
+{% endblock %}
+
+{% block content %}
+    <!-- ❌ Eliminado el banner offline -->
+    <!-- 
+    <div id="offline-banner">
+        ⚠️ <strong>Sin conexión</strong> - Las facturas se guardarán localmente.
+        <span id="offline-count">0</span> facturas pendientes.
+    </div>
+    -->
+    
+    {{ block.super }}
+{% endblock %}

@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from decimal import Decimal
 from django_erp.configuration.models import Company
 from simple_history.models import HistoricalRecords
+import uuid
 
 User = get_user_model()
 
@@ -11,6 +12,62 @@ User = get_user_model()
 class Invoice(models.Model):
     """Factura - Completamente independiente"""
     
+    # ✅ UUID con db_index=True (el índice se crea con el campo)
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,  # ← ✅ ESTO CREA EL ÍNDICE AUTOMÁTICAMENTE
+        verbose_name="ID Universal"
+    )
+    
+    # ✅ Estado de sincronización (también con índice)
+    SYNC_STATUS_CHOICES = [
+        ('PENDING', 'Pendiente de sincronizar'),
+        ('SYNCING', 'Sincronizando...'),
+        ('SYNCED', 'Sincronizada'),
+        ('FAILED', 'Error en sincronización'),
+    ]
+    
+    sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        default='PENDING',
+        db_index=True,  # ← ✅ ÍNDICE PARA BÚSQUEDAS RÁPIDAS
+        verbose_name="Estado de sincronización"
+    )
+    
+    # ✅ created_at_local con índice
+    created_at_local = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,  # ← ✅ ÍNDICE PARA ORDENAR
+        verbose_name="Creado localmente"
+    )
+    
+    device_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="Dispositivo de creación",
+        help_text="Identificador del equipo que creó la factura"
+    )
+    
+    synced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Sincronizado el"
+    )
+    
+    sync_attempts = models.IntegerField(
+        default=0,
+        verbose_name="Intentos de sincronización"
+    )
+    
+    sync_error = models.TextField(
+        blank=True,
+        verbose_name="Error de sincronización"
+    )
+
     STATUS_CHOICES = [
         ('DRAFT', 'Borrador'),
         ('ISSUED', 'Emitida'),
@@ -33,6 +90,7 @@ class Invoice(models.Model):
         on_delete=models.PROTECT,
         verbose_name="Empresa"
     )
+
     issuer_rif = models.CharField(max_length=20, verbose_name="RIF Emisor")
     issuer_name = models.CharField(max_length=200, verbose_name="Nombre Emisor")
     issuer_address = models.TextField(verbose_name="Dirección Emisor")
@@ -115,6 +173,7 @@ class Invoice(models.Model):
             ("can_cancel_invoice", "Puede anular facturas"),
         ]
 
+
     def __str__(self):
         if self.customer_name:
             return f"{self.number} - {self.customer_name}"
@@ -136,13 +195,24 @@ class Invoice(models.Model):
             self.customer_name = self.customer.name
             self.customer_rif = self.customer.tax_id
             self.customer_address = self.customer.address
+        # ✅ NUEVO: Si es una factura nueva, generar UUID si no tiene
+        if not self.uuid:
+            self.uuid = uuid.uuid4()
         
         super().save(*args, **kwargs)
 
 
 class InvoiceLine(models.Model):
-    """Línea de factura - Con campos separados"""
-    
+
+    # ✅ NUEVO: UUID para línea de factura
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="ID Universal"
+    )
+
     invoice = models.ForeignKey(
         Invoice,
         on_delete=models.CASCADE,
@@ -209,6 +279,7 @@ class InvoiceLine(models.Model):
             ("can_edit_invoiceline", "Puede editar líneas de factura"),
         ]
 
+
     def __str__(self):
         name = self.product_name or self.description or 'Sin producto'
         return f"{self.invoice.number} - {name}"
@@ -238,5 +309,9 @@ class InvoiceLine(models.Model):
         
         if not self.product_name and self.product_code:
             self.product_name = self.product_code
+
+        # ✅ NUEVO: Generar UUID si no tiene
+        if not self.uuid:
+            self.uuid = uuid.uuid4()
         
         super().save(*args, **kwargs)

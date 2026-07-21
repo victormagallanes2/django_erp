@@ -363,6 +363,7 @@ class SaleOrderAdmin(UnfoldModelAdmin):
         print(f"   Nuevo estado: {new_status}")
         
         # ✅ 5. PROCESAR SIEMPRE QUE EL ESTADO SEA CONFIRMED
+        # ✅ 5. PROCESAR SIEMPRE QUE EL ESTADO SEA CONFIRMED
         if new_status == 'CONFIRMED':
             print(f"🔴 PROCESANDO CONFIRMACIÓN para {obj.number}")
             
@@ -387,6 +388,8 @@ class SaleOrderAdmin(UnfoldModelAdmin):
                 if not has_transaction and obj.total > 0:
                     print(f"   🔴 La orden tiene movimientos pero no transacción en caja. Registrando...")
                     obj._status_changed_by = request.user
+                    # ✅ Solo registrar en caja, no crear factura
+                    from .signals import order_confirmed
                     order_confirmed.send(sender=SaleOrder, order=obj)
                     self.message_user(request, f'✅ Transacción en caja registrada para {obj.number}', messages.SUCCESS)
                 
@@ -410,29 +413,24 @@ class SaleOrderAdmin(UnfoldModelAdmin):
             # ✅ PROCESAR CONFIRMACIÓN
             print(f"   ✅ Procesando confirmación por primera vez...")
             
-            # ✅ Cambiar el estado a CONFIRMED
-            obj.status = 'CONFIRMED'
-            obj.save()
-            print(f"   ✅ Estado cambiado a CONFIRMED")
-            
-            # ✅ Confirmar la orden (esto reduce el stock y genera factura)
-            print(f"   🔴 Confirmando orden (reduciendo stock)...")
+            # ✅ ✅ ✅ CORREGIDO: Solo llamar a confirm_order
+            # confirm_order ya se encarga de:
+            #   1. Reducir stock
+            #   2. Crear factura
+            #   3. Registrar en caja
+            print(f"   🔴 Confirmando orden...")
             try:
                 SaleService.confirm_order(obj, request.user)
                 print(f"   ✅ Orden confirmada exitosamente")
             except Exception as e:
                 print(f"   ❌ Error al confirmar: {e}")
                 self.message_user(request, f"Error al confirmar: {e}", messages.ERROR)
-                # Revertir estado
                 obj.status = 'DRAFT'
                 obj.save()
                 return
             
-            # ✅ Registrar en caja
-            print(f"   🔴 Registrando en caja...")
-            obj._status_changed_by = request.user
-            order_confirmed.send(sender=SaleOrder, order=obj)
-            print(f"   ✅ Registro en caja completado")
+            # ✅ ✅ ✅ ELIMINADO: Ya no se emite la señal manualmente
+            # order_confirmed.send(sender=SaleOrder, order=obj)
             
             self.message_user(request, f'✅ Orden {obj.number} confirmada exitosamente', messages.SUCCESS)
         
