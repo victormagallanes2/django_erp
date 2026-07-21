@@ -2,6 +2,7 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from simple_history.models import HistoricalRecords
+import uuid
 
 # ✅ NO importamos nada de warehouse
 # ✅ Usamos referencias dinámicas
@@ -80,6 +81,40 @@ class ValuationMethod(models.Model):
 
 
 class PhysicalCount(models.Model):
+
+    # ✅ NUEVO: UUID
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="ID Universal"
+    )
+    
+    # ✅ NUEVO: Estado de sincronización
+    SYNC_STATUS_CHOICES = [
+        ('PENDING', 'Pendiente de sincronizar'),
+        ('SYNCING', 'Sincronizando...'),
+        ('SYNCED', 'Sincronizada'),
+        ('FAILED', 'Error en sincronización'),
+    ]
+    
+    sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        default='PENDING',
+        db_index=True,
+        verbose_name="Estado de sincronización"
+    )
+    
+    # ✅ NUEVO: Device ID
+    device_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="Dispositivo de creación"
+    )
+
     """Conteo físico de inventario"""
     
     STATUS_CHOICES = [
@@ -124,10 +159,17 @@ class PhysicalCount(models.Model):
             ("can_create_physicalcount", "Puede crear conteos físicos"),
             ("can_confirm_physicalcount", "Puede confirmar conteos físicos"),
         ]
+
+        indexes = [
+            models.Index(fields=['uuid']),
+            models.Index(fields=['sync_status']),
+        ]
     
     def __str__(self):
         return f"{self.product.name} - {self.count_date}"
     
     def save(self, *args, **kwargs):
+        if not self.uuid:
+            self.uuid = uuid.uuid4()
         self.difference = self.counted_quantity - self.system_quantity
         super().save(*args, **kwargs)

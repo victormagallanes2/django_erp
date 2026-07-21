@@ -90,24 +90,16 @@ WSGI_APPLICATION = 'django_erp.wsgi.application'
 load_dotenv()
 
 DATABASES = {
-    # ✅ Base de datos PRINCIPAL (servidor central)
+    # ✅ Base de datos PRINCIPAL (SQLite para desarrollo)
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'erp_database'),
-        'USER': os.getenv('DB_USER', 'erp_user'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'erp2026'),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
-        'PORT': os.getenv('DB_PORT', '5432'),
-        'OPTIONS': {
-            'options': '-c search_path=public'
-        }
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     },
     
-    # ✅ Base de datos LOCAL (PC del vendedor)
+    # ✅ Base de datos LOCAL (SQLite - para pruebas offline)
     'local': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db_local.sqlite3',
-        # SQLite no necesita usuario, contraseña, host ni puerto
     }
 }
 

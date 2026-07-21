@@ -262,7 +262,32 @@ class SaleLine(models.Model):
 
 class CashRegister(models.Model):
     """Registro de caja - Integrado en Sales"""
+
+    # ✅ NUEVO: UUID
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="ID Universal"
+    )
     
+    # ✅ NUEVO: Estado de sincronización
+    SYNC_STATUS_CHOICES = [
+        ('PENDING', 'Pendiente de sincronizar'),
+        ('SYNCING', 'Sincronizando...'),
+        ('SYNCED', 'Sincronizada'),
+        ('FAILED', 'Error en sincronización'),
+    ]
+    
+    sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        default='PENDING',
+        db_index=True,
+        verbose_name="Estado de sincronización"
+    )
+
     STATUS_CHOICES = [
         ('OPEN', 'Abierta'),
         ('CLOSED', 'Cerrada'),
@@ -366,6 +391,11 @@ class CashRegister(models.Model):
             ("can_view_register", "Puede ver cierres de caja"),
         ]
 
+        indexes = [
+            models.Index(fields=['uuid']),
+            models.Index(fields=['sync_status']),
+        ]
+
     def __str__(self):
         return f"{self.number} - {self.user.username} - {self.date}"
 
@@ -431,6 +461,9 @@ class CashRegister(models.Model):
 
     def save(self, *args, **kwargs):
         """Generar número automáticamente si no existe"""
+        # ✅ NUEVO: Generar UUID si no tiene
+        if not self.uuid:
+            self.uuid = uuid.uuid4()
         if not self.number:
             from datetime import datetime
             date_str = datetime.now().strftime('%Y%m%d')
@@ -469,6 +502,46 @@ class CashRegister(models.Model):
 class CashTransaction(models.Model):
     """Transacción de caja"""
     
+    # ✅ NUEVO: UUID
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="ID Universal"
+    )
+    
+    # ✅ NUEVO: Estado de sincronización
+    SYNC_STATUS_CHOICES = [
+        ('PENDING', 'Pendiente de sincronizar'),
+        ('SYNCING', 'Sincronizando...'),
+        ('SYNCED', 'Sincronizada'),
+        ('FAILED', 'Error en sincronización'),
+    ]
+    
+    sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        default='PENDING',
+        db_index=True,
+        verbose_name="Estado de sincronización"
+    )
+    
+    # ✅ NUEVO: Device ID
+    device_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="Dispositivo de creación"
+    )
+    
+    # ✅ NUEVO: Fecha de creación local
+    created_at_local = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        verbose_name="Creado localmente"
+    )
+
     TYPE_CHOICES = [
         ('SALE', 'Venta'),
         ('EXPENSE', 'Gasto'),
@@ -517,5 +590,12 @@ class CashTransaction(models.Model):
         verbose_name_plural = "Transacciones de Caja"
         ordering = ['-created_at']
 
+        indexes = [
+            models.Index(fields=['uuid']),
+            models.Index(fields=['sync_status']),
+        ]
+
     def __str__(self):
+        if not self.uuid:
+            self.uuid = uuid.uuid4()
         return f"{self.get_type_display()} - {self.amount} - {self.description}"
