@@ -177,7 +177,7 @@ class ExchangeRateAdmin( UnfoldModelAdmin, SimpleHistoryAdmin):
 
 @admin.register(PaymentMethod)
 class PaymentMethodAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
-    list_display = ['name', 'code', 'is_active_badge', 'requires_approval_badge', 'icon']
+    list_display = ['name', 'code', 'is_active_badge', 'requires_approval_badge', 'icon', 'default_currency']
     list_filter = ['is_active', 'requires_approval']
     search_fields = ['name', 'code']
     
@@ -186,7 +186,7 @@ class PaymentMethodAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
             'fields': ('name', 'code', 'description')
         }),
         ('Configuración', {
-            'fields': ('is_active', 'requires_approval', 'icon')
+            'fields': ('is_active', 'requires_approval', 'icon', 'default_currency')
         }),
     )
     

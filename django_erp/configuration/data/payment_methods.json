@@ -7,7 +7,8 @@
       "description": "Pago en efectivo",
       "is_active": true,
       "requires_approval": false,
-      "icon": "fa-money-bill"
+      "icon": "fa-money-bill",
+      "default_currency": 3
     }
   },
   {
@@ -18,7 +19,8 @@
       "description": "Pago con tarjeta de crédito",
       "is_active": true,
       "requires_approval": false,
-      "icon": "fa-credit-card"
+      "icon": "fa-credit-card",
+      "default_currency": 3
     }
   },
   {
@@ -29,7 +31,8 @@
       "description": "Pago con tarjeta de débito",
       "is_active": true,
       "requires_approval": false,
-      "icon": "fa-credit-card"
+      "icon": "fa-credit-card",
+      "default_currency": 3
     }
   },
   {
@@ -40,7 +43,8 @@
       "description": "Pago por transferencia bancaria",
       "is_active": true,
       "requires_approval": true,
-      "icon": "fa-university"
+      "icon": "fa-university",
+      "default_currency": 1
     }
   },
   {
@@ -51,7 +55,8 @@
       "description": "Pago con cheque",
       "is_active": true,
       "requires_approval": true,
-      "icon": "fa-file-invoice"
+      "icon": "fa-file-invoice",
+      "default_currency": 3
     }
   },
   {
@@ -62,7 +67,8 @@
       "description": "Pago móvil (Venezuela)",
       "is_active": true,
       "requires_approval": false,
-      "icon": "fa-mobile-alt"
+      "icon": "fa-mobile-alt",
+      "default_currency": 1
     }
   },
   {
@@ -73,7 +79,8 @@
       "description": "Pago por Zelle",
       "is_active": true,
       "requires_approval": false,
-      "icon": "fa-envelope"
+      "icon": "fa-envelope",
+      "default_currency": 3
     }
   }
 ]

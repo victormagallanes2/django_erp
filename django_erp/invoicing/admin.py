@@ -7,8 +7,7 @@ from django.apps import apps
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from unfold.admin import TabularInline as UnfoldTabularInline
 from .models import Invoice, InvoiceLine
-from django_erp.configuration.models import Company
-from django_erp.configuration.models import PaymentMethod
+from django_erp.configuration.models import Company, PaymentMethod, Currency
 from django.utils.safestring import mark_safe
 
 
@@ -222,8 +221,7 @@ class InvoiceAdmin(UnfoldModelAdmin):
 
         ('Pagos', {
             'fields': (
-                'payment_summary_display',  # ← NUEVO
-                ('paid_amount', 'change_amount'),
+                'payment_summary_display',
             ),
             'classes': ('tab', 'wide'),
             'description': 'Resumen de los pagos realizados en la orden de venta'
@@ -243,7 +241,7 @@ class InvoiceAdmin(UnfoldModelAdmin):
 
     )
     
-    readonly_fields = ['date', 'subtotal', 'tax', 'total', 'user', 'created_at', 'updated_at','payment_summary_display', 'paid_amount', 'change_amount']
+    readonly_fields = ['date', 'subtotal', 'tax', 'total', 'user', 'created_at', 'updated_at','payment_summary_display']
 
 
     # ✅ NUEVO: Métodos para mostrar pagos
@@ -254,42 +252,134 @@ class InvoiceAdmin(UnfoldModelAdmin):
     
     @admin.display(description='Resumen de Pagos')
     def payment_summary_display(self, obj):
-        """Mostrar resumen de pagos con colores"""
+        """Mostrar resumen de pagos SIMPLIFICADO (solo lo que el cliente pagó)"""
         if not obj.payment_summary:
             return "No hay pagos registrados"
         
-        html = '<div style="margin: 5px 0;">'
+        html = '<div style="margin: 5px 0; max-width: 350px;">'
         
-        for code, amount in obj.payment_summary.items():
-            try:
-                method = PaymentMethod.objects.get(code=code)
-                name = method.name
-            except PaymentMethod.DoesNotExist:
-                name = code
-            
+        # ✅ Agrupar pagos por moneda
+        bs_payments = []
+        usd_payments = []
+        
+        for key, data in obj.payment_summary.items():
+            currency_code = data.get('currency', 'USD')
+            if currency_code == 'BS':
+                bs_payments.append(data)
+            elif currency_code == 'USD':
+                usd_payments.append(data)
+        
+        # ✅ Calcular totales
+        total_bs = sum(data.get('amount', 0) for data in bs_payments)
+        total_usd = sum(data.get('amount', 0) for data in usd_payments)
+        
+        # ✅ Mostrar pagos en Bolívares (si hay)
+        if bs_payments:
+            html += '<div style="margin-bottom: 8px;">'
+            html += '<div style="font-weight: bold; color: #856404; margin-bottom: 4px; font-size: 13px;">💵 Pagos en Bolívares:</div>'
+            for data in bs_payments:
+                amount = data.get('amount', 0)
+                formatted = f"Bs. {amount:,.2f}".replace(',', '.').replace('.', ',', 1)
+                html += f'''
+                <div style="display: flex; justify-content: space-between; 
+                            padding: 4px 10px; margin: 2px 0; 
+                            background: #fff8e1; border-radius: 4px;">
+                    <span style="font-size: 13px;">{data.get('method_name', data.get('method'))}</span>
+                    <span style="font-weight: bold; color: #856404; font-size: 13px;">{formatted}</span>
+                </div>
+                '''
+            html += '</div>'
+        
+        # ✅ Mostrar pagos en Dólares (si hay)
+        if usd_payments:
+            html += '<div style="margin-bottom: 8px;">'
+            html += '<div style="font-weight: bold; color: #1e7e34; margin-bottom: 4px; font-size: 13px;">💰 Pagos en Dólares:</div>'
+            for data in usd_payments:
+                amount = data.get('amount', 0)
+                formatted = f"$ {amount:,.2f}"
+                html += f'''
+                <div style="display: flex; justify-content: space-between; 
+                            padding: 4px 10px; margin: 2px 0; 
+                            background: #e8f5e9; border-radius: 4px;">
+                    <span style="font-size: 13px;">{data.get('method_name', data.get('method'))}</span>
+                    <span style="font-weight: bold; color: #1e7e34; font-size: 13px;">{formatted}</span>
+                </div>
+                '''
+            html += '</div>'
+        
+        # ✅ SECCIÓN: Totales
+        html += '<div style="margin-top: 10px; padding-top: 10px; border-top: 2px solid #2d6a4f;">'
+        
+        if total_bs > 0:
+            formatted_bs = f"Bs. {total_bs:,.2f}".replace(',', '.').replace('.', ',', 1)
             html += f'''
             <div style="display: flex; justify-content: space-between; 
-                        padding: 4px 8px; margin: 2px 0; 
-                        background: #f8f9fa; border-radius: 4px;">
-                <span style="font-weight: bold;">{name}</span>
-                <span style="color: #28a745;">$ {amount:.2f}</span>
+                        padding: 4px 10px; margin: 2px 0; 
+                        background: #d4edda; border-radius: 4px;">
+                <span style="font-weight: bold; font-size: 14px;">✅ Total Pagado</span>
+                <span style="font-weight: bold; color: #155724; font-size: 14px;">{formatted_bs}</span>
             </div>
             '''
         
-        if obj.change_amount > 0:
+        if total_usd > 0:
             html += f'''
             <div style="display: flex; justify-content: space-between; 
-                        padding: 4px 8px; margin: 2px 0; 
-                        background: #fff3cd; border-radius: 4px;">
-                <span style="font-weight: bold;">🔄 Cambio</span>
-                <span style="color: #856404;">$ {obj.change_amount:.2f}</span>
+                        padding: 4px 10px; margin: 2px 0; 
+                        background: #d4edda; border-radius: 4px;">
+                <span style="font-weight: bold; font-size: 14px;">✅ Total Pagado (USD)</span>
+                <span style="font-weight: bold; color: #155724; font-size: 14px;">$ {total_usd:,.2f}</span>
             </div>
             '''
         
         html += '</div>'
         
-        # ✅ Usar mark_safe en lugar de format_html
-        return mark_safe(html)
+        # ✅ ✅ ✅ SECCIÓN: Vuelto (SOLO si aplica)
+        # ✅ Usar change_summary que tiene el vuelto por moneda
+        if obj.change_summary:
+            html += '<div style="margin-top: 10px; padding-top: 10px; border-top: 2px solid #ddd;">'
+            html += '<div style="font-weight: bold; color: #856404; margin-bottom: 4px; font-size: 13px;">🔄 Vuelto:</div>'
+            
+            for currency_code, amount in obj.change_summary.items():
+                if currency_code == 'BS':
+                    formatted = f"Bs. {amount:,.2f}".replace(',', '.').replace('.', ',', 1)
+                    bg = '#fff3cd'
+                    color = '#856404'
+                elif currency_code == 'USD':
+                    formatted = f"$ {amount:,.2f}"
+                    bg = '#e8f5e9'
+                    color = '#1e7e34'
+                else:
+                    formatted = f"{currency_code} {amount:,.2f}"
+                    bg = '#f8f9fa'
+                    color = '#6c757d'
+                
+                html += f'''
+                <div style="display: flex; justify-content: space-between; 
+                            padding: 4px 10px; margin: 2px 0; 
+                            background: {bg}; border-radius: 4px;">
+                    <span style="font-weight: bold; font-size: 13px;">Vuelto en {currency_code}</span>
+                    <span style="font-weight: bold; color: {color}; font-size: 13px;">{formatted}</span>
+                </div>
+                '''
+            html += '</div>'
+        else:
+            # ✅ Si no hay vuelto, mostrar que está pagado
+            html += '''
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 2px solid #28a745;">
+                <div style="display: flex; justify-content: space-between; 
+                            padding: 4px 10px; margin: 2px 0; 
+                            background: #d4edda; border-radius: 4px;">
+                    <span style="font-weight: bold; font-size: 14px; color: #155724;">✅ Pagado</span>
+                    <span style="font-weight: bold; color: #155724; font-size: 14px;">Sin vuelto</span>
+                </div>
+            </div>
+            '''
+        
+        html += '</div>'
+        
+        if html.strip():
+            return mark_safe(html)
+        return "No hay pagos registrados"
 
     class Media:
         js = ('admin/js/invoice_admin.js', 'admin/js/offline_manager.js',)

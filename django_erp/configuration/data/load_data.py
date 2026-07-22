@@ -1,6 +1,6 @@
 # configuration/data/load_data.py
 """
-Script para cargar datos iniciales SOLO en la base de datos default (SQLite)
+Script para cargar TODOS los datos iniciales de una sola vez
 Uso: 
     python -m django_erp.configuration.data.load_data
 """
@@ -22,6 +22,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db import connections
+from django.core.management import call_command
 
 # ✅ Importar modelos
 from django_erp.configuration.models import Currency, ExchangeRate, PaymentMethod
@@ -32,8 +33,12 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 
 
+# ============================================================
+# FUNCIONES DE CARGA (una por cada tipo de dato)
+# ============================================================
+
 def load_currencies():
-    """Cargar monedas desde JSON en la base de datos default"""
+    """Cargar monedas desde JSON (manejando campos faltantes)"""
     print("📥 Cargando monedas...")
     file_path = os.path.join(DATA_DIR, 'currencies.json')
     
@@ -47,14 +52,27 @@ def load_currencies():
     count = 0
     for item in data:
         fields = item['fields']
+        
+        # ✅ Usar .get() con valores por defecto para evitar KeyError
+        code = fields.get('code', '')
+        name = fields.get('name', '')
+        symbol = fields.get('symbol', '$')
+        decimal_places = fields.get('decimal_places', 2)
+        is_base = fields.get('is_base', False)
+        is_active = fields.get('is_active', True)
+        
+        if not code or not name:
+            print(f"   ⚠️ Datos incompletos: {fields}")
+            continue
+        
         currency, created = Currency.objects.get_or_create(
-            code=fields['code'],
+            code=code,
             defaults={
-                'name': fields['name'],
-                'symbol': fields['symbol'],
-                'decimal_places': fields.get('decimal_places', 2),
-                'is_base': fields.get('is_base', False),
-                'is_active': fields.get('is_active', True),
+                'name': name,
+                'symbol': symbol,
+                'decimal_places': decimal_places,
+                'is_base': is_base,
+                'is_active': is_active,
             }
         )
         if created:
@@ -193,6 +211,16 @@ def load_payment_methods():
     count = 0
     for item in data:
         fields = item['fields']
+        
+        # ✅ Verificar que la moneda existe
+        currency_id = fields.get('default_currency')
+        if currency_id:
+            try:
+                currency = Currency.objects.get(pk=currency_id)
+            except Currency.DoesNotExist:
+                print(f"   ⚠️ Moneda ID {currency_id} no encontrada para {fields.get('name')}")
+                continue
+        
         method, created = PaymentMethod.objects.get_or_create(
             code=fields['code'],
             defaults={
@@ -201,20 +229,30 @@ def load_payment_methods():
                 'is_active': fields.get('is_active', True),
                 'requires_approval': fields.get('requires_approval', False),
                 'icon': fields.get('icon', ''),
+                'default_currency_id': fields.get('default_currency'),
             }
         )
         if created:
             count += 1
             print(f"   ✅ Creado: {method.name} ({method.code})")
+        else:
+            # ✅ Actualizar si ya existe
+            updated = False
+            if method.default_currency_id != fields.get('default_currency'):
+                method.default_currency_id = fields.get('default_currency')
+                updated = True
+            if updated:
+                method.save()
+                print(f"   🔄 Actualizado: {method.name} ({method.code})")
     
     print(f"✅ Métodos de pago cargados: {count} nuevos")
     return count
 
 
 def load_all():
-    """Cargar todos los datos en la base de datos default"""
+    """Cargar TODOS los datos en orden correcto"""
     print("=" * 60)
-    print("📥 CARGANDO DATOS INICIALES")
+    print("📥 CARGANDO TODOS LOS DATOS INICIALES")
     print("=" * 60)
     
     if not os.path.exists(DATA_DIR):
@@ -229,13 +267,22 @@ def load_all():
         print(f"❌ Error conectando: {e}")
         return
     
-    # ✅ Cargar todos los datos
+    # ✅ Cargar en el orden correcto (respetando dependencias)
     with transaction.atomic():
+        # 1. Monedas (primero, porque otros dependen)
         load_currencies()
+        
+        # 2. Tasas de cambio (dependen de monedas)
         load_exchange_rates()
-        load_groups()
-        load_users()
+        
+        # 3. Métodos de pago (dependen de monedas)
         load_payment_methods()
+        
+        # 4. Grupos (independientes)
+        load_groups()
+        
+        # 5. Usuarios (dependen de grupos)
+        load_users()
     
     # ✅ Verificar
     print("\n" + "=" * 60)
@@ -243,8 +290,15 @@ def load_all():
     print("=" * 60)
     
     print(f"📊 Monedas: {Currency.objects.count()}")
-    print(f"👤 Usuarios: {User.objects.count()}")
     print(f"💳 Métodos de Pago: {PaymentMethod.objects.count()}")
+    print(f"👤 Usuarios: {User.objects.count()}")
+    print(f"👥 Grupos: {Group.objects.count()}")
+    
+    # ✅ Mostrar métodos de pago con su moneda
+    print("\n💳 Métodos de Pago cargados:")
+    for pm in PaymentMethod.objects.all():
+        currency_code = pm.default_currency.code if pm.default_currency else 'SIN MONEDA'
+        print(f"   • {pm.name} ({pm.code}) → {currency_code}")
     
     print("\n" + "=" * 60)
     print("✅ CARGA COMPLETADA")

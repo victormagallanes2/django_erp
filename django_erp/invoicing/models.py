@@ -178,7 +178,15 @@ class Invoice(models.Model):
         default=0,
         verbose_name="Cambio"
     )
-    
+
+   # ✅ NUEVO: Vuelto por moneda
+    change_summary = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Vuelto por Moneda",
+        help_text='{"USD": 20, "BS": 500}'
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
     history = HistoricalRecords()

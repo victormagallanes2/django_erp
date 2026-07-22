@@ -7,6 +7,7 @@ from decimal import Decimal
 from django.apps import apps
 import uuid
 from django.conf import settings
+from django_erp.configuration.models import Currency, ExchangeRate
 
 
 User = get_user_model()
@@ -617,13 +618,31 @@ class Payment(models.Model):
         on_delete=models.PROTECT,
         verbose_name="Método de Pago"
     )
-    
+
+    currency = models.ForeignKey(
+        'configuration.Currency',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        verbose_name="Moneda",
+        help_text="Moneda en la que se realizó el pago"
+    )
+
     # ✅ Datos del pago
     amount = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         verbose_name="Monto"
     )
+
+    amount_usd = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        editable=False,
+        default=0,
+        verbose_name="Monto en USD"
+    )
+
     reference = models.CharField(
         max_length=100,
         blank=True,
@@ -663,6 +682,38 @@ class Payment(models.Model):
         verbose_name = "Pago"
         verbose_name_plural = "Pagos"
         ordering = ['-payment_date']
-    
+
     def __str__(self):
         return f"{self.sale_order.number} - {self.method.name} - {self.amount}"
+
+    def save(self, *args, **kwargs):
+        """Guardar pago con moneda correcta"""
+        from django_erp.configuration.models import Currency, ExchangeRate
+        
+        # ✅ Si no se especificó moneda, usar la del método de pago
+        if not self.currency_id and self.method_id:
+            # ✅ Obtener la moneda por defecto del método
+            if hasattr(self.method, 'default_currency') and self.method.default_currency:
+                self.currency = self.method.default_currency
+            else:
+                # ✅ Fallback: usar USD
+                usd = Currency.objects.get(code='USD')
+                self.currency = usd
+        
+        # ✅ Si aún no hay moneda, usar USD
+        if not self.currency_id:
+            usd = Currency.objects.get(code='USD')
+            self.currency = usd
+        
+        # ✅ Convertir a USD
+        if self.currency.code == 'USD':
+            self.amount_usd = self.amount
+        else:
+            rate = ExchangeRate.get_today_rate(self.currency.code, 'USD')
+            if rate and rate > 0:
+                self.amount_usd = self.amount / rate
+            else:
+                self.amount_usd = self.amount
+        
+        super().save(*args, **kwargs)
+

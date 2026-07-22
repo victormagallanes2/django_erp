@@ -258,7 +258,17 @@ class PaymentMethod(models.Model):
         verbose_name="Requiere aprobación",
         help_text="Ej: Cheques, transferencias bancarias"
     )
-    
+
+    # ✅ NUEVO: Moneda por defecto para este método de pago
+    default_currency = models.ForeignKey(
+        'configuration.Currency',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        verbose_name="Moneda por defecto",
+        help_text="Moneda en la que se suele realizar este pago"
+    )
+
     # ✅ Icono (opcional)
     icon = models.CharField(
         max_length=50,

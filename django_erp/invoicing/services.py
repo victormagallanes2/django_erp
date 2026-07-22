@@ -3,8 +3,12 @@ from django.db import transaction
 from django.core.exceptions import ValidationError
 from decimal import Decimal
 from .models import Invoice, InvoiceLine
-from django_erp.configuration.models import Company
+from django_erp.configuration.models import Company, ExchangeRate
 from django.apps import apps
+from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class InvoiceService:
@@ -12,14 +16,18 @@ class InvoiceService:
     @staticmethod
     @transaction.atomic
     def create_invoice_from_sale_order(sale_order_id, user=None):
-        """Crear factura desde orden de venta (solo si Sales existe)"""
+        """
+        Crear factura desde orden de venta con pagos en múltiples monedas
+        """
         
+        # ✅ Verificar que Sales está instalado
         if not apps.is_installed('django_erp.sales'):
             raise ValidationError("El módulo Sales no está instalado")
         
         from django_erp.sales.models import SaleOrder
         sale_order = SaleOrder.objects.get(id=sale_order_id)
         
+        # ✅ Validaciones
         if sale_order.status == 'DRAFT':
             raise ValidationError("No se puede facturar una orden en borrador")
         
@@ -30,7 +38,7 @@ class InvoiceService:
         if not company:
             raise ValidationError("No hay una empresa configurada")
         
-        from datetime import datetime
+        # ✅ Generar número de factura
         last_invoice = Invoice.objects.order_by('-id').first()
         if last_invoice and last_invoice.number:
             try:
@@ -42,26 +50,63 @@ class InvoiceService:
             next_num = 1
         
         number = f"{company.invoice_prefix}-{datetime.now().strftime('%Y%m')}-{next_num:04d}"
-
-        # ✅ Obtener pagos completados de la orden
+        
+        # ============================================================
+        # ✅ PROCESAR PAGOS
+        # ============================================================
+        
         payments = sale_order.payments.all()
         payment_summary = {}
-        total_paid = Decimal('0.00')
+        total_paid_usd = Decimal('0.00')
+        change_by_currency = {}
         
+        # ✅ Agrupar pagos por moneda
+        payments_by_currency = {}
         for payment in payments:
-            payment_summary[payment.method.code] = float(payment.amount)
-            total_paid += payment.amount
+            currency_code = payment.currency.code
+            if currency_code not in payments_by_currency:
+                payments_by_currency[currency_code] = []
+            payments_by_currency[currency_code].append(payment)
+            total_paid_usd += payment.amount_usd
         
-        # ✅ Calcular total de la factura (subtotal + tax)
+        # ✅ Calcular total de la factura
         subtotal = sum(line.subtotal for line in sale_order.lines.all())
-        tax = subtotal * (company.tax_rate / Decimal('100'))
+        tax_rate = Decimal(str(company.tax_rate))
+        tax = subtotal * (tax_rate / Decimal('100'))
         total = subtotal + tax
         
-        # ✅ Calcular cambio (si hay)
-        change_amount = Decimal('0.00')
-        if total_paid > total:
-            change_amount = total_paid - total
-
+        # ✅ Calcular vuelto por moneda
+        for currency_code, pymts in payments_by_currency.items():
+            total_in_currency = sum(p.amount for p in pymts)
+            rate = ExchangeRate.get_today_rate('USD', currency_code)
+            if rate:
+                total_usd_in_currency = total * rate
+            else:
+                total_usd_in_currency = total
+            
+            if total_in_currency > total_usd_in_currency:
+                change_by_currency[currency_code] = float(total_in_currency - total_usd_in_currency)
+        
+        # ✅ Crear resumen de pagos (convertir Decimal a float)
+        for payment in payments:
+            currency_code = payment.currency.code
+            key = f"{currency_code}:{payment.method.code}"
+            if key not in payment_summary:
+                payment_summary[key] = {
+                    'method': payment.method.code,
+                    'method_name': payment.method.name,
+                    'currency': currency_code,
+                    'amount': float(payment.amount),
+                    'amount_usd': float(payment.amount_usd)
+                }
+            else:
+                payment_summary[key]['amount'] += float(payment.amount)
+                payment_summary[key]['amount_usd'] += float(payment.amount_usd)
+        
+        # ============================================================
+        # ✅ CREAR FACTURA
+        # ============================================================
+        
         invoice = Invoice.objects.create(
             number=number,
             company=company,
@@ -75,26 +120,67 @@ class InvoiceService:
             sale_order_number=sale_order.number,
             status='DRAFT',
             tax_rate=company.tax_rate,
-            user=user,
+            user=user or sale_order.user,
+            sync_status='SYNCED',
             payment_summary=payment_summary,
-            paid_amount=total_paid,
-            change_amount=change_amount,
+            paid_amount=float(total_paid_usd),
+            change_amount=float(total_paid_usd - total),
+            change_summary=change_by_currency,
         )
         
-        # Copiar líneas
+        # ============================================================
+        # ✅ COPIAR LÍNEAS
+        # ============================================================
+        
         for line in sale_order.lines.all():
             InvoiceLine.objects.create(
                 invoice=invoice,
-                product_code=line.product.code,
-                product_name=line.product.name,
-                description=line.product.name,
+                product_code=line.product.code if line.product else '',
+                product_name=line.product.name if line.product else line.product_name,
+                description=line.description or line.product_name,
                 quantity=line.quantity,
-                unit_price=line.unit_price
+                unit_price=line.unit_price,
+                subtotal=line.quantity * line.unit_price
             )
+        
+        # ============================================================
+        # ✅ CALCULAR TOTALES Y GUARDAR
+        # ============================================================
         
         invoice.calculate_totals()
         invoice.save()
         
+        logger.info(f'✅ Factura {invoice.number} creada desde orden {sale_order.number}')
+        logger.info(f'   Pagos: {len(payment_summary)}')
+        logger.info(f'   Total pagado: ${float(total_paid_usd):.2f}')
+        logger.info(f'   Cambio: ${float(total_paid_usd - total):.2f}')
+        
+        return invoice
+    
+    @staticmethod
+    @transaction.atomic
+    def issue_invoice(invoice, user=None):
+        """Emitir una factura"""
+        if not invoice.lines.exists():
+            raise ValidationError("No se puede emitir una factura sin líneas")
+        invoice.status = 'ISSUED'
+        invoice.save()
+        return invoice
+    
+    @staticmethod
+    @transaction.atomic
+    def pay_invoice(invoice, user=None):
+        """Registrar pago de una factura"""
+        invoice.status = 'PAID'
+        invoice.save()
+        return invoice
+    
+    @staticmethod
+    @transaction.atomic
+    def cancel_invoice(invoice, user=None):
+        """Anular una factura"""
+        invoice.status = 'CANCELLED'
+        invoice.save()
         return invoice
     
     @staticmethod

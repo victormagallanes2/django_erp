@@ -281,15 +281,29 @@ def reconfirm_order_action(modeladmin, request, queryset):
 class PaymentInline(UnfoldTabularInline):
     model = Payment
     extra = 0
-    fields = ['method', 'amount', 'reference', 'payment_date']
-    readonly_fields = ['payment_date']
-    autocomplete_fields = ['method']
+    fields = ['method', 'currency', 'amount', 'amount_usd_display', 'reference', 'payment_date']
+    readonly_fields = ['payment_date', 'amount_usd_display']
+    autocomplete_fields = ['method', 'currency']
 
 
-    # ✅ Opcional: mostrar el monto en Bs.
-    @admin.display(description='Monto (USD)')
+    @admin.display(description='Monto en USD')
     def amount_usd_display(self, obj):
-        return f"$ {obj.amount:.2f}"
+        """Mostrar el monto convertido a USD"""
+        if obj.amount_usd:
+            return f"$ {obj.amount_usd:.2f}"
+        return "-"
+    
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        # ✅ Establecer moneda por defecto: USD
+        if obj is None:
+            from django_erp.configuration.models import Currency
+            try:
+                usd = Currency.objects.get(code='USD')
+                formset.form.base_fields['currency'].initial = usd.id
+            except Currency.DoesNotExist:
+                pass
+        return formset
 
 
 @admin.register(SaleOrder)

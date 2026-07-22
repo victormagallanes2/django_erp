@@ -97,11 +97,11 @@ DATABASES = {
     },
     
     # ✅ Base de datos LOCAL (SQLite - para pruebas offline)
-    'local': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db_local.sqlite3',
-    }
-}
+#     'local': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db_local.sqlite3',
+#     }
+ }
 
 # ✅ ROUTER para decidir qué base de datos usar
 DATABASE_ROUTERS = ['django_erp.db_routers.OfflineRouter']
