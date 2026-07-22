@@ -8,6 +8,8 @@ from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from unfold.admin import TabularInline as UnfoldTabularInline
 from .models import Invoice, InvoiceLine
 from django_erp.configuration.models import Company
+from django_erp.configuration.models import PaymentMethod
+from django.utils.safestring import mark_safe
 
 
 class InvoiceLineInline(UnfoldTabularInline):
@@ -199,7 +201,7 @@ class InvoiceForm(forms.ModelForm):
 class InvoiceAdmin(UnfoldModelAdmin):
     form = InvoiceForm
     
-    list_display = ['number', 'customer_name', 'customer_rif', 'issuer_rif', 'date', 'total', 'status', 'created_at']
+    list_display = ['number', 'customer_name', 'customer_rif', 'issuer_rif', 'date', 'total', 'status', 'created_at', 'paid_amount_display']
     list_filter = ['status', 'date']
     search_fields = ['number', 'customer__name', 'customer_rif', 'concept']
     
@@ -217,6 +219,15 @@ class InvoiceAdmin(UnfoldModelAdmin):
             'classes': ('tab', 'wide'),
             'description': 'Los totales se muestran en USD y Bs. según tasa del día'
         }),
+
+        ('Pagos', {
+            'fields': (
+                'payment_summary_display',  # ← NUEVO
+                ('paid_amount', 'change_amount'),
+            ),
+            'classes': ('tab', 'wide'),
+            'description': 'Resumen de los pagos realizados en la orden de venta'
+        }),
         ('Información', {
             'fields': ('number', 'customer', 'sale_order_number', 'status')
         }),
@@ -232,7 +243,53 @@ class InvoiceAdmin(UnfoldModelAdmin):
 
     )
     
-    readonly_fields = ['date', 'subtotal', 'tax', 'total', 'user', 'created_at', 'updated_at']
+    readonly_fields = ['date', 'subtotal', 'tax', 'total', 'user', 'created_at', 'updated_at','payment_summary_display', 'paid_amount', 'change_amount']
+
+
+    # ✅ NUEVO: Métodos para mostrar pagos
+    @admin.display(description='Monto Pagado')
+    def paid_amount_display(self, obj):
+        """Mostrar monto pagado con símbolo"""
+        return f"$ {obj.paid_amount:.2f}"
+    
+    @admin.display(description='Resumen de Pagos')
+    def payment_summary_display(self, obj):
+        """Mostrar resumen de pagos con colores"""
+        if not obj.payment_summary:
+            return "No hay pagos registrados"
+        
+        html = '<div style="margin: 5px 0;">'
+        
+        for code, amount in obj.payment_summary.items():
+            try:
+                method = PaymentMethod.objects.get(code=code)
+                name = method.name
+            except PaymentMethod.DoesNotExist:
+                name = code
+            
+            html += f'''
+            <div style="display: flex; justify-content: space-between; 
+                        padding: 4px 8px; margin: 2px 0; 
+                        background: #f8f9fa; border-radius: 4px;">
+                <span style="font-weight: bold;">{name}</span>
+                <span style="color: #28a745;">$ {amount:.2f}</span>
+            </div>
+            '''
+        
+        if obj.change_amount > 0:
+            html += f'''
+            <div style="display: flex; justify-content: space-between; 
+                        padding: 4px 8px; margin: 2px 0; 
+                        background: #fff3cd; border-radius: 4px;">
+                <span style="font-weight: bold;">🔄 Cambio</span>
+                <span style="color: #856404;">$ {obj.change_amount:.2f}</span>
+            </div>
+            '''
+        
+        html += '</div>'
+        
+        # ✅ Usar mark_safe en lugar de format_html
+        return mark_safe(html)
 
     class Media:
         js = ('admin/js/invoice_admin.js', 'admin/js/offline_manager.js',)

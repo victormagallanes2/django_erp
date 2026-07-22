@@ -6,7 +6,7 @@ from django.shortcuts import redirect
 from django.http import FileResponse
 from simple_history.admin import SimpleHistoryAdmin
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
-from .models import Company, Backup
+from .models import Company, Backup, PaymentMethod
 from .services import BackupService
 from .models import Currency, ExchangeRate
 import os
@@ -173,3 +173,31 @@ class ExchangeRateAdmin( UnfoldModelAdmin, SimpleHistoryAdmin):
     @admin.display(description='Tasa')
     def rate_display(self, obj):
         return f"{obj.rate:.2f}"
+
+
+@admin.register(PaymentMethod)
+class PaymentMethodAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+    list_display = ['name', 'code', 'is_active_badge', 'requires_approval_badge', 'icon']
+    list_filter = ['is_active', 'requires_approval']
+    search_fields = ['name', 'code']
+    
+    fieldsets = (
+        ('Información', {
+            'fields': ('name', 'code', 'description')
+        }),
+        ('Configuración', {
+            'fields': ('is_active', 'requires_approval', 'icon')
+        }),
+    )
+    
+    @admin.display(description='Activo')
+    def is_active_badge(self, obj):
+        if obj.is_active:
+            return "✅ Activo"
+        return "❌ Inactivo"
+    
+    @admin.display(description='Requiere Aprobación')
+    def requires_approval_badge(self, obj):
+        if obj.requires_approval:
+            return "⚠️ Sí"
+        return "No"

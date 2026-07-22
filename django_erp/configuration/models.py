@@ -241,3 +241,41 @@ class ExchangeRate(models.Model):
         from datetime import date as date_type
         today = date_type.today()
         return cls.get_rate(from_code, to_code, today)
+
+
+class PaymentMethod(models.Model):
+    """Método de pago configurable"""
+    
+    # ✅ Datos básicos
+    name = models.CharField(max_length=100, verbose_name="Nombre")
+    code = models.CharField(max_length=20, unique=True, verbose_name="Código")
+    description = models.TextField(blank=True, verbose_name="Descripción")
+    
+    # ✅ Configuración
+    is_active = models.BooleanField(default=True, verbose_name="Activo")
+    requires_approval = models.BooleanField(
+        default=False,
+        verbose_name="Requiere aprobación",
+        help_text="Ej: Cheques, transferencias bancarias"
+    )
+    
+    # ✅ Icono (opcional)
+    icon = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name="Icono",
+        help_text="Clase de icono (ej: fa-credit-card)"
+    )
+    
+    # ✅ Auditoría
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = "Método de Pago"
+        verbose_name_plural = "Métodos de Pago"
+        ordering = ['name']
+    
+    def __str__(self):
+        return self.name

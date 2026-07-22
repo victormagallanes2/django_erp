@@ -83,7 +83,7 @@ class Invoice(models.Model):
         null=True,
         verbose_name="Número de Control SENIAT",
     )
-    
+
     # Datos de la empresa
     company = models.ForeignKey(
         Company,
@@ -155,6 +155,29 @@ class Invoice(models.Model):
     
     note = models.TextField(blank=True, verbose_name="Nota")
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="Usuario")
+
+    payment_summary = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Resumen de Pagos",
+        help_text='{"CASH": 300, "CREDIT_CARD": 200}'
+    )
+    
+    # ✅ NUEVO: Monto total pagado
+    paid_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        verbose_name="Monto Pagado"
+    )
+    
+    # ✅ NUEVO: Cambio (si aplica)
+    change_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        verbose_name="Cambio"
+    )
     
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")

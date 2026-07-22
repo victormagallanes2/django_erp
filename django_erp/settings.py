@@ -308,6 +308,10 @@ def get_menu_items(request):
                     "icon": "swap_horiz",
                     "link": "/admin/configuration/exchangerate/",
                 },
+                {   "title": "Métodos de Pago",
+                    "icon": "payments",
+                    "link": "/admin/configuration/paymentmethod/"
+                },
                 {
                     "title": "Respaldos",
                     "icon": "backup",

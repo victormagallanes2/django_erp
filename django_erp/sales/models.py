@@ -6,6 +6,7 @@ from simple_history.models import HistoricalRecords
 from decimal import Decimal
 from django.apps import apps
 import uuid
+from django.conf import settings
 
 
 User = get_user_model()
@@ -599,3 +600,69 @@ class CashTransaction(models.Model):
         if not self.uuid:
             self.uuid = uuid.uuid4()
         return f"{self.get_type_display()} - {self.amount} - {self.description}"
+
+
+class Payment(models.Model):
+    """Registro de pago asociado a una orden de venta"""
+    
+    # ✅ Relaciones
+    sale_order = models.ForeignKey(
+        'sales.SaleOrder',
+        on_delete=models.CASCADE,
+        related_name='payments',
+        verbose_name="Orden de Venta"
+    )
+    method = models.ForeignKey(
+        'configuration.PaymentMethod',
+        on_delete=models.PROTECT,
+        verbose_name="Método de Pago"
+    )
+    
+    # ✅ Datos del pago
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        verbose_name="Monto"
+    )
+    reference = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name="Referencia",
+        help_text="Número de transacción, cheque, etc."
+    )
+    
+    # ✅ Estado
+    STATUS_CHOICES = [
+        ('PENDING', 'Pendiente'),
+        ('COMPLETED', 'Completado'),
+        ('FAILED', 'Fallido'),
+        ('CANCELLED', 'Cancelado'),
+    ]
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='PENDING',
+        verbose_name="Estado"
+    )
+    
+    # ✅ Fechas
+    payment_date = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Pago")
+    
+    # ✅ Auditoría
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        verbose_name="Usuario"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = "Pago"
+        verbose_name_plural = "Pagos"
+        ordering = ['-payment_date']
+    
+    def __str__(self):
+        return f"{self.sale_order.number} - {self.method.name} - {self.amount}"

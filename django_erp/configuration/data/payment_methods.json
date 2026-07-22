@@ -1,0 +1,79 @@
+[
+  {
+    "model": "configuration.paymentmethod",
+    "fields": {
+      "name": "Efectivo",
+      "code": "CASH",
+      "description": "Pago en efectivo",
+      "is_active": true,
+      "requires_approval": false,
+      "icon": "fa-money-bill"
+    }
+  },
+  {
+    "model": "configuration.paymentmethod",
+    "fields": {
+      "name": "Tarjeta de Crédito",
+      "code": "CREDIT_CARD",
+      "description": "Pago con tarjeta de crédito",
+      "is_active": true,
+      "requires_approval": false,
+      "icon": "fa-credit-card"
+    }
+  },
+  {
+    "model": "configuration.paymentmethod",
+    "fields": {
+      "name": "Tarjeta de Débito",
+      "code": "DEBIT_CARD",
+      "description": "Pago con tarjeta de débito",
+      "is_active": true,
+      "requires_approval": false,
+      "icon": "fa-credit-card"
+    }
+  },
+  {
+    "model": "configuration.paymentmethod",
+    "fields": {
+      "name": "Transferencia Bancaria",
+      "code": "BANK_TRANSFER",
+      "description": "Pago por transferencia bancaria",
+      "is_active": true,
+      "requires_approval": true,
+      "icon": "fa-university"
+    }
+  },
+  {
+    "model": "configuration.paymentmethod",
+    "fields": {
+      "name": "Cheque",
+      "code": "CHECK",
+      "description": "Pago con cheque",
+      "is_active": true,
+      "requires_approval": true,
+      "icon": "fa-file-invoice"
+    }
+  },
+  {
+    "model": "configuration.paymentmethod",
+    "fields": {
+      "name": "Pago Móvil",
+      "code": "MOBILE_PAYMENT",
+      "description": "Pago móvil (Venezuela)",
+      "is_active": true,
+      "requires_approval": false,
+      "icon": "fa-mobile-alt"
+    }
+  },
+  {
+    "model": "configuration.paymentmethod",
+    "fields": {
+      "name": "Zelle",
+      "code": "ZELLE",
+      "description": "Pago por Zelle",
+      "is_active": true,
+      "requires_approval": false,
+      "icon": "fa-envelope"
+    }
+  }
+]

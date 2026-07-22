@@ -42,7 +42,26 @@ class InvoiceService:
             next_num = 1
         
         number = f"{company.invoice_prefix}-{datetime.now().strftime('%Y%m')}-{next_num:04d}"
+
+        # ✅ Obtener pagos completados de la orden
+        payments = sale_order.payments.all()
+        payment_summary = {}
+        total_paid = Decimal('0.00')
         
+        for payment in payments:
+            payment_summary[payment.method.code] = float(payment.amount)
+            total_paid += payment.amount
+        
+        # ✅ Calcular total de la factura (subtotal + tax)
+        subtotal = sum(line.subtotal for line in sale_order.lines.all())
+        tax = subtotal * (company.tax_rate / Decimal('100'))
+        total = subtotal + tax
+        
+        # ✅ Calcular cambio (si hay)
+        change_amount = Decimal('0.00')
+        if total_paid > total:
+            change_amount = total_paid - total
+
         invoice = Invoice.objects.create(
             number=number,
             company=company,
@@ -56,7 +75,10 @@ class InvoiceService:
             sale_order_number=sale_order.number,
             status='DRAFT',
             tax_rate=company.tax_rate,
-            user=user
+            user=user,
+            payment_summary=payment_summary,
+            paid_amount=total_paid,
+            change_amount=change_amount,
         )
         
         # Copiar líneas

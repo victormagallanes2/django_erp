@@ -14,6 +14,8 @@ from .helpers import get_open_register
 from decimal import Decimal, ROUND_HALF_UP
 from django.utils import timezone
 from django_erp.configuration.models import ExchangeRate
+from .models import Payment  # ← NUEVO
+from django_erp.configuration.models import PaymentMethod  # ← NUEVO
 
 
 @admin.register(Customer)
@@ -102,6 +104,7 @@ class SaleOrderForm(forms.ModelForm):
         initial="1 USD = Bs. 0.00"
     )
     
+
     class Meta:
         model = SaleOrder
         fields = ['number', 'customer', 'status', 'note']
@@ -184,7 +187,6 @@ class SaleOrderForm(forms.ModelForm):
         """✅ Validar que haya caja abierta para confirmar"""
         cleaned_data = super().clean()
         status = cleaned_data.get('status')
-        
         # Solo validar si se está confirmando
         if status == 'CONFIRMED':
             from .helpers import has_open_register
@@ -276,6 +278,20 @@ def reconfirm_order_action(modeladmin, request, queryset):
             modeladmin.message_user(request, f"Error con {order.number}: {e}", messages.ERROR)
 
 
+class PaymentInline(UnfoldTabularInline):
+    model = Payment
+    extra = 0
+    fields = ['method', 'amount', 'reference', 'payment_date']
+    readonly_fields = ['payment_date']
+    autocomplete_fields = ['method']
+
+
+    # ✅ Opcional: mostrar el monto en Bs.
+    @admin.display(description='Monto (USD)')
+    def amount_usd_display(self, obj):
+        return f"$ {obj.amount:.2f}"
+
+
 @admin.register(SaleOrder)
 class SaleOrderAdmin(UnfoldModelAdmin):
     form = SaleOrderForm
@@ -284,7 +300,7 @@ class SaleOrderAdmin(UnfoldModelAdmin):
     list_filter = ['status', 'date']
     search_fields = ['number', 'customer__name']
     
-    inlines = [SaleLineInline]
+    inlines = [SaleLineInline, PaymentInline]
     
     autocomplete_fields = ['customer']
     actions = [reconfirm_order_action]
