@@ -2,6 +2,9 @@
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from .models import Product, Location, Movement
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class WarehouseService:
@@ -12,6 +15,12 @@ class WarehouseService:
     def create_entry(product_id, quantity, location_to_id, source_type='MANUAL', 
                      source_reference='', note='', user=None, unit_price=0):
         """Registrar entrada de mercancía a una ubicación"""
+        """Registrar entrada de mercancía a una ubicación"""
+        logger.info(f"🔴 CREANDO ENTRADA")
+        logger.info(f"   Producto ID: {product_id}")
+        logger.info(f"   Cantidad: {quantity}")
+        logger.info(f"   Ubicación destino ID: {location_to_id}")
+        logger.info(f"   Precio unitario: {unit_price}")
         product = Product.objects.get(id=product_id)
         location_to = Location.objects.get(id=location_to_id)
         
@@ -29,6 +38,8 @@ class WarehouseService:
             note=note,
             user=user
         )
+        
+        logger.info(f"   ✅ Movimiento creado: ID {movement.id}")
         return movement
     
     @staticmethod

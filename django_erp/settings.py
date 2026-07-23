@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'django_erp.inventory',
     'django_erp.sales',
     'django_erp.invoicing',
+    'django_erp.purchasing',
 ]
 
 MIDDLEWARE = [
@@ -220,7 +221,34 @@ def get_menu_items(request):
                 },
             ]
         })
-    
+
+    # ✅ Compras
+    if user.has_perm('purchasing.view_supplier') or user.has_perm('purchasing.view_purchaseorder'):
+        purchasing_items = []
+        
+        if user.has_perm('purchasing.view_supplier'):
+            purchasing_items.append({
+                "title": "Proveedores",
+                "icon": "business",
+                "link": "/admin/purchasing/supplier/",
+            })
+        
+        if user.has_perm('purchasing.view_purchaseorder'):
+            purchasing_items.append({
+                "title": "Órdenes de Compra",
+                "icon": "shopping_cart",
+                "link": "/admin/purchasing/purchaseorder/",
+            })
+        
+        if purchasing_items:
+            navigation.append({
+                "title": "Compras",
+                "separator": True,
+                "collapsible": True,
+                "items": purchasing_items,
+            })
+
+
     # ✅ Ventas
     if user.has_perm('sales.view_saleorder') or user.has_perm('sales.view_customer'):
         sales_items = []
@@ -291,7 +319,7 @@ def get_menu_items(request):
                 {
                     "title": "Usuarios",
                     "icon": "people",
-                    "link": "/admin/users/user/",  # ← Tu URL correcta
+                    "link": "/admin/users/user/",
                 },
                 {
                     "title": "Grupos",
