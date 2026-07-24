@@ -1,6 +1,43 @@
 // django_erp/static/admin/js/purchase_order_admin.js
 
-console.log("🔴 SCRIPT DE COMPRAS CARGADO - VERSIÓN FINAL");
+console.log("🔴 SCRIPT DE COMPRAS CARGADO - CON ERP_CONFIG");
+
+// ✅ Función para obtener la tasa de IVA desde ERP_CONFIG
+function getTaxRate() {
+    if (window.ERP_CONFIG && window.ERP_CONFIG.tax_rate) {
+        var rate = parseFloat(window.ERP_CONFIG.tax_rate);
+        if (!isNaN(rate) && rate > 0) {
+            console.log("   ✅ IVA obtenido de ERP_CONFIG:", rate);
+            return rate;
+        }
+    }
+    console.warn("⚠️ ERP_CONFIG no disponible o sin tax_rate, usando 16% por defecto");
+    return 16;
+}
+
+// ✅ Función para obtener la tasa de cambio
+function getExchangeRate() {
+    if (window.ERP_CONFIG && window.ERP_CONFIG.exchange_rate > 0) {
+        console.log("   ✅ Tasa obtenida de ERP_CONFIG:", window.ERP_CONFIG.exchange_rate);
+        return window.ERP_CONFIG.exchange_rate;
+    }
+    
+    // Fallback: buscar en el campo rate_display
+    var rate = 0;
+    var rateField = document.getElementById('id_rate_display');
+    if (rateField) {
+        var rateText = rateField.value || '';
+        var rateMatch = rateText.match(/Bs\.\s*(\d+\.?\d*)/);
+        if (rateMatch) {
+            rate = parseFloat(rateMatch[1]);
+        }
+    }
+    if (rate === 0 || isNaN(rate)) {
+        rate = 40.00;
+    }
+    console.log("   Tasa obtenida de rate_display:", rate);
+    return rate;
+}
 
 // ✅ Función para recalcular todos los totales de la orden de compra
 function recalculateOrderTotals() {
@@ -17,60 +54,52 @@ function recalculateOrderTotals() {
         console.log(`   Línea: ${qty} x ${price} = ${qty * price}`);
     });
     
-    // Usar la tasa de IVA configurada (por defecto 16%)
-    var taxRate = 16;
+    // ✅ Usar la tasa de IVA desde ERP_CONFIG
+    var taxRate = getTaxRate();
     var tax = subtotal * (taxRate / 100);
     var total = subtotal + tax;
     
-    console.log(`   Subtotal: ${subtotal.toFixed(2)}, IVA: ${tax.toFixed(2)}, Total: ${total.toFixed(2)}`);
+    console.log(`   Subtotal: ${subtotal.toFixed(2)}, IVA: ${taxRate}% -> ${tax.toFixed(2)}, Total: ${total.toFixed(2)}`);
     
-    // ✅ Actualizar campos de totales
+    // ✅ Actualizar campos de totales en USD
     var subtotalField = document.getElementById('id_subtotal_display');
     var taxField = document.getElementById('id_tax_display');
     var totalField = document.getElementById('id_total_display');
     
     if (subtotalField) {
         subtotalField.value = subtotal.toFixed(2);
-        console.log(`   ✅ Subtotal actualizado: ${subtotal.toFixed(2)}`);
+        console.log(`   ✅ Subtotal USD actualizado: ${subtotal.toFixed(2)}`);
     }
     if (taxField) {
         taxField.value = tax.toFixed(2);
-        console.log(`   ✅ IVA actualizado: ${tax.toFixed(2)}`);
+        console.log(`   ✅ IVA USD actualizado: ${tax.toFixed(2)}`);
     }
     if (totalField) {
         totalField.value = total.toFixed(2);
-        console.log(`   ✅ Total actualizado: ${total.toFixed(2)}`);
+        console.log(`   ✅ Total USD actualizado: ${total.toFixed(2)}`);
     }
     
     // ✅ Actualizar campos en Bs.
-    var rate = 0;
-    var rateField = document.getElementById('id_rate_display');
-    if (rateField) {
-        var rateText = rateField.value || '';
-        var rateMatch = rateText.match(/Bs\.\s*(\d+\.?\d*)/);
-        if (rateMatch) {
-            rate = parseFloat(rateMatch[1]);
-        }
-    }
-    if (rate === 0 || isNaN(rate)) {
-        rate = 40.00; // Valor por defecto
-    }
+    var rate = getExchangeRate();
     
     var subtotalBsField = document.getElementById('id_subtotal_bs_display');
     var taxBsField = document.getElementById('id_tax_bs_display');
     var totalBsField = document.getElementById('id_total_bs_display');
     
     if (subtotalBsField) {
-        subtotalBsField.value = (subtotal * rate).toFixed(2);
-        console.log(`   ✅ Subtotal Bs.: ${(subtotal * rate).toFixed(2)}`);
+        var subtotalBs = subtotal * rate;
+        subtotalBsField.value = subtotalBs.toFixed(2);
+        console.log(`   ✅ Subtotal Bs.: ${subtotalBs.toFixed(2)}`);
     }
     if (taxBsField) {
-        taxBsField.value = (tax * rate).toFixed(2);
-        console.log(`   ✅ IVA Bs.: ${(tax * rate).toFixed(2)}`);
+        var taxBs = tax * rate;
+        taxBsField.value = taxBs.toFixed(2);
+        console.log(`   ✅ IVA Bs.: ${taxBs.toFixed(2)}`);
     }
     if (totalBsField) {
-        totalBsField.value = (total * rate).toFixed(2);
-        console.log(`   ✅ Total Bs.: ${(total * rate).toFixed(2)}`);
+        var totalBs = total * rate;
+        totalBsField.value = totalBs.toFixed(2);
+        console.log(`   ✅ Total Bs.: ${totalBs.toFixed(2)}`);
     }
 }
 
@@ -99,7 +128,6 @@ function fetchProductDetails(productId, row) {
     
     console.log("🔴 Solicitando datos para producto:", productId);
     
-    // ✅ URL específica para compras
     fetch('/admin/purchasing/get-product-price/?product_id=' + productId)
         .then(response => response.json())
         .then(data => {
@@ -249,4 +277,4 @@ setTimeout(initialize, 500);
 setTimeout(initialize, 1000);
 setTimeout(initialize, 2000);
 
-console.log("✅ Script de compras cargado - VERSIÓN FINAL");
+console.log("✅ Script de compras cargado - CON ERP_CONFIG");
