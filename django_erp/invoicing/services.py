@@ -1,7 +1,7 @@
 # invoicing/services.py
 from django.db import transaction
 from django.core.exceptions import ValidationError
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from .models import Invoice, InvoiceLine
 from django_erp.configuration.models import Company, ExchangeRate
 from django.apps import apps
@@ -67,13 +67,24 @@ class InvoiceService:
             if currency_code not in payments_by_currency:
                 payments_by_currency[currency_code] = []
             payments_by_currency[currency_code].append(payment)
-            total_paid_usd += payment.amount_usd
+            # ✅ Asegurar que amount_usd sea Decimal
+            amount_usd = Decimal(str(payment.amount_usd))
+            total_paid_usd += amount_usd
         
-        # ✅ Calcular total de la factura
-        subtotal = sum(line.subtotal for line in sale_order.lines.all())
+        # ✅ Redondear total_paid_usd a 2 decimales
+        total_paid_usd = total_paid_usd.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        
+        # ✅ Calcular total de la factura (REDONDEADO A 2 DECIMALES)
+        subtotal = Decimal('0.00')
+        for line in sale_order.lines.all():
+            subtotal += Decimal(str(line.subtotal))
+        
+        # ✅ Redondear subtotal a 2 decimales
+        subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        
         tax_rate = Decimal(str(company.tax_rate))
-        tax = subtotal * (tax_rate / Decimal('100'))
-        total = subtotal + tax
+        tax = (subtotal * (tax_rate / Decimal('100'))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        total = (subtotal + tax).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         
         # ✅ Calcular vuelto por moneda
         for currency_code, pymts in payments_by_currency.items():
@@ -85,9 +96,12 @@ class InvoiceService:
                 total_usd_in_currency = total
             
             if total_in_currency > total_usd_in_currency:
-                change_by_currency[currency_code] = float(total_in_currency - total_usd_in_currency)
+                change = (total_in_currency - total_usd_in_currency).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+                change_by_currency[currency_code] = float(change)
         
-        # ✅ Crear resumen de pagos (convertir Decimal a float)
+        # ✅ Crear resumen de pagos (convertir Decimal a float con 2 decimales)
         for payment in payments:
             currency_code = payment.currency.code
             key = f"{currency_code}:{payment.method.code}"
@@ -96,12 +110,12 @@ class InvoiceService:
                     'method': payment.method.code,
                     'method_name': payment.method.name,
                     'currency': currency_code,
-                    'amount': float(payment.amount),
-                    'amount_usd': float(payment.amount_usd)
+                    'amount': float(payment.amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+                    'amount_usd': float(payment.amount_usd.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
                 }
             else:
-                payment_summary[key]['amount'] += float(payment.amount)
-                payment_summary[key]['amount_usd'] += float(payment.amount_usd)
+                payment_summary[key]['amount'] += float(payment.amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+                payment_summary[key]['amount_usd'] += float(payment.amount_usd.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
         
         # ============================================================
         # ✅ CREAR FACTURA
@@ -124,7 +138,7 @@ class InvoiceService:
             sync_status='SYNCED',
             payment_summary=payment_summary,
             paid_amount=float(total_paid_usd),
-            change_amount=float(total_paid_usd - total),
+            change_amount=float((total_paid_usd - total).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
             change_summary=change_by_currency,
         )
         
@@ -133,14 +147,19 @@ class InvoiceService:
         # ============================================================
         
         for line in sale_order.lines.all():
+            # ✅ Calcular subtotal de la línea con 2 decimales
+            line_subtotal = (Decimal(str(line.quantity)) * Decimal(str(line.unit_price))).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+            
             InvoiceLine.objects.create(
                 invoice=invoice,
                 product_code=line.product.code if line.product else '',
                 product_name=line.product.name if line.product else line.product_name,
                 description=line.description or line.product_name,
                 quantity=line.quantity,
-                unit_price=line.unit_price,
-                subtotal=line.quantity * line.unit_price
+                unit_price=Decimal(str(line.unit_price)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
+                subtotal=line_subtotal
             )
         
         # ============================================================
@@ -181,24 +200,4 @@ class InvoiceService:
         """Anular una factura"""
         invoice.status = 'CANCELLED'
         invoice.save()
-        return invoice
-    
-    @staticmethod
-    @transaction.atomic
-    def issue_invoice(invoice, user=None):
-        """Emitir una factura"""
-        if not invoice.lines.exists():
-            raise ValidationError("No se puede emitir una factura sin líneas")
-        return invoice
-    
-    @staticmethod
-    @transaction.atomic
-    def pay_invoice(invoice, user=None):
-        """Registrar pago de una factura"""
-        return invoice
-    
-    @staticmethod
-    @transaction.atomic
-    def cancel_invoice(invoice, user=None):
-        """Anular una factura"""
         return invoice

@@ -8,6 +8,11 @@
     <!-- ❌ ELIMINAR O COMENTAR ESTA LÍNEA -->
     <!-- <script src="{% static 'admin/js/offline_manager.js' %}"></script> -->
     
+    <script>
+        window.ERP_CONFIG = {{ ERP_CONFIG|safe }};
+        console.log("🔴 ERP_CONFIG cargado globalmente:", window.ERP_CONFIG);
+    </script>
+
     <!-- ✅ Estilos para ocultar elementos offline -->
     <style>
         /* Ocultar todos los elementos de la interfaz offline */

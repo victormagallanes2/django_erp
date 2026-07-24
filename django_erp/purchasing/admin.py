@@ -123,6 +123,10 @@ class PurchaseOrderForm(forms.ModelForm):
         instance = kwargs.get('instance')
         
         # Obtener tasa de cambio
+        # ✅ Obtener IVA de la empresa
+        from django_erp.configuration.models import Company
+        company = Company.get_active()
+        tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
         rate = ExchangeRate.get_today_rate('USD', 'BS')
         if rate:
             self.initial['rate_display'] = f"1 USD = Bs. {rate:.2f}"
@@ -132,13 +136,12 @@ class PurchaseOrderForm(forms.ModelForm):
         # Si es una orden existente, calcular totales
         if instance and instance.pk:
             subtotal = sum(line.subtotal for line in instance.lines.all())
-            tax_rate = Decimal(str(instance.tax_rate))
             tax = subtotal * (tax_rate / Decimal('100'))
             total = subtotal + tax
             
-            self.initial['subtotal_display'] = f"{subtotal:.2f}"
-            self.initial['tax_display'] = f"{tax:.2f}"
-            self.initial['total_display'] = f"{total:.2f}"
+            self.initial['subtotal_display'] = subtotal
+            self.initial['tax_display'] = tax
+            self.initial['total_display'] = total
             
             if rate:
                 self.initial['subtotal_bs_display'] = f"{(subtotal * rate):.2f}"

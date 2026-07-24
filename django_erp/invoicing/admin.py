@@ -9,6 +9,7 @@ from unfold.admin import TabularInline as UnfoldTabularInline
 from .models import Invoice, InvoiceLine
 from django_erp.configuration.models import Company, PaymentMethod, Currency
 from django.utils.safestring import mark_safe
+from decimal import Decimal, ROUND_HALF_UP
 
 
 class InvoiceLineInline(UnfoldTabularInline):
@@ -113,6 +114,9 @@ class InvoiceForm(forms.ModelForm):
             self.initial['customer_address'] = instance.customer.address
 
         from django_erp.configuration.models import ExchangeRate
+        from django_erp.configuration.models import Company
+        company = Company.get_active()
+        tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
         rate = ExchangeRate.get_today_rate('USD', 'BS')
         if rate:
             self.initial['rate_display'] = f"1 USD = Bs. {rate:.2f}"
@@ -120,9 +124,13 @@ class InvoiceForm(forms.ModelForm):
             self.initial['rate_display'] = "No hay tasa configurada"
         
         if instance and instance.pk:
-            self.initial['subtotal_display'] = instance.subtotal
-            self.initial['tax_display'] = instance.tax
-            self.initial['total_display'] = instance.total
+            subtotal = sum(line.subtotal for line in instance.lines.all())
+            tax = subtotal * (tax_rate / Decimal('100'))
+            total = subtotal + tax
+            
+            self.initial['subtotal_display'] = subtotal
+            self.initial['tax_display'] = tax
+            self.initial['total_display'] = total
             
             if rate:
                 self.initial['subtotal_bs_display'] = instance.subtotal * rate

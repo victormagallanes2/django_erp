@@ -138,22 +138,46 @@ class SaleOrder(models.Model):
         return f"{self.number} - {self.customer.name}"
 
     def calculate_totals(self):
-        subtotal = sum(line.subtotal for line in self.lines.all())
-        tax = subtotal * Decimal('0.19')
+        """Calcular totales usando el IVA de la empresa"""
+        from decimal import Decimal, ROUND_HALF_UP
+        from django_erp.configuration.models import Company
+        
+        # ✅ Asegurar que subtotal sea Decimal
+        subtotal = Decimal('0.00')
+        for line in self.lines.all():
+            subtotal += Decimal(str(line.subtotal))
+        
+        # ✅ Obtener IVA de la empresa
+        company = Company.get_active()
+        if company:
+            tax_rate = Decimal(str(company.tax_rate))
+        else:
+            tax_rate = Decimal('16.00')
+        
+        tax = subtotal * (tax_rate / Decimal('100'))
         total = subtotal + tax
         
-        self.subtotal = subtotal
-        self.tax = tax
-        self.total = total
-        return subtotal, tax, total
+        # ✅ Redondear a 2 decimales
+        self.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        self.tax = tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        self.total = total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        
+        return self.subtotal, self.tax, self.total
 
     def save(self, *args, **kwargs):
-        # ✅ NUEVO: Generar UUID si no tiene
+        """Guardar la orden"""
+        # ✅ Generar UUID si no tiene
         if not self.uuid:
             self.uuid = uuid.uuid4()
+        
+        # ✅ Guardar primero para tener ID
         super().save(*args, **kwargs)
-        self.calculate_totals()
-        super().save(*args, **kwargs)
+        
+        # ✅ Calcular totales SOLO si tiene líneas
+        if self.pk and self.lines.exists():
+            self.calculate_totals()
+            # ✅ Guardar solo los campos de totales (evita recursión)
+            super().save(update_fields=['subtotal', 'tax', 'total'])
 
 
 class SaleLine(models.Model):
@@ -630,13 +654,13 @@ class Payment(models.Model):
 
     # ✅ Datos del pago
     amount = models.DecimalField(
-        max_digits=10,
+        max_digits=20,
         decimal_places=2,
         verbose_name="Monto"
     )
 
     amount_usd = models.DecimalField(
-        max_digits=10,
+        max_digits=20,
         decimal_places=2,
         editable=False,
         default=0,
@@ -687,33 +711,54 @@ class Payment(models.Model):
         return f"{self.sale_order.number} - {self.method.name} - {self.amount}"
 
     def save(self, *args, **kwargs):
-        """Guardar pago con moneda correcta"""
+        """Guardar pago con conversión correcta de moneda"""
         from django_erp.configuration.models import Currency, ExchangeRate
+        from decimal import Decimal, ROUND_HALF_UP
+        
+        print(f"🔴 ===== GUARDANDO PAGO =====")
+        print(f"   Monto original: {self.amount}")
+        print(f"   Moneda: {self.currency.code if self.currency else 'None'}")
         
         # ✅ Si no se especificó moneda, usar la del método de pago
         if not self.currency_id and self.method_id:
-            # ✅ Obtener la moneda por defecto del método
             if hasattr(self.method, 'default_currency') and self.method.default_currency:
                 self.currency = self.method.default_currency
+                print(f"   Moneda asignada desde método: {self.currency.code}")
             else:
                 # ✅ Fallback: usar USD
                 usd = Currency.objects.get(code='USD')
                 self.currency = usd
+                print(f"   Moneda asignada (fallback): USD")
         
         # ✅ Si aún no hay moneda, usar USD
         if not self.currency_id:
             usd = Currency.objects.get(code='USD')
             self.currency = usd
+            print(f"   Moneda asignada (default): USD")
         
         # ✅ Convertir a USD
         if self.currency.code == 'USD':
+            # ✅ Si es USD, el monto en USD es igual al monto
             self.amount_usd = self.amount
+            print(f"   Moneda USD: amount_usd = {self.amount_usd}")
         else:
+            # ✅ Obtener la tasa de cambio de la moneda a USD
             rate = ExchangeRate.get_today_rate(self.currency.code, 'USD')
+            print(f"   Tasa {self.currency.code} -> USD: {rate}")
+            
             if rate and rate > 0:
-                self.amount_usd = self.amount / rate
+                # ✅ Convertir a USD (dividir por la tasa)
+                self.amount_usd = (self.amount / Decimal(str(rate))).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+                print(f"   amount_usd calculado: {self.amount_usd}")
             else:
+                # ✅ Si no hay tasa, usar el monto como USD (fallback)
                 self.amount_usd = self.amount
+                print(f"   ⚠️ No hay tasa, usando amount como USD: {self.amount_usd}")
+        
+        print(f"   ✅ Monto en USD final: {self.amount_usd}")
+        print(f"   ===== FIN GUARDADO PAGO =====")
         
         super().save(*args, **kwargs)
 

@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from simple_history.models import HistoricalRecords
 from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from django_erp.configuration.models import Company, Currency, ExchangeRate
 
 User = get_user_model()
@@ -125,40 +126,56 @@ class PurchaseOrder(models.Model):
         return f"{self.number} - {self.supplier.name}"
 
     def calculate_totals(self):
-	    """Calcular totales - Igual que invoicing"""
-	    # ✅ Solo calcular si ya tiene ID
-	    if not self.pk:
-	        return
-	    
-	    # ✅ Obtener subtotal
-	    subtotal = Decimal('0.00')
-	    for line in self.lines.all():
-	        subtotal += line.subtotal
-	    
-	    # ✅ Calcular impuestos
-	    tax_rate = Decimal(str(self.tax_rate))
-	    tax = subtotal * (tax_rate / Decimal('100'))
-	    total = subtotal + tax
-	    
-	    self.subtotal = subtotal
-	    self.tax = tax
-	    self.total = total
-	    
-	    return subtotal, tax, total
+        """Calcular totales usando el IVA de la empresa"""
+        from decimal import Decimal, ROUND_HALF_UP
+        from django_erp.configuration.models import Company
+        
+        # ✅ Solo calcular si ya tiene ID
+        if not self.pk:
+            return
+        
+        # ✅ Asegurar que subtotal sea Decimal
+        subtotal = Decimal('0.00')
+        for line in self.lines.all():
+            subtotal += Decimal(str(line.subtotal))
+        
+        # ✅ Obtener IVA de la empresa
+        company = Company.get_active()
+        if company:
+            tax_rate = Decimal(str(company.tax_rate))
+        else:
+            tax_rate = Decimal('16.00')
+        
+        tax = subtotal * (tax_rate / Decimal('100'))
+        total = subtotal + tax
+        
+        # ✅ Redondear a 2 decimales
+        self.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        self.tax = tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        self.total = total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        
+        return self.subtotal, self.tax, self.total
 
     def save(self, *args, **kwargs):
-	    """Guardar - Igual que invoicing"""
-	    # ✅ Si es nueva orden, establecer tasa de IVA desde la empresa
-	    if not self.pk:
-	        if not self.tax_rate or self.tax_rate == 0:
-	            company = Company.get_active()
-	            if company:
-	                self.tax_rate = Decimal(str(company.tax_rate))
-	            else:
-	                self.tax_rate = Decimal('16.00')
-	    
-	    # ✅ Guardar normalmente
-	    super().save(*args, **kwargs)
+        """Guardar - Igual que invoicing"""
+        # ✅ Si es nueva orden, establecer tasa de IVA desde la empresa
+        if not self.pk:
+            if not self.tax_rate or self.tax_rate == 0:
+                company = Company.get_active()
+                if company:
+                    self.tax_rate = Decimal(str(company.tax_rate))
+                else:
+                    self.tax_rate = Decimal('16.00')
+        
+        # ✅ Guardar primero para tener ID
+        super().save(*args, **kwargs)
+
+
+        # ✅ Calcular totales SOLO si tiene líneas
+        if self.pk and self.lines.exists():
+            self.calculate_totals()
+            # ✅ Guardar solo los campos de totales (evita recursión)
+            super().save(update_fields=['subtotal', 'tax', 'total'])
 
 
 class PurchaseLine(models.Model):

@@ -211,14 +211,27 @@ class Invoice(models.Model):
         return f"{self.number} - {self.concept or 'Sin cliente'}"
 
     def calculate_totals(self):
+        """Calcular totales usando el IVA de la empresa"""
+        from decimal import Decimal, ROUND_HALF_UP
+        from django_erp.configuration.models import Company
+        
         subtotal = sum(line.subtotal for line in self.lines.all())
-        tax = subtotal * (self.tax_rate / Decimal('100'))
+        
+        # ✅ Obtener IVA de la empresa
+        company = Company.get_active()
+        if company:
+            tax_rate = Decimal(str(company.tax_rate))
+        else:
+            tax_rate = Decimal('16.00')
+        
+        tax = subtotal * (tax_rate / Decimal('100'))
         total = subtotal + tax
         
-        self.subtotal = subtotal
-        self.tax = tax
-        self.total = total
-        return subtotal, tax, total
+        self.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        self.tax = tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        self.total = total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        
+        return self.subtotal, self.tax, self.total
 
     def save(self, *args, **kwargs):
         # ✅ Si hay un cliente seleccionado, guardar sus datos en los campos de texto

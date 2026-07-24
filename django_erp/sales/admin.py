@@ -115,6 +115,9 @@ class SaleOrderForm(forms.ModelForm):
         instance = kwargs.get('instance')
         
         from django_erp.configuration.models import ExchangeRate
+        from django_erp.configuration.models import Company
+        company = Company.get_active()
+        tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
         rate = ExchangeRate.get_today_rate('USD', 'BS')
         if rate:
             self.initial['rate_display'] = f"1 USD = Bs. {rate:.2f}"
@@ -122,9 +125,8 @@ class SaleOrderForm(forms.ModelForm):
             self.initial['rate_display'] = "No hay tasa configurada"
         
         if instance and instance.pk:
-            # ✅ Calcular totales desde las líneas
             subtotal = sum(line.subtotal for line in instance.lines.all())
-            tax_rate = Decimal('19')
+            # ✅ Usar la tasa de la empresa
             tax = subtotal * (tax_rate / Decimal('100'))
             total = subtotal + tax
             
@@ -285,16 +287,16 @@ class PaymentInline(UnfoldTabularInline):
     readonly_fields = ['payment_date', 'amount_usd_display']
     autocomplete_fields = ['method', 'currency']
 
-
     @admin.display(description='Monto en USD')
     def amount_usd_display(self, obj):
-        """Mostrar el monto convertido a USD"""
-        if obj.amount_usd:
-            return f"$ {obj.amount_usd:.2f}"
-        return "-"
+        """Mostrar el monto convertido a USD con formato correcto"""
+        if obj and obj.amount_usd:
+            return f"$ {obj.amount_usd:,.2f}"
+        return "$ 0.00"
     
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
+        
         # ✅ Establecer moneda por defecto: USD
         if obj is None:
             from django_erp.configuration.models import Currency
@@ -303,8 +305,12 @@ class PaymentInline(UnfoldTabularInline):
                 formset.form.base_fields['currency'].initial = usd.id
             except Currency.DoesNotExist:
                 pass
+        
         return formset
-
+    
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.select_related('method', 'currency')
 
 @admin.register(SaleOrder)
 class SaleOrderAdmin(UnfoldModelAdmin):
@@ -364,14 +370,24 @@ class SaleOrderAdmin(UnfoldModelAdmin):
         """Guardar líneas, calcular totales y procesar confirmación"""
         from .services import SaleService
         from .signals import order_confirmed
+        from decimal import Decimal
         
         # ✅ 1. Guardar las líneas
         super().save_formset(request, form, formset, change)
         
         # ✅ 2. Calcular totales desde las líneas
         obj = form.instance
-        subtotal = sum(line.subtotal for line in obj.lines.all())
-        tax_rate = Decimal('19')
+        
+        # ✅ Asegurar que subtotal sea Decimal
+        subtotal = Decimal('0.00')
+        for line in obj.lines.all():
+            subtotal += Decimal(str(line.subtotal))
+        
+        # ✅ Obtener IVA de la empresa
+        from django_erp.configuration.models import Company
+        company = Company.get_active()
+        tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
+        
         tax = subtotal * (tax_rate / Decimal('100'))
         total = subtotal + tax
         
