@@ -8,7 +8,7 @@ from simple_history.admin import SimpleHistoryAdmin
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from .models import Company, Backup, PaymentMethod
 from .services import BackupService
-from .models import Currency, ExchangeRate
+from .models import Currency, ExchangeRate, CompanyBankAccount
 import os
 
 
@@ -201,3 +201,40 @@ class PaymentMethodAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
         if obj.requires_approval:
             return "⚠️ Sí"
         return "No"
+
+
+@admin.register(CompanyBankAccount)
+class CompanyBankAccountAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+    list_display = [
+        'bank_name', 
+        'account_number', 
+        'account_holder', 
+        'currency', 
+        'is_default_badge', 
+        'is_active'
+    ]
+    list_filter = ['currency', 'is_active', 'is_default']
+    search_fields = ['bank_name', 'account_number', 'account_holder']
+    
+    fieldsets = (
+        ('Datos de la Cuenta', {
+            'fields': ('bank_name', 'account_type', 'account_number', 'account_holder')
+        }),
+        ('Moneda', {
+            'fields': ('currency',)
+        }),
+        ('Configuración', {
+            'fields': ('is_default', 'is_active')
+        }),
+    )
+    
+    @admin.display(description='Por Defecto')
+    def is_default_badge(self, obj):
+        if obj.is_default:
+            return "⭐ Sí"
+        return "-"
+    
+    def save_model(self, request, obj, form, change):
+        if obj.is_default:
+            CompanyBankAccount.objects.filter(is_default=True).exclude(pk=obj.pk).update(is_default=False)
+        super().save_model(request, obj, form, change)

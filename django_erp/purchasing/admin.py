@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from unfold.admin import TabularInline as UnfoldTabularInline
-from .models import Supplier, PurchaseOrder, PurchaseLine
+from .models import Supplier, PurchaseOrder, PurchaseLine, PurchasePayment
 from decimal import Decimal, ROUND_HALF_UP
 from django_erp.configuration.models import ExchangeRate, Company
 import logging
@@ -264,6 +264,73 @@ def receive_orders_action(modeladmin, request, queryset):
                 messages.ERROR
             )
 
+class PurchasePaymentInline(UnfoldTabularInline):
+    """Inline de pagos para órdenes de compra"""
+    model = PurchasePayment
+    extra = 0
+    fields = [
+        'method', 
+        'company_bank_account', 
+        'currency', 
+        'amount', 
+        'amount_usd_display', 
+        'reference', 
+        'supplier_bank',
+        'status',
+        'payment_date'
+    ]
+    readonly_fields = ['payment_date', 'amount_usd_display']
+    autocomplete_fields = ['method', 'company_bank_account', 'currency']
+    
+    # ✅ Ocultar el campo supplier (se asigna automáticamente)
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        
+        # ✅ Moneda por defecto: USD
+        from django_erp.configuration.models import Currency
+        try:
+            usd = Currency.objects.get(code='USD')
+            formset.form.base_fields['currency'].initial = usd.id
+        except Currency.DoesNotExist:
+            pass
+        
+        # ✅ Cuenta bancaria por defecto
+        from django_erp.configuration.models import CompanyBankAccount
+        default_account = CompanyBankAccount.get_default()
+        if default_account:
+            formset.form.base_fields['company_bank_account'].initial = default_account.id
+        
+        return formset
+    
+    @admin.display(description='Monto en USD')
+    def amount_usd_display(self, obj):
+        if obj and obj.amount_usd:
+            return f"$ {obj.amount_usd:,.2f}"
+        return "$ 0.00"
+    
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.select_related('method', 'company_bank_account', 'currency', 'supplier')
+    
+    # ✅ NUEVO: Guardar asignando el proveedor automáticamente
+    def save_formset(self, request, form, formset, change):
+        """Guardar pagos asignando el proveedor desde la orden"""
+        instances = formset.save(commit=False)
+        
+        # ✅ Obtener la orden
+        purchase_order = form.instance
+        
+        for obj in formset.deleted_objects:
+            obj.delete()
+        
+        for obj in instances:
+            # ✅ Asignar proveedor desde la orden
+            obj.supplier = purchase_order.supplier
+            obj.save()
+        
+        formset.save_m2m()
+
+
 
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(UnfoldModelAdmin):
@@ -283,7 +350,7 @@ class PurchaseOrderAdmin(UnfoldModelAdmin):
     list_filter = ['status', 'date']
     search_fields = ['number', 'supplier__name']
     
-    inlines = [PurchaseLineInline]
+    inlines = [PurchaseLineInline, PurchasePaymentInline]
     actions = [confirm_orders_action, receive_orders_action]
     autocomplete_fields = ['supplier']
     
@@ -310,7 +377,7 @@ class PurchaseOrderAdmin(UnfoldModelAdmin):
     readonly_fields = ['user', 'date', 'created_at', 'updated_at']
     
     class Media:
-        js = ('admin/js/purchase_order_admin.js',)
+        js = ('admin/js/purchase_order_admin.js', 'admin/js/purchase_payment_admin.js')
 
     def get_form(self, request, obj=None, **kwargs):
         """Pasar el request al formulario"""

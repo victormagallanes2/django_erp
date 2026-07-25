@@ -244,40 +244,48 @@ class ExchangeRate(models.Model):
 
 
 class PaymentMethod(models.Model):
-    """Método de pago configurable"""
+    """Método de pago - Reutilizable en toda la empresa"""
     
-    # ✅ Datos básicos
     name = models.CharField(max_length=100, verbose_name="Nombre")
     code = models.CharField(max_length=20, unique=True, verbose_name="Código")
     description = models.TextField(blank=True, verbose_name="Descripción")
     
-    # ✅ Configuración
-    is_active = models.BooleanField(default=True, verbose_name="Activo")
+    # ✅ NUEVO: ¿Requiere cuenta bancaria de la empresa?
+    requires_company_bank = models.BooleanField(
+        default=False,
+        verbose_name="¿Requiere cuenta bancaria de la empresa?",
+        help_text="Marcar si este método usa una cuenta de la empresa (transferencias, cheques)"
+    )
+    
+    # ✅ NUEVO: ¿Requiere referencia?
+    requires_reference = models.BooleanField(
+        default=False,
+        verbose_name="¿Requiere referencia?",
+        help_text="Marcar si este método requiere un número de referencia"
+    )
+    
+    # ✅ NUEVO: ¿Requiere aprobación?
     requires_approval = models.BooleanField(
         default=False,
         verbose_name="Requiere aprobación",
         help_text="Ej: Cheques, transferencias bancarias"
     )
 
-    # ✅ NUEVO: Moneda por defecto para este método de pago
     default_currency = models.ForeignKey(
         'configuration.Currency',
         on_delete=models.PROTECT,
         null=True,
         blank=True,
-        verbose_name="Moneda por defecto",
-        help_text="Moneda en la que se suele realizar este pago"
+        verbose_name="Moneda por defecto"
     )
 
-    # ✅ Icono (opcional)
     icon = models.CharField(
         max_length=50,
         blank=True,
-        verbose_name="Icono",
-        help_text="Clase de icono (ej: fa-credit-card)"
+        verbose_name="Icono"
     )
     
-    # ✅ Auditoría
+    is_active = models.BooleanField(default=True, verbose_name="Activo")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     history = HistoricalRecords()
@@ -289,3 +297,61 @@ class PaymentMethod(models.Model):
     
     def __str__(self):
         return self.name
+
+
+class CompanyBankAccount(models.Model):
+    """Cuenta bancaria de la empresa (para pagos a proveedores)"""
+    
+    # ✅ Datos de la cuenta
+    bank_name = models.CharField(max_length=200, verbose_name="Banco")
+    account_number = models.CharField(max_length=50, verbose_name="Número de cuenta")
+    account_holder = models.CharField(max_length=200, verbose_name="Titular de la cuenta")
+    account_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('CHECKING', 'Cuenta Corriente'),
+            ('SAVINGS', 'Cuenta de Ahorro'),
+        ],
+        default='CHECKING',
+        verbose_name="Tipo de cuenta"
+    )
+    
+    # ✅ Moneda de la cuenta
+    currency = models.ForeignKey(
+        'configuration.Currency',
+        on_delete=models.PROTECT,
+        verbose_name="Moneda"
+    )
+    
+    # ✅ ¿Es la cuenta por defecto?
+    is_default = models.BooleanField(
+        default=False,
+        verbose_name="¿Cuenta por defecto?"
+    )
+    
+    is_active = models.BooleanField(default=True, verbose_name="Activo")
+    
+    # ✅ Auditoría
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = "Cuenta Bancaria de la Empresa"
+        verbose_name_plural = "Cuentas Bancarias de la Empresa"
+        ordering = ['bank_name', 'account_number']
+        unique_together = [['bank_name', 'account_number']]
+    
+    def __str__(self):
+        default_mark = " (⭐ Por defecto)" if self.is_default else ""
+        return f"{self.bank_name} - {self.account_number}{default_mark}"
+    
+    def save(self, *args, **kwargs):
+        if self.is_default:
+            CompanyBankAccount.objects.filter(is_default=True).exclude(pk=self.pk).update(is_default=False)
+        super().save(*args, **kwargs)
+    
+    @classmethod
+    def get_default(cls):
+        """Obtener la cuenta por defecto"""
+        return cls.objects.filter(is_default=True, is_active=True).first()

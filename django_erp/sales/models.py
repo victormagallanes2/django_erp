@@ -628,37 +628,39 @@ class CashTransaction(models.Model):
 
 
 class Payment(models.Model):
-    """Registro de pago asociado a una orden de venta"""
+    """Pago de cliente (ventas) - Solo registra lo que el cliente paga"""
     
-    # ✅ Relaciones
     sale_order = models.ForeignKey(
         'sales.SaleOrder',
         on_delete=models.CASCADE,
         related_name='payments',
         verbose_name="Orden de Venta"
     )
+    
+    # ✅ Método de pago (reutilizado)
     method = models.ForeignKey(
         'configuration.PaymentMethod',
         on_delete=models.PROTECT,
         verbose_name="Método de Pago"
     )
 
+    # ✅ Moneda en la que paga el cliente
     currency = models.ForeignKey(
         'configuration.Currency',
         on_delete=models.PROTECT,
         null=True,
         blank=True,
-        verbose_name="Moneda",
-        help_text="Moneda en la que se realizó el pago"
+        verbose_name="Moneda"
     )
 
-    # ✅ Datos del pago
+    # ✅ Monto que pagó el cliente
     amount = models.DecimalField(
         max_digits=20,
         decimal_places=2,
         verbose_name="Monto"
     )
 
+    # ✅ Monto convertido a USD (automático)
     amount_usd = models.DecimalField(
         max_digits=20,
         decimal_places=2,
@@ -667,14 +669,21 @@ class Payment(models.Model):
         verbose_name="Monto en USD"
     )
 
+    # ✅ Referencia (número de transacción, cheque, etc.)
     reference = models.CharField(
         max_length=100,
         blank=True,
-        verbose_name="Referencia",
-        help_text="Número de transacción, cheque, etc."
+        verbose_name="Referencia"
     )
     
-    # ✅ Estado
+    # ✅ NUEVO: Banco del cliente (solo texto, NO es FK)
+    customer_bank = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Banco del cliente",
+        help_text="Banco desde el cual el cliente realizó el pago"
+    )
+    
     STATUS_CHOICES = [
         ('PENDING', 'Pendiente'),
         ('COMPLETED', 'Completado'),
@@ -688,10 +697,8 @@ class Payment(models.Model):
         verbose_name="Estado"
     )
     
-    # ✅ Fechas
     payment_date = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Pago")
     
-    # ✅ Auditoría
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -703,62 +710,39 @@ class Payment(models.Model):
     history = HistoricalRecords()
     
     class Meta:
-        verbose_name = "Pago"
-        verbose_name_plural = "Pagos"
+        verbose_name = "Pago de Venta"
+        verbose_name_plural = "Pagos de Ventas"
         ordering = ['-payment_date']
 
     def __str__(self):
         return f"{self.sale_order.number} - {self.method.name} - {self.amount}"
 
     def save(self, *args, **kwargs):
-        """Guardar pago con conversión correcta de moneda"""
         from django_erp.configuration.models import Currency, ExchangeRate
         from decimal import Decimal, ROUND_HALF_UP
         
-        print(f"🔴 ===== GUARDANDO PAGO =====")
-        print(f"   Monto original: {self.amount}")
-        print(f"   Moneda: {self.currency.code if self.currency else 'None'}")
-        
-        # ✅ Si no se especificó moneda, usar la del método de pago
         if not self.currency_id and self.method_id:
-            if hasattr(self.method, 'default_currency') and self.method.default_currency:
+            if self.method.default_currency:
                 self.currency = self.method.default_currency
-                print(f"   Moneda asignada desde método: {self.currency.code}")
             else:
-                # ✅ Fallback: usar USD
                 usd = Currency.objects.get(code='USD')
                 self.currency = usd
-                print(f"   Moneda asignada (fallback): USD")
         
-        # ✅ Si aún no hay moneda, usar USD
         if not self.currency_id:
             usd = Currency.objects.get(code='USD')
             self.currency = usd
-            print(f"   Moneda asignada (default): USD")
         
         # ✅ Convertir a USD
         if self.currency.code == 'USD':
-            # ✅ Si es USD, el monto en USD es igual al monto
             self.amount_usd = self.amount
-            print(f"   Moneda USD: amount_usd = {self.amount_usd}")
         else:
-            # ✅ Obtener la tasa de cambio de la moneda a USD
             rate = ExchangeRate.get_today_rate(self.currency.code, 'USD')
-            print(f"   Tasa {self.currency.code} -> USD: {rate}")
-            
             if rate and rate > 0:
-                # ✅ Convertir a USD (dividir por la tasa)
                 self.amount_usd = (self.amount / Decimal(str(rate))).quantize(
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
-                print(f"   amount_usd calculado: {self.amount_usd}")
             else:
-                # ✅ Si no hay tasa, usar el monto como USD (fallback)
                 self.amount_usd = self.amount
-                print(f"   ⚠️ No hay tasa, usando amount como USD: {self.amount_usd}")
-        
-        print(f"   ✅ Monto en USD final: {self.amount_usd}")
-        print(f"   ===== FIN GUARDADO PAGO =====")
         
         super().save(*args, **kwargs)
 

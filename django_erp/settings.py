@@ -342,6 +342,11 @@ def get_menu_items(request):
                     "link": "/admin/configuration/paymentmethod/"
                 },
                 {
+                    "title": "Cuentas Bancarias",
+                    "icon": "account_balance",
+                    "link": "/admin/configuration/companybankaccount/",
+                },
+                {
                     "title": "Respaldos",
                     "icon": "backup",
                     "link": "/admin/configuration/backup/",

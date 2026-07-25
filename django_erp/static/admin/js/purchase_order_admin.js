@@ -1,6 +1,6 @@
 // django_erp/static/admin/js/purchase_order_admin.js
 
-console.log("🔴 SCRIPT DE COMPRAS CARGADO - CON ERP_CONFIG");
+console.log("🔴 SCRIPT DE COMPRAS CARGADO - CON ERP_CONFIG Y PAGOS");
 
 // ✅ Función para obtener la tasa de IVA desde ERP_CONFIG
 function getTaxRate() {
@@ -22,7 +22,6 @@ function getExchangeRate() {
         return window.ERP_CONFIG.exchange_rate;
     }
     
-    // Fallback: buscar en el campo rate_display
     var rate = 0;
     var rateField = document.getElementById('id_rate_display');
     if (rateField) {
@@ -35,8 +34,16 @@ function getExchangeRate() {
     if (rate === 0 || isNaN(rate)) {
         rate = 40.00;
     }
-    console.log("   Tasa obtenida de rate_display:", rate);
     return rate;
+}
+
+// ✅ Función para formatear números con 2 decimales
+function formatNumber(value) {
+    if (value === undefined || value === null || isNaN(value)) {
+        return '0.00';
+    }
+    let num = parseFloat(value);
+    return num.toFixed(2);
 }
 
 // ✅ Función para recalcular todos los totales de la orden de compra
@@ -46,61 +53,40 @@ function recalculateOrderTotals() {
     var rows = document.querySelectorAll('tr.form-row');
     
     rows.forEach(function(row) {
+        // ✅ Saltar filas de pagos (tienen select de método)
+        if (row.querySelector('select[name$="-method"]')) {
+            return;
+        }
+        
         var qtyInput = row.querySelector('input[name$="quantity"]');
         var priceInput = row.querySelector('input[name$="unit_price"]');
         var qty = parseFloat(qtyInput?.value) || 0;
         var price = parseFloat(priceInput?.value) || 0;
         subtotal += qty * price;
-        console.log(`   Línea: ${qty} x ${price} = ${qty * price}`);
     });
     
-    // ✅ Usar la tasa de IVA desde ERP_CONFIG
     var taxRate = getTaxRate();
     var tax = subtotal * (taxRate / 100);
     var total = subtotal + tax;
     
-    console.log(`   Subtotal: ${subtotal.toFixed(2)}, IVA: ${taxRate}% -> ${tax.toFixed(2)}, Total: ${total.toFixed(2)}`);
-    
-    // ✅ Actualizar campos de totales en USD
+    // Actualizar campos USD
     var subtotalField = document.getElementById('id_subtotal_display');
     var taxField = document.getElementById('id_tax_display');
     var totalField = document.getElementById('id_total_display');
     
-    if (subtotalField) {
-        subtotalField.value = subtotal.toFixed(2);
-        console.log(`   ✅ Subtotal USD actualizado: ${subtotal.toFixed(2)}`);
-    }
-    if (taxField) {
-        taxField.value = tax.toFixed(2);
-        console.log(`   ✅ IVA USD actualizado: ${tax.toFixed(2)}`);
-    }
-    if (totalField) {
-        totalField.value = total.toFixed(2);
-        console.log(`   ✅ Total USD actualizado: ${total.toFixed(2)}`);
-    }
+    if (subtotalField) subtotalField.value = formatNumber(subtotal);
+    if (taxField) taxField.value = formatNumber(tax);
+    if (totalField) totalField.value = formatNumber(total);
     
-    // ✅ Actualizar campos en Bs.
+    // Actualizar campos Bs.
     var rate = getExchangeRate();
-    
     var subtotalBsField = document.getElementById('id_subtotal_bs_display');
     var taxBsField = document.getElementById('id_tax_bs_display');
     var totalBsField = document.getElementById('id_total_bs_display');
     
-    if (subtotalBsField) {
-        var subtotalBs = subtotal * rate;
-        subtotalBsField.value = subtotalBs.toFixed(2);
-        console.log(`   ✅ Subtotal Bs.: ${subtotalBs.toFixed(2)}`);
-    }
-    if (taxBsField) {
-        var taxBs = tax * rate;
-        taxBsField.value = taxBs.toFixed(2);
-        console.log(`   ✅ IVA Bs.: ${taxBs.toFixed(2)}`);
-    }
-    if (totalBsField) {
-        var totalBs = total * rate;
-        totalBsField.value = totalBs.toFixed(2);
-        console.log(`   ✅ Total Bs.: ${totalBs.toFixed(2)}`);
-    }
+    if (subtotalBsField) subtotalBsField.value = formatNumber(subtotal * rate);
+    if (taxBsField) taxBsField.value = formatNumber(tax * rate);
+    if (totalBsField) totalBsField.value = formatNumber(total * rate);
 }
 
 // ✅ Función para actualizar subtotal de una línea
@@ -116,12 +102,73 @@ function updateLineSubtotal(row) {
     
     var subtotalField = row.querySelector('.field-subtotal');
     if (subtotalField) {
-        subtotalField.textContent = subtotal.toFixed(2);
-        console.log(`   ✅ Subtotal línea: ${subtotal.toFixed(2)}`);
+        subtotalField.textContent = formatNumber(subtotal);
+    }
+    
+    var subtotalInput = row.querySelector('input[name$="subtotal"]');
+    if (subtotalInput) {
+        subtotalInput.value = formatNumber(subtotal);
     }
 }
 
-// ✅ Función para obtener precio del producto (usando la URL de compras)
+// ✅ NUEVO: Configurar conversión de pagos (IDÉNTICO a ventas)
+function setupPaymentConversion(row) {
+    if (!row) {
+        var paymentRows = document.querySelectorAll('tr.form-row');
+        paymentRows.forEach(function(r) {
+            if (r.querySelector('select[name$="-method"]')) {
+                setupPaymentConversion(r);
+            }
+        });
+        return;
+    }
+    
+    var currencySelect = row.querySelector('select[name$="-currency"]');
+    var amountInput = row.querySelector('input[name$="-amount"]');
+    var amountUsdDisplay = row.querySelector('.field-amount_usd_display');
+    var amountUsdInput = row.querySelector('input[name$="-amount_usd"]');
+    
+    if (!currencySelect || !amountInput) return;
+    
+    function updateConversion() {
+        var selectedOption = currencySelect.options[currencySelect.selectedIndex];
+        var currencyText = selectedOption ? selectedOption.text : 'USD';
+        var currencyCode = currencyText.split(' - ')[0] || currencyText;
+        var amount = parseFloat(amountInput.value) || 0;
+        
+        var usdAmount = 0;
+        
+        if (currencyCode === 'USD') {
+            usdAmount = amount;
+        } else {
+            var rate = getExchangeRate();
+            if (rate > 0) {
+                usdAmount = amount / rate;
+            } else {
+                usdAmount = amount;
+            }
+        }
+        
+        usdAmount = Math.round(usdAmount * 100) / 100;
+        
+        if (amountUsdDisplay) {
+            amountUsdDisplay.textContent = '$ ' + usdAmount.toFixed(2);
+        }
+        
+        if (amountUsdInput) {
+            amountUsdInput.value = usdAmount.toFixed(2);
+        }
+    }
+    
+    currencySelect.addEventListener('change', updateConversion);
+    amountInput.addEventListener('input', updateConversion);
+    amountInput.addEventListener('change', updateConversion);
+    
+    // ✅ Forzar actualización inicial
+    setTimeout(updateConversion, 100);
+}
+
+// ✅ Función para obtener precio del producto
 function fetchProductDetails(productId, row) {
     if (!productId || productId === '') return;
     if (!row) return;
@@ -136,7 +183,6 @@ function fetchProductDetails(productId, row) {
             var priceInput = row.querySelector('input[name$="unit_price"]');
             if (priceInput) {
                 priceInput.value = data.unit_price;
-                // En compras, el precio es editable (se puede negociar)
                 priceInput.removeAttribute('readonly');
                 priceInput.style.backgroundColor = '#ffffff';
                 priceInput.style.cursor = 'text';
@@ -152,7 +198,6 @@ function fetchProductDetails(productId, row) {
                         break;
                     }
                 }
-                // En compras, la ubicación se puede cambiar
                 locationSelect.disabled = false;
                 locationSelect.style.backgroundColor = '#ffffff';
                 locationSelect.style.cursor = 'pointer';
@@ -164,14 +209,19 @@ function fetchProductDetails(productId, row) {
         .catch(error => console.error("Error:", error));
 }
 
-// ✅ Configurar una fila
+// ✅ Configurar una fila (línea de producto O pago)
 function setupRow(row) {
-    console.log("🔴 Configurando fila de compra");
+    // ✅ Si es una fila de pago, configurar conversión
+    if (row.querySelector('select[name$="-method"]')) {
+        setupPaymentConversion(row);
+        return;
+    }
+    
+    // ✅ Si es una fila de producto
     var qtyInput = row.querySelector('input[name$="quantity"]');
     var priceInput = row.querySelector('input[name$="unit_price"]');
     var select = row.querySelector('select[id$="-product"]');
     
-    // En compras, el precio debe ser editable
     if (priceInput) {
         priceInput.removeAttribute('readonly');
         priceInput.style.backgroundColor = '#ffffff';
@@ -179,7 +229,6 @@ function setupRow(row) {
     }
     
     if (qtyInput) {
-        console.log("   Cantidad encontrada");
         qtyInput.addEventListener('change', function() {
             console.log("🔴 Cambio en cantidad:", this.value);
             updateLineSubtotal(row);
@@ -192,7 +241,6 @@ function setupRow(row) {
     }
     
     if (priceInput) {
-        console.log("   Precio encontrado");
         priceInput.addEventListener('change', function() {
             console.log("🔴 Cambio en precio:", this.value);
             updateLineSubtotal(row);
@@ -277,4 +325,4 @@ setTimeout(initialize, 500);
 setTimeout(initialize, 1000);
 setTimeout(initialize, 2000);
 
-console.log("✅ Script de compras cargado - CON ERP_CONFIG");
+console.log("✅ Script de compras cargado - CON ERP_CONFIG Y PAGOS");

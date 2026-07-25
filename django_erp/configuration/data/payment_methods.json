@@ -5,34 +5,12 @@
       "name": "Efectivo",
       "code": "CASH",
       "description": "Pago en efectivo",
-      "is_active": true,
+      "requires_company_bank": false,
+      "requires_reference": false,
       "requires_approval": false,
       "icon": "fa-money-bill",
-      "default_currency": 3
-    }
-  },
-  {
-    "model": "configuration.paymentmethod",
-    "fields": {
-      "name": "Tarjeta de Crédito",
-      "code": "CREDIT_CARD",
-      "description": "Pago con tarjeta de crédito",
-      "is_active": true,
-      "requires_approval": false,
-      "icon": "fa-credit-card",
-      "default_currency": 3
-    }
-  },
-  {
-    "model": "configuration.paymentmethod",
-    "fields": {
-      "name": "Tarjeta de Débito",
-      "code": "DEBIT_CARD",
-      "description": "Pago con tarjeta de débito",
-      "is_active": true,
-      "requires_approval": false,
-      "icon": "fa-credit-card",
-      "default_currency": 3
+      "default_currency": 3,
+      "is_active": true
     }
   },
   {
@@ -40,11 +18,13 @@
     "fields": {
       "name": "Transferencia Bancaria",
       "code": "BANK_TRANSFER",
-      "description": "Pago por transferencia bancaria",
-      "is_active": true,
+      "description": "Transferencia bancaria",
+      "requires_company_bank": true,
+      "requires_reference": true,
       "requires_approval": true,
       "icon": "fa-university",
-      "default_currency": 1
+      "default_currency": 1,
+      "is_active": true
     }
   },
   {
@@ -53,10 +33,40 @@
       "name": "Cheque",
       "code": "CHECK",
       "description": "Pago con cheque",
-      "is_active": true,
+      "requires_company_bank": true,
+      "requires_reference": true,
       "requires_approval": true,
       "icon": "fa-file-invoice",
-      "default_currency": 3
+      "default_currency": 3,
+      "is_active": true
+    }
+  },
+  {
+    "model": "configuration.paymentmethod",
+    "fields": {
+      "name": "Crédito Proveedor",
+      "code": "SUPPLIER_CREDIT",
+      "description": "Crédito otorgado por el proveedor",
+      "requires_company_bank": false,
+      "requires_reference": false,
+      "requires_approval": true,
+      "icon": "fa-clock",
+      "default_currency": 1,
+      "is_active": true
+    }
+  },
+  {
+    "model": "configuration.paymentmethod",
+    "fields": {
+      "name": "Tarjeta de Crédito",
+      "code": "CREDIT_CARD",
+      "description": "Pago con tarjeta de crédito",
+      "requires_company_bank": false,
+      "requires_reference": true,
+      "requires_approval": false,
+      "icon": "fa-credit-card",
+      "default_currency": 3,
+      "is_active": true
     }
   },
   {
@@ -65,10 +75,12 @@
       "name": "Pago Móvil",
       "code": "MOBILE_PAYMENT",
       "description": "Pago móvil (Venezuela)",
-      "is_active": true,
+      "requires_company_bank": false,
+      "requires_reference": true,
       "requires_approval": false,
       "icon": "fa-mobile-alt",
-      "default_currency": 1
+      "default_currency": 1,
+      "is_active": true
     }
   },
   {
@@ -77,10 +89,12 @@
       "name": "Zelle",
       "code": "ZELLE",
       "description": "Pago por Zelle",
-      "is_active": true,
+      "requires_company_bank": false,
+      "requires_reference": true,
       "requires_approval": false,
       "icon": "fa-envelope",
-      "default_currency": 3
+      "default_currency": 3,
+      "is_active": true
     }
   }
 ]

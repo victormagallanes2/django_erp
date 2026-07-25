@@ -284,3 +284,163 @@ class PurchaseLine(models.Model):
             self.product_name = self.product_code
         
         super().save(*args, **kwargs)
+
+
+class PurchasePayment(models.Model):
+    """Pago a proveedor (compras) - Usa cuentas de la empresa"""
+    
+    # ✅ Relación con la orden de compra
+    purchase_order = models.ForeignKey(
+        'purchasing.PurchaseOrder',
+        on_delete=models.CASCADE,
+        related_name='payments',
+        verbose_name="Orden de Compra"
+    )
+    
+    # ✅ Proveedor (para saber a quién se paga)
+    supplier = models.ForeignKey(
+        'purchasing.Supplier',
+        on_delete=models.PROTECT,
+        null=True,      
+        blank=True,     
+        related_name='payments',
+        verbose_name="Proveedor"
+    )    
+    # ✅ Método de pago (reutilizado)
+    method = models.ForeignKey(
+        'configuration.PaymentMethod',
+        on_delete=models.PROTECT,
+        verbose_name="Método de Pago"
+    )
+    
+    # ✅ Cuenta bancaria de la EMPRESA (desde donde se paga)
+    company_bank_account = models.ForeignKey(
+        'configuration.CompanyBankAccount',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        verbose_name="Cuenta de la empresa",
+        help_text="Cuenta desde la cual se realiza el pago"
+    )
+
+    # ✅ Moneda en la que se paga
+    currency = models.ForeignKey(
+        'configuration.Currency',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        verbose_name="Moneda"
+    )
+
+    # ✅ Monto pagado
+    amount = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        verbose_name="Monto"
+    )
+
+    # ✅ Monto convertido a USD (automático)
+    amount_usd = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        editable=False,
+        default=0,
+        verbose_name="Monto en USD"
+    )
+
+    # ✅ Referencia (número de transferencia, cheque, etc.)
+    reference = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name="Referencia"
+    )
+    
+    # ✅ NUEVO: Banco del proveedor (solo texto, NO es FK)
+    supplier_bank = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Banco del proveedor",
+        help_text="Banco al cual se realizó el pago"
+    )
+    
+    # ✅ Fecha esperada de pago (para crédito)
+    expected_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha esperada"
+    )
+    
+    STATUS_CHOICES = [
+        ('PENDING', 'Pendiente'),
+        ('COMPLETED', 'Completado'),
+        ('FAILED', 'Fallido'),
+        ('CANCELLED', 'Cancelado'),
+    ]
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='PENDING',
+        verbose_name="Estado"
+    )
+    
+    payment_date = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Pago")
+    
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        verbose_name="Usuario"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = "Pago de Compra"
+        verbose_name_plural = "Pagos de Compras"
+        ordering = ['-payment_date']
+
+    def __str__(self):
+        return f"{self.purchase_order.number} - {self.method.name} - {self.amount}"
+
+    def clean(self):
+        """✅ Validar que si el método requiere cuenta, se seleccione una"""
+        if self.method and self.method.requires_company_bank and not self.company_bank_account:
+            raise ValidationError({
+                'company_bank_account': f'El método de pago "{self.method.name}" requiere una cuenta bancaria de la empresa.'
+            })
+
+    def save(self, *args, **kwargs):
+        from django_erp.configuration.models import ExchangeRate
+        
+        self.clean()
+        
+        # ✅ Establecer moneda por defecto
+        if not self.currency_id and self.method_id:
+            if self.method.default_currency:
+                self.currency = self.method.default_currency
+        
+        # ✅ Si la moneda es USD, el monto en USD es el mismo
+        if self.currency and self.currency.code == 'USD':
+            self.amount_usd = self.amount
+        else:
+            # ✅ Obtener la moneda base (USD)
+            from django_erp.configuration.models import Currency
+            try:
+                usd = Currency.objects.get(code='USD')
+                # ✅ Si la moneda del pago es la base, no hay conversión
+                if self.currency and self.currency == usd:
+                    self.amount_usd = self.amount
+                else:
+                    # ✅ Convertir a USD
+                    rate = ExchangeRate.get_today_rate(self.currency.code, 'USD')
+                    if rate and rate > 0:
+                        self.amount_usd = (self.amount / Decimal(str(rate))).quantize(
+                            Decimal('0.01'), rounding=ROUND_HALF_UP
+                        )
+                    else:
+                        self.amount_usd = self.amount
+            except Currency.DoesNotExist:
+                self.amount_usd = self.amount
+        
+        super().save(*args, **kwargs)
