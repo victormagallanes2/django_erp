@@ -486,19 +486,31 @@ class CashRegister(models.Model):
         return self.difference
 
     def save(self, *args, **kwargs):
-        """Generar número automáticamente si no existe"""
-        # ✅ NUEVO: Generar UUID si no tiene
-        if not self.uuid:
-            self.uuid = uuid.uuid4()
+        """
+        💾 Guardar la caja con:
+        1. 🔢 Generación automática de número correlativo (CAJA-YYYYMMDD-XXXX)
+        2. 🔒 Validación de caja única por usuario
+        """
+        
+        # ============================================================
+        # 🔢 1. GENERAR NÚMERO AUTOMÁTICO SI NO EXISTE
+        # ============================================================
+        
         if not self.number:
             from datetime import datetime
+            
+            # 📅 Obtener fecha actual en formato YYYYMMDD
             date_str = datetime.now().strftime('%Y%m%d')
+            
+            # 🔍 Buscar la última caja del día actual
             last = CashRegister.objects.filter(
                 number__startswith=f'CAJA-{date_str}'
             ).order_by('number').last()
             
+            # 🔢 Calcular el siguiente número correlativo
             if last:
                 try:
+                    # Extraer el número final (ej: CAJA-20260709-0001 -> 0001)
                     last_num = int(last.number.split('-')[-1])
                     next_num = last_num + 1
                 except (ValueError, IndexError):
@@ -506,22 +518,30 @@ class CashRegister(models.Model):
             else:
                 next_num = 1
             
+            # 📝 Generar el número completo con 4 dígitos
             self.number = f'CAJA-{date_str}-{next_num:04d}'
+            
+            print(f"🔢 Número de caja generado: {self.number}")  # 👈 Para depuración
         
-        # ✅ Si se está abriendo, asegurar que no haya otra caja abierta
-        if self.status == 'OPEN' and self.pk is None:
-            # Verificar si ya hay una caja abierta para este usuario
+        # ============================================================
+        # 🔒 2. VALIDAR QUE NO HAYA OTRA CAJA ABIERTA
+        # ============================================================
+        
+        if self.status == 'OPEN':
+            # ✅ Verificar si ya hay una caja abierta para este usuario
+            # ⚠️ Excluir la instancia actual si ya existe (para el caso de edición)
             existing_open = CashRegister.objects.filter(
                 user=self.user,
                 status='OPEN'
-            ).exists()
+            ).exclude(pk=self.pk).exists()
             
             if existing_open:
                 raise ValidationError(
-                    f"El usuario {self.user.username} ya tiene una caja abierta. "
+                    f"❌ El usuario {self.user.username} ya tiene una caja abierta. "
                     "Debe cerrarla antes de abrir una nueva."
                 )
         
+        # ✅ Guardar la caja
         super().save(*args, **kwargs)
 
 

@@ -1,10 +1,14 @@
-# sales/helpers.py
+# sales/helpers.py - CON COLORES PARA IDENTIFICAR MEJOR
+
 from .models import CashRegister
 from django.core.exceptions import ValidationError
 
 
 def get_open_register(user):
-    """Obtener la caja abierta de un usuario"""
+    """
+    🔍 Obtener la caja abierta de un usuario.
+    ⚠️ Lanza error si no hay caja abierta.
+    """
     register = CashRegister.objects.filter(
         user=user,
         status='OPEN'
@@ -12,7 +16,7 @@ def get_open_register(user):
     
     if not register:
         raise ValidationError(
-            f"No hay una caja abierta para {user.username}. "
+            f"❌ No hay una caja abierta para {user.username}. "
             "Debe abrir una caja antes de realizar ventas."
         )
     
@@ -20,7 +24,9 @@ def get_open_register(user):
 
 
 def has_open_register(user):
-    """Verificar si el usuario tiene una caja abierta"""
+    """
+    ✅ Verificar si el usuario tiene una caja abierta.
+    """
     return CashRegister.objects.filter(
         user=user,
         status='OPEN'

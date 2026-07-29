@@ -11,7 +11,11 @@ class SaleService:
     @staticmethod
     @transaction.atomic
     def confirm_order(order, user=None):
-        """Confirmar una orden - Productos físicos y servicios"""
+        """✅ Confirmar una orden - Productos físicos y servicios"""
+        
+        # ============================================================
+        # 📦 1. PROCESAR PRODUCTOS Y SERVICIOS
+        # ============================================================
         
         for line in order.lines.all():
             if line.product:
@@ -29,11 +33,11 @@ class SaleService:
                     )
                     if stock < line.quantity:
                         raise ValidationError(
-                            f"Stock insuficiente para {line.product.name}. "
+                            f"❌ Stock insuficiente para {line.product.name}. "
                             f"Disponible: {stock}, Solicitado: {line.quantity}"
                         )
                 
-                # ✅ Crear movimiento de salida para productos físicos con precio
+                # ✅ Crear movimiento de salida para productos físicos
                 if apps.is_installed('django_erp.warehouse'):
                     from django_erp.warehouse.services import WarehouseService
                     WarehouseService.create_exit(
@@ -51,16 +55,58 @@ class SaleService:
             else:
                 print(f"📝 Servicio confirmado: {line.product_name or line.description or 'Servicio'}")
         
+        # ============================================================
+        # ✅ 2. ACTUALIZAR ESTADO DE LA ORDEN
+        # ============================================================
+        
         order.status = 'CONFIRMED'
         order.save()
         
-        # ✅ Si Invoicing está instalado, generar factura
+        # ============================================================
+        # 💰 3. REGISTRAR EN CAJA
+        # ============================================================
+        
+        if apps.is_installed('django_erp.sales'):
+            from .models import CashTransaction
+            from .helpers import get_open_register
+            
+            try:
+                # 🔍 Obtener la caja abierta del usuario
+                register = get_open_register(user or order.user)
+                
+                # 📝 Crear transacción de caja
+                CashTransaction.objects.create(
+                    register=register,
+                    type='SALE',
+                    amount=order.total,
+                    description=f"Venta {order.number} - {order.customer.name}",
+                    reference=order.number,
+                    user=user or order.user
+                )
+                
+                # 🔄 Recalcular totales de la caja
+                register.calculate_totals()
+                
+                print(f"✅ Transacción registrada en caja {register.number}")
+                
+            except ValidationError as e:
+                print(f"⚠️ Error al registrar en caja: {e}")
+                # ⚠️ Lanzar error para que la transacción se revierta
+                raise ValidationError(f"❌ Error al registrar en caja: {str(e)}")
+        
+        # ============================================================
+        # 📄 4. GENERAR FACTURA (SI ESTÁ INSTALADO INVOICING)
+        # ============================================================
+        
         if apps.is_installed('django_erp.invoicing'):
             try:
                 from django_erp.invoicing.services import InvoiceService
                 InvoiceService.create_invoice_from_sale_order(order.id, user or order.user)
+                print(f"✅ Factura generada para orden {order.number}")
             except Exception as e:
                 print(f"⚠️ Error al generar factura: {e}")
+                # No detener el proceso si falla la factura
+                # raise ValidationError(f"Error al generar factura: {str(e)}")
         
         return order
     

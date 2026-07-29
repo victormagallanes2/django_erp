@@ -490,26 +490,32 @@ class SaleOrderAdmin(UnfoldModelAdmin):
                     line.save()
 
 
-# ✅ ACCIONES PARA CAJA
 @admin.action(description='✅ Abrir caja seleccionada')
 def open_register_action(modeladmin, request, queryset):
+    """🟢 Abrir una caja"""
     for register in queryset:
         if register.status == 'OPEN':
             modeladmin.message_user(request, f'La caja {register.number} ya está abierta.', messages.WARNING)
             continue
         
+        # ✅ Verificar que el usuario no tenga otra caja abierta
         if CashRegister.objects.filter(user=register.user, status='OPEN').exists():
-            modeladmin.message_user(request, f'El usuario {register.user.username} ya tiene una caja abierta.', messages.ERROR)
+            modeladmin.message_user(
+                request, 
+                f'❌ El usuario {register.user.username} ya tiene una caja abierta.', 
+                messages.ERROR
+            )
             continue
         
         register.status = 'OPEN'
         register.opened_at = timezone.now()
         register.save()
-        modeladmin.message_user(request, f'Caja {register.number} abierta exitosamente.', messages.SUCCESS)
+        modeladmin.message_user(request, f'✅ Caja {register.number} abierta exitosamente.', messages.SUCCESS)
 
 
 @admin.action(description='🔒 Cerrar caja seleccionada')
 def close_register_action(modeladmin, request, queryset):
+    """🔒 Cerrar una caja"""
     for register in queryset:
         if register.status != 'OPEN':
             modeladmin.message_user(request, f'La caja {register.number} no está abierta.', messages.WARNING)
@@ -525,11 +531,48 @@ def close_register_action(modeladmin, request, queryset):
         register.closed_at = timezone.now()
         register.save()
         
-        modeladmin.message_user(request, f'Caja {register.number} cerrada exitosamente. Total: {register.expected_total:.2f} USD', messages.SUCCESS)
+        modeladmin.message_user(
+            request, 
+            f'✅ Caja {register.number} cerrada exitosamente. Total: {register.expected_total:.2f} USD', 
+            messages.SUCCESS
+        )
+
+
+class CashTransactionInline(UnfoldTabularInline):
+    """
+    Inline para mostrar las transacciones de una caja en modo solo lectura.
+    Los vendedores pueden ver sus propias transacciones aquí.
+    """
+    model = CashTransaction
+    extra = 0  # No mostrar filas vacías para agregar
+    can_delete = False
+    readonly_fields = ['type', 'amount', 'description', 'reference', 'user', 'created_at']
+    fields = ['type', 'amount', 'description', 'reference', 'user', 'created_at']
+    verbose_name_plural = "📋 Transacciones de esta Caja"
+    ordering = ('-created_at',)
+
+    def has_add_permission(self, request, obj=None):
+        """❌ Deshabilitar la capacidad de agregar transacciones desde aquí"""
+        return False
+
+    def get_queryset(self, request):
+        """🔍 Asegurar un rendimiento óptimo al cargar las transacciones"""
+        return super().get_queryset(request).select_related('user')
 
 
 @admin.register(CashRegister)
 class CashRegisterAdmin(UnfoldModelAdmin):
+    """
+    Administrador de caja con:
+    - Filtro por usuario (vendedor solo ve su caja)
+    - Inline de transacciones en solo lectura
+    - Validación de apertura múltiple
+    """
+    
+    # ✅ INLINES: Mostrar transacciones debajo de la caja
+    inlines = [CashTransactionInline]
+    
+    # ✅ LISTADO: Columnas que se muestran
     list_display = [
         'number', 
         'user', 
@@ -542,11 +585,14 @@ class CashRegisterAdmin(UnfoldModelAdmin):
     ]
     list_filter = ['status', 'date']
     search_fields = ['number', 'user__username']
+    
+    # ✅ ACCIONES: Abrir y cerrar caja
     actions = [open_register_action, close_register_action]
     
+    # ✅ CAMPOS: Organización del formulario
     fieldsets = (
-        ('Información', {'fields': ('number', 'user', 'status')}),
-        ('Dinero', {
+        ('📌 Información', {'fields': ('user', 'status')}),
+        ('💰 Dinero', {
             'fields': (
                 'initial_amount', 
                 'total_sales', 
@@ -555,47 +601,98 @@ class CashRegisterAdmin(UnfoldModelAdmin):
                 'expected_total'
             )
         }),
-        ('Cierre', {
+        ('🔒 Cierre', {
             'fields': ('counted_total', 'breakdown', 'difference', 'note'),
             'classes': ('tab',),
         }),
-        ('Fechas', {
+        ('📅 Fechas', {
             'fields': ('opened_at', 'closed_at'),
             'classes': ('tab',),
         }),
     )
     
-    readonly_fields = [
+    # ✅ CAMPOS DE SOLO LECTURA
+    readonly_fields = ['number',
         'opened_at', 'closed_at', 'total_sales', 
         'total_expenses', 'total_withdrawals', 'expected_total'
     ]
+
+    # ============================================================
+    # 🔍 MÉTODO: FILTRAR POR USUARIO
+    # ============================================================
+    
+    def get_queryset(self, request):
+        """
+        🔒 Un vendedor solo ve sus propias cajas.
+        👑 Un administrador ve todas las cajas.
+        """
+        qs = super().get_queryset(request)
+        
+        # ✅ Si es superusuario, ve todo
+        if request.user.is_superuser:
+            return qs
+        
+        # ✅ Si es usuario normal, solo ve sus propias cajas
+        return qs.filter(user=request.user)
+
+    # ============================================================
+    # 📝 MÉTODO: CONFIGURAR FORMULARIO
+    # ============================================================
     
     def get_form(self, request, obj=None, **kwargs):
+        """
+        ✏️ Configurar el formulario:
+        - El número es de solo lectura (se genera automáticamente)
+        - El usuario es el actual (solo lectura)
+        - Estado por defecto: "Abierta"
+        """
         form = super().get_form(request, obj, **kwargs)
+        
         if obj is None:
-            from datetime import datetime
-            date_str = datetime.now().strftime('%Y%m%d')
-            last = CashRegister.objects.filter(
-                number__startswith=f'CAJA-{date_str}'
-            ).order_by('number').last()
-            next_num = int(last.number.split('-')[-1]) + 1 if last else 1
-            form.base_fields['number'].initial = f'CAJA-{date_str}-{next_num:04d}'
-            form.base_fields['number'].disabled = True
+            # ✅ Nueva caja: asignar usuario actual
+            form.base_fields['user'].initial = request.user
+            form.base_fields['user'].disabled = True  # 🔒 No se puede cambiar
+            
+            # ✅ Establecer estado por defecto como "Abierta"
+            form.base_fields['status'].initial = 'OPEN'
+            
+            # 🔢 El número se genera automáticamente, no se muestra en el formulario
+            # o se muestra como solo lectura
+            if 'number' in form.base_fields:
+                # Lo dejamos como solo lectura para que no se pueda editar
+                form.base_fields['number'].disabled = True
+                form.base_fields['number'].required = False
+        
         return form
+
+    # ============================================================
+    # 💾 MÉTODO: GUARDAR
+    # ============================================================
     
     def save_model(self, request, obj, form, change):
-        if not obj.number:
-            from datetime import datetime
-            date_str = datetime.now().strftime('%Y%m%d')
-            last = CashRegister.objects.filter(
-                number__startswith=f'CAJA-{date_str}'
-            ).order_by('number').last()
-            next_num = int(last.number.split('-')[-1]) + 1 if last else 1
-            obj.number = f'CAJA-{date_str}-{next_num:04d}'
+        """
+        💾 Guardar la caja.
+        El método save() del modelo genera el número automáticamente.
+        """
+        # ✅ El número se genera en el método save() del modelo
+        # ✅ Solo necesitamos llamar a super()
         super().save_model(request, obj, form, change)
+        
+        # 👇 Opcional: Mostrar mensaje de confirmación
+        if not change and obj.number:
+            self.message_user(
+                request, 
+                f'✅ Caja {obj.number} creada exitosamente.', 
+                messages.SUCCESS
+            )
+
+    # ============================================================
+    # 🏷️ MÉTODOS PARA MOSTRAR DATOS
+    # ============================================================
     
     @admin.display(description='Estado')
     def status_badge(self, obj):
+        """🟢 Muestra el estado con colores"""
         colors = {
             'OPEN': ('#28a745', '✅ Abierta'),
             'CLOSED': ('#17a2b8', '🔒 Cerrada'),
@@ -608,14 +705,14 @@ class CashRegisterAdmin(UnfoldModelAdmin):
             color, label
         )
     
-    # ✅ Métodos para mostrar montos en USD y Bs.
-    
     @admin.display(description='Total Ventas (USD)')
     def total_sales_usd_display(self, obj):
+        """💰 Total en USD"""
         return f"$ {obj.total_sales:,.2f}"
     
     @admin.display(description='Total Ventas (Bs.)')
     def total_sales_bs_display(self, obj):
+        """💰 Total en Bolívares"""
         try:
             rate = ExchangeRate.get_today_rate('USD', 'BS')
             if rate:
@@ -627,10 +724,12 @@ class CashRegisterAdmin(UnfoldModelAdmin):
     
     @admin.display(description='Total Esperado (USD)')
     def expected_total_usd_display(self, obj):
+        """💰 Total esperado en USD"""
         return f"$ {obj.expected_total:,.2f}"
     
     @admin.display(description='Diferencia (USD)')
     def difference_usd_display(self, obj):
+        """📊 Diferencia con color"""
         if obj.difference is not None:
             try:
                 diff = Decimal(str(obj.difference))
