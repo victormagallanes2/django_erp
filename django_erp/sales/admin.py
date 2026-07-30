@@ -15,7 +15,11 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.utils import timezone
 from django_erp.configuration.models import ExchangeRate
 from .models import Payment  # ← NUEVO
-from django_erp.configuration.models import PaymentMethod  # ← NUEVO
+from django_erp.configuration.models import PaymentMethod
+from django.urls import path
+from django.views.generic import TemplateView
+from unfold.views import UnfoldModelAdminViewMixin
+from .services import SaleReportService
 
 
 @admin.register(Customer)
@@ -312,6 +316,27 @@ class PaymentInline(UnfoldTabularInline):
         queryset = super().get_queryset(request)
         return queryset.select_related('method', 'currency')
 
+
+class SalesReportView(UnfoldModelAdminViewMixin, TemplateView):
+    title = "Reporte de Ventas"  # Título en el encabezado
+    permission_required = ('sales.can_view_reports',) # Permiso que ya tienes definido
+    template_name = "admin/sales/sales_report.html" # Crearemos esta plantilla
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        # Obtener totales generales
+        grand_totals = SaleReportService.get_grand_totals()
+        context['grand_totals'] = grand_totals
+
+        # Obtener datos para el gráfico (últimos 30 días por defecto)
+        labels, totals = SaleReportService.get_totals_by_period(period_type='day', days_back=30)
+        context['chart_labels'] = labels
+        context['chart_totals'] = totals
+
+        return context
+
+
 @admin.register(SaleOrder)
 class SaleOrderAdmin(UnfoldModelAdmin):
     form = SaleOrderForm
@@ -365,7 +390,22 @@ class SaleOrderAdmin(UnfoldModelAdmin):
         
         # ✅ Guardar el objeto (los totales se calculan en save_formset)
         super().save_model(request, obj, form, change)
-    
+
+    def get_urls(self):
+        """
+        Agrega la URL personalizada para el reporte de ventas.
+        """
+        # `admin_view` es crucial para que la vista herede la configuración del admin
+        custom_view = self.admin_site.admin_view(SalesReportView.as_view(model_admin=self))
+        
+        # Obtenemos las URLs originales (del admin) y añadimos la nuestra
+        urls = super().get_urls()
+        custom_urls = [
+            path('sales-report/', custom_view, name='sales_salesreport'),
+        ]
+        return custom_urls + urls
+
+
     def save_formset(self, request, form, formset, change):
         """Guardar líneas, calcular totales y procesar confirmación"""
         from .services import SaleService

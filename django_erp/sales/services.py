@@ -3,6 +3,11 @@ from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.apps import apps
 from .models import SaleOrder
+from django.db.models import Sum
+from django.db.models.functions import TruncDay, TruncMonth, TruncYear
+from django.utils import timezone
+from decimal import Decimal
+from datetime import timedelta
 
 
 class SaleService:
@@ -143,3 +148,98 @@ class SaleService:
         if order.status != 'CONFIRMED':
             raise ValidationError("Solo se pueden entregar órdenes confirmadas")
         return order
+
+
+class SaleReportService:
+    """Servicio para generar reportes de ventas."""
+
+    @staticmethod
+    def get_totals_by_period(period_type='day', days_back=30):
+        """
+        Obtiene el total de ventas agrupadas por un período específico.
+
+        Args:
+            period_type (str): 'day', 'month', 'year'
+            days_back (int): Número de días hacia atrás para el filtro (solo para 'day').
+
+        Returns:
+            tuple: (list_of_labels, list_of_totals)
+        """
+        # Filtrar órdenes confirmadas y entregadas (excluir borradores y canceladas)
+        queryset = SaleOrder.objects.filter(status__in=['CONFIRMED', 'DELIVERED'])
+
+        # Definir el rango de fechas y el truncado según el período
+        if period_type == 'day':
+            start_date = timezone.now() - timedelta(days=days_back)
+            queryset = queryset.filter(date__gte=start_date)
+            trunc_function = TruncDay('date')
+            label_format = '%d-%m'
+        elif period_type == 'month':
+            # Últimos 12 meses
+            start_date = timezone.now() - timedelta(days=365)
+            queryset = queryset.filter(date__gte=start_date)
+            trunc_function = TruncMonth('date')
+            label_format = 'b Y' # 'Ene 2024', 'Feb 2024'
+        elif period_type == 'year':
+            # Últimos 10 años
+            start_date = timezone.now() - timedelta(days=3650)
+            queryset = queryset.filter(date__gte=start_date)
+            trunc_function = TruncYear('date')
+            label_format = 'Y' # '2024', '2025'
+        else:
+            raise ValueError("Tipo de período no soportado")
+
+        # Agrupar y sumar
+        report_data = (
+            queryset
+            .annotate(period=trunc_function)
+            .values('period')
+            .annotate(total=Sum('total'))
+            .order_by('period')
+        )
+
+        labels = []
+        totals = []
+
+        for entry in report_data:
+            # Asegurar que la fecha se convierta al formato deseado
+            if entry['period']:
+                labels.append(entry['period'].strftime(label_format))
+                # Asegurar que el total sea un Decimal y pasarlo a float para Chart.js
+                totals.append(float(entry['total']))
+            else:
+                # Manejar casos donde la fecha podría ser None (no debería ocurrir)
+                labels.append('Fecha desconocida')
+                totals.append(0.0)
+
+        return labels, totals
+
+    @staticmethod
+    def get_grand_totals():
+        """Calcula los totales de ventas de hoy, este mes y este año."""
+        today = timezone.now().date()
+        # Mes actual
+        first_day_of_month = today.replace(day=1)
+        # Año actual
+        first_day_of_year = today.replace(month=1, day=1)
+
+        sales_today = SaleOrder.objects.filter(
+            status__in=['CONFIRMED', 'DELIVERED'],
+            date=today
+        ).aggregate(Sum('total'))['total__sum'] or Decimal('0.00')
+
+        sales_this_month = SaleOrder.objects.filter(
+            status__in=['CONFIRMED', 'DELIVERED'],
+            date__gte=first_day_of_month
+        ).aggregate(Sum('total'))['total__sum'] or Decimal('0.00')
+
+        sales_this_year = SaleOrder.objects.filter(
+            status__in=['CONFIRMED', 'DELIVERED'],
+            date__gte=first_day_of_year
+        ).aggregate(Sum('total'))['total__sum'] or Decimal('0.00')
+
+        return {
+            'today': float(sales_today),
+            'this_month': float(sales_this_month),
+            'this_year': float(sales_this_year),
+        }

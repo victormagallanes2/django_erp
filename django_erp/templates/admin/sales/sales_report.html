@@ -1,0 +1,93 @@
+{# django_erp/templates/admin/sales/sales_report.html #}
+{% extends "admin/base_site.html" %}
+{% load static i18n %}
+
+{# Bloquear los estilos y scripts para añadir los de Chart.js #}
+{% block extrahead %}
+    {{ block.super }}
+    {# Cargar Chart.js desde los assets de Unfold #}
+    <script src="{% static 'unfold/js/chart/chart.umd.min.js' %}"></script>
+    <style>
+        .report-card { background: var(--body-bg); border-radius: 0.5rem; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1.5rem; border: 1px solid var(--border-color); }
+        .report-stat { font-size: 1.75rem; font-weight: 600; color: var(--body-loud-color); }
+        .report-stat-label { font-size: 0.875rem; color: var(--body-quiet-color); }
+        .chart-container { position: relative; height: 300px; width: 100%; }
+        .grid-cols-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+        @media (max-width: 768px) { .grid-cols-3 { grid-template-columns: 1fr; } }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <div id="content-main" class="p-4">
+        <div class="flex items-center justify-between mb-6">
+            <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">Reporte de Ventas</h1>
+        </div>
+
+        {# Tarjetas de Totales #}
+        <div class="grid-cols-3 mb-6">
+            <div class="report-card">
+                <div class="report-stat-label">{% trans "Ventas de Hoy" %}</div>
+                <div class="report-stat">$ {{ grand_totals.today|floatformat:2 }}</div>
+            </div>
+            <div class="report-card">
+                <div class="report-stat-label">{% trans "Ventas de este Mes" %}</div>
+                <div class="report-stat">$ {{ grand_totals.this_month|floatformat:2 }}</div>
+            </div>
+            <div class="report-card">
+                <div class="report-stat-label">{% trans "Ventas de este Año" %}</div>
+                <div class="report-stat">$ {{ grand_totals.this_year|floatformat:2 }}</div>
+            </div>
+        </div>
+
+        {# Gráfico de Ventas #}
+        <div class="report-card">
+            <h2 class="text-lg font-medium mb-4">{% trans "Evolución de Ventas (Últimos 30 días)" %}</h2>
+            <div class="chart-container">
+                <canvas id="salesChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    {# Script para inicializar el gráfico #}
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const ctx = document.getElementById('salesChart').getContext('2d');
+            
+            // Los datos son pasados desde la vista
+            const labels = {{ chart_labels|safe }};
+            const totals = {{ chart_totals|safe }};
+
+            new Chart(ctx, {
+                type: 'bar', // Podría ser 'line' si prefieres
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Total Ventas (USD)',
+                        data: totals,
+                        backgroundColor: 'rgba(52, 152, 219, 0.6)',
+                        borderColor: 'rgba(52, 152, 219, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false // Ocultamos la leyenda para este gráfico simple
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                // Formato de moneda en el eje Y
+                                callback: function(value) { return '$' + value.toFixed(2); }
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+{% endblock %}

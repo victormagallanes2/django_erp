@@ -281,6 +281,13 @@ def get_menu_items(request):
                 "icon": "receipt_long",
                 "link": "/admin/sales/cashtransaction/",
             })
+
+        if user.has_perm('sales.can_view_reports'):
+            sales_items.append({
+                "title": "Reporte de Ventas",
+                "icon": "assessment", # Icono de Material Symbols
+                "link": "/admin/sales/saleorder/sales-report/", # URL que definimos en get_urls
+            })
         
         if sales_items:
             navigation.append({
