@@ -12,6 +12,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django_erp.configuration.models import ExchangeRate, Company
 import logging
 import traceback
+from .models import PurchaseInvoice, PurchaseInvoiceLine
 
 logger = logging.getLogger(__name__)
 
@@ -332,6 +333,19 @@ class PurchasePaymentInline(UnfoldTabularInline):
 
 
 
+class PurchaseInvoiceInline(UnfoldTabularInline):
+    """Inline de facturas de compra en la orden"""
+    model = PurchaseInvoice
+    extra = 0
+    fields = ['number', 'date_issued', 'total', 'status']
+    readonly_fields = ['number', 'date_issued', 'total', 'status']
+    can_delete = False
+    
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(UnfoldModelAdmin):
     form = PurchaseOrderForm
@@ -350,7 +364,7 @@ class PurchaseOrderAdmin(UnfoldModelAdmin):
     list_filter = ['status', 'date']
     search_fields = ['number', 'supplier__name']
     
-    inlines = [PurchaseLineInline, PurchasePaymentInline]
+    inlines = [PurchaseLineInline, PurchasePaymentInline, PurchaseInvoiceInline]
     actions = [confirm_orders_action, receive_orders_action]
     autocomplete_fields = ['supplier']
     
@@ -387,7 +401,7 @@ class PurchaseOrderAdmin(UnfoldModelAdmin):
     
     def save_model(self, request, obj, form, change):
         """Guardar la orden y procesar cambios de estado"""
-        from .services import PurchaseService
+        from .services import PurchaseService, PurchaseInvoiceService
         
         # ✅ Obtener el estado anterior ANTES de guardar
         old_status = None
@@ -442,14 +456,45 @@ class PurchaseOrderAdmin(UnfoldModelAdmin):
                 
                 elif new_status == 'RECEIVED':
                     print("   📦 EJECUTANDO: Recibiendo orden...")
+                    
+                    # ✅ PASO 1: Recibir la orden (esto cambia el estado a RECEIVED)
                     result = PurchaseService.receive_order(obj, request.user)
                     print(f"   ✅ Resultado: {result}")
-                    self.message_user(
-                        request, 
-                        f'✅ Orden {obj.number} recibida exitosamente. '
-                        f'Se crearon movimientos de entrada en el almacén.', 
-                        messages.SUCCESS
-                    )
+                    
+                    # ✅ PASO 2: Recargar la orden desde la BD para tener el estado actualizado
+                    obj.refresh_from_db()
+                    
+                    # ✅ PASO 3: Generar factura (ahora la orden ya está en estado RECEIVED)
+                    print("   📄 Generando factura de compra...")
+                    try:
+                        # ✅ Verificar que no tenga factura aún
+                        if not obj.invoiced:
+                            invoice = PurchaseInvoiceService.create_invoice_from_purchase_order(
+                                obj.id, 
+                                request.user
+                            )
+                            print(f"   ✅ Factura {invoice.number} generada")
+                            self.message_user(
+                                request, 
+                                f'✅ Orden {obj.number} recibida. Factura de compra {invoice.number} generada automáticamente.', 
+                                messages.SUCCESS
+                            )
+                        else:
+                            print(f"   ℹ️ La orden ya tiene factura")
+                            self.message_user(
+                                request, 
+                                f'✅ Orden {obj.number} recibida (ya tenía factura).', 
+                                messages.SUCCESS
+                            )
+                    except Exception as e:
+                        print(f"   ❌ Error generando factura: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        self.message_user(
+                            request, 
+                            f'⚠️ Orden recibida pero error al generar factura: {str(e)}', 
+                            messages.WARNING
+                        )
                 
                 elif new_status == 'CANCELLED':
                     print("   ❌ EJECUTANDO: Cancelando orden...")
@@ -494,3 +539,67 @@ class PurchaseOrderAdmin(UnfoldModelAdmin):
         
         print(f"   ✅ Total calculado: {obj.total}")
         print("🔴 ===== FIN SAVE_FORMSET =====")
+
+
+class PurchaseInvoiceLineInline(UnfoldTabularInline):
+    """Inline de líneas de factura de compra"""
+    model = PurchaseInvoiceLine
+    extra = 0
+    fields = ['product', 'quantity', 'unit_price', 'subtotal']
+    readonly_fields = ['subtotal']
+    autocomplete_fields = ['product']
+    
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        from django_erp.warehouse.models import Product
+        formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
+        return formset
+
+
+@admin.register(PurchaseInvoice)
+class PurchaseInvoiceAdmin(UnfoldModelAdmin):
+    """Admin de facturas de compra"""
+    
+    list_display = [
+        'number', 
+        'supplier', 
+        'date_issued', 
+        'total', 
+        'status', 
+        'created_at'
+    ]
+    list_filter = ['status', 'date_issued']
+    search_fields = ['number', 'supplier__name', 'supplier_rif']
+    
+    inlines = [PurchaseInvoiceLineInline]
+    autocomplete_fields = ['supplier', 'purchase_order']
+    
+    fieldsets = (
+        ('Información', {
+            'fields': ('number', 'purchase_order', 'supplier', 'status')
+        }),
+        ('Datos del Proveedor', {
+            'fields': ('supplier_name', 'supplier_rif', 'supplier_address')
+        }),
+        ('Fechas', {
+            'fields': ('date_issued', 'date_due')
+        }),
+        ('Totales', {
+            'fields': ('subtotal', 'tax', 'total')
+        }),
+        ('Información Adicional', {
+            'fields': ('note',)
+        }),
+    )
+    
+    readonly_fields = ['date_issued', 'subtotal', 'tax', 'total', 'user', 'created_at', 'updated_at']
+    
+    class Media:
+        js = ('admin/js/purchase_invoice_admin.js',)
+    
+    def save_model(self, request, obj, form, change):
+        if not obj.user:
+            obj.user = request.user
+        super().save_model(request, obj, form, change)
+        obj.calculate_totals()
+        obj.save(update_fields=['subtotal', 'tax', 'total'])

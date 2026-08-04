@@ -6,6 +6,10 @@ from django_erp.warehouse.models import Product
 from django_erp.inventory.models import Inventory
 from django_erp.configuration.models import ExchangeRate, Currency
 from decimal import Decimal
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib import messages
+from .models import PurchaseOrder
+from .services import PurchaseInvoiceService
 
 
 @staff_member_required
@@ -58,3 +62,25 @@ def get_product_price(request):
         return JsonResponse({'error': 'Product not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+
+@staff_member_required
+def generate_invoice_from_purchase_order(request, order_id):
+    """Vista para generar factura manualmente desde una orden de compra"""
+    order = get_object_or_404(PurchaseOrder, id=order_id)
+    
+    if order.status != 'RECEIVED':
+        messages.error(request, "Solo se pueden facturar órdenes recibidas")
+        return redirect('admin:purchasing_purchaseorder_change', order_id)
+    
+    if order.invoiced:
+        messages.warning(request, "Esta orden ya tiene una factura")
+        return redirect('admin:purchasing_purchaseorder_change', order_id)
+    
+    try:
+        invoice = PurchaseInvoiceService.create_invoice_from_purchase_order(order.id, request.user)
+        messages.success(request, f"✅ Factura de compra {invoice.number} generada exitosamente")
+        return redirect('admin:purchasing_purchaseinvoice_change', invoice.id)
+    except Exception as e:
+        messages.error(request, f"❌ Error al generar factura: {str(e)}")
+        return redirect('admin:purchasing_purchaseorder_change', order_id)

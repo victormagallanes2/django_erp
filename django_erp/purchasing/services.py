@@ -2,10 +2,11 @@
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.apps import apps
-from .models import PurchaseOrder
+from .models import PurchaseOrder, PurchaseInvoice, PurchaseInvoiceLine
 from decimal import Decimal
 import logging
 import traceback
+from django_erp.configuration.models import Company, ExchangeRate
 
 logger = logging.getLogger(__name__)
 
@@ -235,3 +236,84 @@ class PurchaseService:
         
         logger.info(f"✅ Orden {order.number} cancelada")
         return order
+
+
+class PurchaseInvoiceService:
+    """Servicio para facturas de compra"""
+    
+    @staticmethod
+    @transaction.atomic
+    def create_invoice_from_purchase_order(purchase_order_id, user=None):
+        """
+        Crear factura de compra desde una orden de compra recibida
+        """
+        from datetime import datetime, timedelta
+        
+        purchase_order = PurchaseOrder.objects.get(id=purchase_order_id)
+        
+        # ✅ Validaciones
+        if purchase_order.status != 'RECEIVED':
+            raise ValidationError("Solo se pueden facturar órdenes recibidas")
+        
+        if purchase_order.invoiced:
+            raise ValidationError("Esta orden ya tiene una factura")
+        
+        # ✅ Obtener empresa
+        company = Company.get_active()
+        if not company:
+            raise ValidationError("No hay una empresa configurada")
+        
+        # ✅ Generar número de factura
+        last_invoice = PurchaseInvoice.objects.order_by('-id').first()
+        if last_invoice and last_invoice.number:
+            try:
+                last_num = int(last_invoice.number.split('-')[-1])
+                next_num = last_num + 1
+            except (ValueError, IndexError):
+                next_num = 1
+        else:
+            next_num = 1
+        
+        number = f"FAC-COMPRA-{datetime.now().strftime('%Y%m')}-{next_num:04d}"
+        
+        # ✅ Crear factura
+        invoice = PurchaseInvoice.objects.create(
+            number=number,
+            purchase_order=purchase_order,
+            supplier=purchase_order.supplier,
+            supplier_name=purchase_order.supplier.name,
+            supplier_rif=purchase_order.supplier.tax_id,
+            supplier_address=purchase_order.supplier.address,
+            date_due=datetime.now().date() + timedelta(days=30),
+            status='DRAFT',
+            user=user or purchase_order.user,
+            sync_status='SYNCED',
+        )
+        
+        # ✅ Copiar líneas
+        for line in purchase_order.lines.all():
+            PurchaseInvoiceLine.objects.create(
+                invoice=invoice,
+                purchase_line=line,
+                product=line.product,
+                product_code=line.product_code,
+                product_name=line.product_name,
+                description=line.description,
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                subtotal=line.subtotal
+            )
+        
+        # ✅ Calcular totales
+        invoice.calculate_totals()
+        invoice.save()
+        
+        # ✅ Actualizar orden
+        purchase_order.invoice_ids.add(invoice)
+        purchase_order.invoiced = True
+        purchase_order.invoice_date = datetime.now().date()
+        purchase_order.save()
+        
+        logger.info(f'✅ Factura de compra {invoice.number} creada desde orden {purchase_order.number}')
+        
+        return invoice

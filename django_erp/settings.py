@@ -240,6 +240,12 @@ def get_menu_items(request):
                 "icon": "shopping_cart",
                 "link": "/admin/purchasing/purchaseorder/",
             })
+        if user.has_perm('purchasing.view_purchaseorder'):
+            purchasing_items.append({
+                "title": "Facturas de Compra",
+                "icon": "receipt",
+                "link": "/admin/purchasing/purchaseinvoice/",
+            })
         
         if purchasing_items:
             navigation.append({

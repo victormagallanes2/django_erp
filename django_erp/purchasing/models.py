@@ -6,6 +6,7 @@ from simple_history.models import HistoricalRecords
 from decimal import Decimal
 from decimal import Decimal, ROUND_HALF_UP
 from django_erp.configuration.models import Company, Currency, ExchangeRate
+import uuid
 
 User = get_user_model()
 
@@ -95,6 +96,21 @@ class PurchaseOrder(models.Model):
         decimal_places=2, 
         default=Decimal('0.00'), 
         verbose_name="Total"
+    )
+
+    invoice_ids = models.ManyToManyField(
+        'purchasing.PurchaseInvoice',
+        blank=True,
+        verbose_name="Facturas"
+    )
+    invoiced = models.BooleanField(
+        default=False,
+        verbose_name="¿Facturado?"
+    )
+    invoice_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Facturación"
     )
     
     note = models.TextField(blank=True, verbose_name="Nota")
@@ -443,4 +459,306 @@ class PurchasePayment(models.Model):
             except Currency.DoesNotExist:
                 self.amount_usd = self.amount
         
+        super().save(*args, **kwargs)
+
+
+class PurchaseInvoice(models.Model):
+    """Factura de Compra - Similar a Invoice pero para compras"""
+    
+    # UUID y sincronización (igual que Invoice)
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="ID Universal"
+    )
+    
+    SYNC_STATUS_CHOICES = [
+        ('PENDING', 'Pendiente de sincronizar'),
+        ('SYNCING', 'Sincronizando...'),
+        ('SYNCED', 'Sincronizada'),
+        ('FAILED', 'Error en sincronización'),
+    ]
+    
+    sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        default='PENDING',
+        db_index=True,
+        verbose_name="Estado de sincronización"
+    )
+    
+    created_at_local = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        verbose_name="Creado localmente"
+    )
+    
+    device_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="Dispositivo de creación"
+    )
+    
+    synced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Sincronizado el"
+    )
+    
+    sync_attempts = models.IntegerField(
+        default=0,
+        verbose_name="Intentos de sincronización"
+    )
+    
+    sync_error = models.TextField(
+        blank=True,
+        verbose_name="Error de sincronización"
+    )
+    
+    # Estados
+    STATUS_CHOICES = [
+        ('DRAFT', 'Borrador'),
+        ('ISSUED', 'Emitida'),
+        ('PAID', 'Pagada'),
+        ('CANCELLED', 'Anulada'),
+    ]
+    
+    # Número de factura
+    number = models.CharField(max_length=50, unique=True, verbose_name="Número Interno")
+    
+    # Relación con la orden de compra
+    purchase_order = models.ForeignKey(
+        'purchasing.PurchaseOrder',
+        on_delete=models.CASCADE,
+        related_name='invoices',
+        verbose_name="Orden de Compra"
+    )
+    
+    # Proveedor (desde la orden)
+    supplier = models.ForeignKey(
+        'purchasing.Supplier',
+        on_delete=models.PROTECT,
+        verbose_name="Proveedor"
+    )
+    
+    # Datos del proveedor (copia)
+    supplier_name = models.CharField(
+        max_length=200,
+        verbose_name="Nombre del Proveedor"
+    )
+    supplier_rif = models.CharField(
+        max_length=20,
+        verbose_name="RIF del Proveedor"
+    )
+    supplier_address = models.TextField(
+        blank=True,
+        verbose_name="Dirección del Proveedor"
+    )
+    
+    # Fechas
+    date_issued = models.DateField(auto_now_add=True, verbose_name="Fecha de Emisión")
+    date_due = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Vencimiento"
+    )
+    
+    # Estado
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='DRAFT',
+        verbose_name="Estado"
+    )
+    
+    # Totales
+    subtotal = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0, 
+        verbose_name="Subtotal"
+    )
+    tax_rate = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        default=16.00, 
+        verbose_name="Tasa IVA (%)"
+    )
+    tax = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0, 
+        verbose_name="IVA"
+    )
+    total = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0, 
+        verbose_name="Total"
+    )
+    
+    # Observaciones
+    note = models.TextField(blank=True, verbose_name="Nota")
+    user = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        verbose_name="Usuario"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Factura de Compra"
+        verbose_name_plural = "Facturas de Compra"
+        ordering = ['-date_issued', '-created_at']
+        permissions = [
+            ("can_view_purchaseinvoice", "Puede ver facturas de compra"),
+            ("can_edit_purchaseinvoice", "Puede editar facturas de compra"),
+            ("can_delete_purchaseinvoice", "Puede eliminar facturas de compra"),
+            ("can_issue_purchaseinvoice", "Puede emitir facturas de compra"),
+            ("can_pay_purchaseinvoice", "Puede pagar facturas de compra"),
+            ("can_cancel_purchaseinvoice", "Puede anular facturas de compra"),
+        ]
+
+    def __str__(self):
+        return f"{self.number} - {self.supplier_name}"
+
+    def calculate_totals(self):
+        """Calcular totales usando el IVA de la empresa"""
+        from decimal import Decimal, ROUND_HALF_UP
+        from django_erp.configuration.models import Company
+        
+        subtotal = sum(line.subtotal for line in self.lines.all())
+        
+        company = Company.get_active()
+        if company:
+            tax_rate = Decimal(str(company.tax_rate))
+        else:
+            tax_rate = Decimal('16.00')
+        
+        tax = subtotal * (tax_rate / Decimal('100'))
+        total = subtotal + tax
+        
+        self.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        self.tax = tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        self.total = total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        
+        return self.subtotal, self.tax, self.total
+
+    def save(self, *args, **kwargs):
+        if not self.uuid:
+            self.uuid = uuid.uuid4()
+        
+        if self.purchase_order and self.purchase_order.supplier:
+            self.supplier = self.purchase_order.supplier
+            self.supplier_name = self.purchase_order.supplier.name
+            self.supplier_rif = self.purchase_order.supplier.tax_id
+            self.supplier_address = self.purchase_order.supplier.address
+        
+        super().save(*args, **kwargs)
+        
+        if self.pk and self.lines.exists():
+            self.calculate_totals()
+            super().save(update_fields=['subtotal', 'tax', 'total'])
+
+
+class PurchaseInvoiceLine(models.Model):
+    """Línea de Factura de Compra"""
+    
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="ID Universal"
+    )
+    
+    invoice = models.ForeignKey(
+        PurchaseInvoice,
+        on_delete=models.CASCADE,
+        related_name='lines',
+        verbose_name="Factura de Compra"
+    )
+    
+    # Relación con la línea de compra original
+    purchase_line = models.ForeignKey(
+        'purchasing.PurchaseLine',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Línea de Compra Original"
+    )
+    
+    # Producto (opcional)
+    product = models.ForeignKey(
+        'warehouse.Product',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Producto"
+    )
+    
+    # Datos del producto (copia)
+    product_code = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name="Código de Producto"
+    )
+    product_name = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Nombre del Producto/Servicio"
+    )
+    description = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Descripción"
+    )
+    
+    # Cantidad y precios
+    quantity = models.IntegerField(verbose_name="Cantidad")
+    unit_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        verbose_name="Precio unitario"
+    )
+    subtotal = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        editable=False,
+        verbose_name="Subtotal"
+    )
+    
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Línea de Factura de Compra"
+        verbose_name_plural = "Líneas de Factura de Compra"
+
+    def __str__(self):
+        return f"{self.invoice.number} - {self.product_name or self.product_code or 'Sin producto'}"
+
+    def save(self, *args, **kwargs):
+        if self.purchase_line:
+            if self.purchase_line.product:
+                self.product = self.purchase_line.product
+                self.product_code = self.purchase_line.product.code
+                self.product_name = self.purchase_line.product.name
+            else:
+                self.product_name = self.purchase_line.product_name
+                self.product_code = self.purchase_line.product_code
+            self.quantity = self.purchase_line.quantity
+            self.unit_price = self.purchase_line.unit_price
+            self.description = self.purchase_line.description or self.product_name
+        
+        if not self.uuid:
+            self.uuid = uuid.uuid4()
+        
+        self.subtotal = self.quantity * self.unit_price
         super().save(*args, **kwargs)
