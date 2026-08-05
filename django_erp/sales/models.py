@@ -7,7 +7,8 @@ from decimal import Decimal
 from django.apps import apps
 import uuid
 from django.conf import settings
-from django_erp.configuration.models import Currency, ExchangeRate
+from django_erp.configuration.models import Currency, ExchangeRate, Company
+
 
 
 User = get_user_model()
@@ -29,6 +30,12 @@ class Customer(models.Model):
     is_active = models.BooleanField(default=True, verbose_name="Activo")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='customer'
+    )
     history = HistoricalRecords()
 
     class Meta:
@@ -116,6 +123,12 @@ class SaleOrder(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='saleorder'
+    )
     history = HistoricalRecords()
 
     class Meta:
@@ -254,7 +267,12 @@ class SaleLine(models.Model):
         editable=False,
         verbose_name="Subtotal"
     )
-
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='saleline'
+    )
     history = HistoricalRecords()
 
     class Meta:
@@ -405,6 +423,12 @@ class CashRegister(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='cashregister'
+    )
     history = HistoricalRecords()
 
     class Meta:
@@ -626,6 +650,12 @@ class CashTransaction(models.Model):
         on_delete=models.PROTECT,
         verbose_name="Usuario"
     )
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='cashtransaction'
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Creado"
@@ -724,6 +754,12 @@ class Payment(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         verbose_name="Usuario"
+    )
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='payments'
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

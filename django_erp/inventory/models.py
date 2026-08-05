@@ -3,9 +3,8 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from simple_history.models import HistoricalRecords
 import uuid
+from django_erp.configuration.models import Company
 
-# ✅ NO importamos nada de warehouse
-# ✅ Usamos referencias dinámicas
 
 User = get_user_model()
 
@@ -30,7 +29,12 @@ class Inventory(models.Model):
     quantity = models.IntegerField(default=0, verbose_name="Cantidad")
     average_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Costo promedio")
     total_value = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Valor total")
-    
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='inventory'
+    )
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
     history = HistoricalRecords()
     
@@ -66,6 +70,12 @@ class ValuationMethod(models.Model):
     )
     method = models.CharField(max_length=10, choices=METHOD_CHOICES, default='AVERAGE', verbose_name="Método")
     standard_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Costo estándar")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='valuationmethod'
+    )
     history = HistoricalRecords()
     
     class Meta:
@@ -145,7 +155,12 @@ class PhysicalCount(models.Model):
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='DRAFT', verbose_name="Estado")
     note = models.TextField(blank=True, verbose_name="Nota")
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="Usuario")
-    
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='physicalcount'
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
     history = HistoricalRecords()

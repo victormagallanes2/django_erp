@@ -306,7 +306,12 @@ class InvoiceLine(models.Model):
         editable=False,
         verbose_name="Subtotal"
     )
-
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='invoiceline'
+    )
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
         from django_erp.warehouse.models import Product

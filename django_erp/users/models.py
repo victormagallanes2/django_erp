@@ -7,10 +7,16 @@ class User(AbstractUser):
     """Modelo de usuario personalizado"""
     
     email = models.EmailField(unique=True, verbose_name="Correo electrónico")
+    companies = models.ManyToManyField(
+        'configuration.Company',
+        related_name='users',
+        blank=True,
+        verbose_name="Compañías asignadas",
+        help_text="Compañías a las que el usuario tiene acceso"
+    )
     
-    # ✅ Si quieres campos adicionales
-    # phone = models.CharField(max_length=20, blank=True, verbose_name="Teléfono")
-    # address = models.TextField(blank=True, verbose_name="Dirección")
+    # ✅ NUEVO: Compañía activa (se usa el middleware para establecerla)
+    # No guardamos este campo en la BD, se maneja por sesión
     
     class Meta:
         verbose_name = "Usuario"
@@ -18,4 +24,10 @@ class User(AbstractUser):
     
     def __str__(self):
         return self.username
+    
+    def get_available_companies(self):
+        """Obtener todas las compañías disponibles para el usuario"""
+        if self.is_superuser:
+            return Company.get_active_companies()
+        return self.companies.filter(is_active=True)
 

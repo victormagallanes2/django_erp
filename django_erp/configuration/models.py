@@ -4,7 +4,6 @@ from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
 from simple_history.models import HistoricalRecords
 from decimal import Decimal
-
 import os
 
 
@@ -15,6 +14,20 @@ class Company(models.Model):
     """Configuración de la empresa"""
     
     # Datos básicos
+    code = models.CharField(
+        max_length=10, 
+        unique=True, 
+        verbose_name="Código",
+        help_text="Código único para identificar la compañía/sucursal (ej: MATRIZ, SUC01, SUC02)"
+    )
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Compañía Padre",
+        help_text="Si es una sucursal, selecciona la compañía matriz"
+    )
     name = models.CharField(max_length=200, verbose_name="Razón Social")
     rif = models.CharField(max_length=20, unique=True, verbose_name="RIF")
     trade_name = models.CharField(max_length=200, blank=True, verbose_name="Nombre Comercial")
@@ -52,7 +65,23 @@ class Company(models.Model):
         verbose_name="¿Requiere Número de Control SENIAT?",
         help_text="Activar si la empresa usa imprenta digital autorizada"
     )
-    
+
+    # ✅ NUEVO: Moneda por defecto para esta compañía
+    default_currency = models.ForeignKey(
+        'configuration.Currency',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        verbose_name="Moneda por defecto",
+        related_name='default_for_companies'
+    )
+
+    # ✅ NUEVO: ¿Es la compañía principal?
+    is_main = models.BooleanField(
+        default=False,
+        verbose_name="¿Es compañía principal?",
+        help_text="Solo una compañía puede ser la principal (matriz)"
+    )
     # Activo
     is_active = models.BooleanField(default=True, verbose_name="Activo")
     
@@ -62,24 +91,56 @@ class Company(models.Model):
 
     class Meta:
         verbose_name = "Configuración de la Empresa"
-        verbose_name_plural = "Configuración de la Empresa"
+        verbose_name_plural = "Configuraciones de la Empresa"
+        ordering = ['code', 'name']
+        permissions = [
+            ("can_view_all_companies", "Puede ver todas las compañías"),
+            ("can_switch_company", "Puede cambiar de compañía"),
+        ]
 
     def __str__(self):
-        return self.name
+        return f"{self.code} - {self.name}"
 
     def clean(self):
-        """Validar que solo haya una empresa activa"""
-        if self.is_active:
-            existing = Company.objects.filter(is_active=True).exclude(pk=self.pk)
+        """Validaciones personalizadas"""
+        # ✅ Validar que solo haya una compañía principal
+        if self.is_main:
+            existing = Company.objects.filter(is_main=True).exclude(pk=self.pk)
             if existing.exists():
-                raise ValidationError("Ya existe una empresa activa. Desactiva la otra primero.")
+                raise ValidationError("Ya existe una compañía principal. Desactiva la otra primero.")
+        
+        # ✅ Validar que no se pueda tener padre si es main
+        if self.is_main and self.parent:
+            raise ValidationError("La compañía principal no puede tener una compañía padre.")
+        
+        # ✅ Validar que no se pueda tener a sí mismo como padre
+        if self.parent and self.parent.pk == self.pk:
+            raise ValidationError("Una compañía no puede ser su propio padre.")
 
-
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
 
     @classmethod
-    def get_active(cls):
-        """Obtener la empresa activa"""
-        return cls.objects.filter(is_active=True).first()
+    def get_main_company(cls):
+        """Obtener la compañía principal (matriz)"""
+        return cls.objects.filter(is_main=True, is_active=True).first()
+
+    @classmethod
+    def get_active_companies(cls):
+        """Obtener todas las compañías activas"""
+        return cls.objects.filter(is_active=True)
+
+    def get_children(self):
+        """Obtener las compañías hijas (sucursales)"""
+        return Company.objects.filter(parent=self, is_active=True)
+
+    def get_all_children(self, include_self=True):
+        """Obtener todas las compañías hijas de forma recursiva"""
+        companies = [self] if include_self else []
+        for child in self.get_children():
+            companies.extend(child.get_all_children(include_self=True))
+        return companies
 
 
 class Backup(models.Model):
@@ -104,6 +165,12 @@ class Backup(models.Model):
     
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="Usuario")
     note = models.TextField(blank=True, verbose_name="Notas")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='backups'
+    )
     
     history = HistoricalRecords()
     
@@ -141,6 +208,12 @@ class Currency(models.Model):
         help_text="Solo una moneda puede ser la base. Ej: USD, EUR, etc."
     )
     is_active = models.BooleanField(default=True, verbose_name="Activo")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='currencies'
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -197,8 +270,13 @@ class ExchangeRate(models.Model):
         null=True,
         verbose_name="Usuario"
     )
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='exchangerate'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
-    
     history = HistoricalRecords()
     
     class Meta:
@@ -284,7 +362,12 @@ class PaymentMethod(models.Model):
         blank=True,
         verbose_name="Icono"
     )
-    
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='paymentmethod'
+    )
     is_active = models.BooleanField(default=True, verbose_name="Activo")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -321,6 +404,12 @@ class CompanyBankAccount(models.Model):
         'configuration.Currency',
         on_delete=models.PROTECT,
         verbose_name="Moneda"
+    )
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='companybankaccount'
     )
     
     # ✅ ¿Es la cuenta por defecto?

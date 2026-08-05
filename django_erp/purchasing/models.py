@@ -25,6 +25,12 @@ class Supplier(models.Model):
     phone = models.CharField(max_length=20, blank=True, verbose_name="Teléfono")
     address = models.TextField(blank=True, verbose_name="Dirección")
     is_active = models.BooleanField(default=True, verbose_name="Activo")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='supplier'
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
     history = HistoricalRecords()
@@ -120,7 +126,12 @@ class PurchaseOrder(models.Model):
         null=True, 
         verbose_name="Usuario"
     )
-    
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='purchaseorder'
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
     history = HistoricalRecords()
@@ -258,7 +269,13 @@ class PurchaseLine(models.Model):
         default=Decimal('0.00'),  # ✅ Decimal
         verbose_name="Subtotal"
     )
-    
+
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='purchaseline'
+    )
     history = HistoricalRecords()
 
     class Meta:
@@ -406,6 +423,12 @@ class PurchasePayment(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         verbose_name="Usuario"
+    )
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='purchasepayment'
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -608,7 +631,12 @@ class PurchaseInvoice(models.Model):
         null=True, 
         verbose_name="Usuario"
     )
-    
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='purchaseinvoice'
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
     history = HistoricalRecords()
@@ -734,7 +762,12 @@ class PurchaseInvoiceLine(models.Model):
         editable=False,
         verbose_name="Subtotal"
     )
-    
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='purchaseinvoiceline'
+    )
     history = HistoricalRecords()
 
     class Meta:

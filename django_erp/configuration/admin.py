@@ -6,36 +6,32 @@ from django.shortcuts import redirect
 from django.http import FileResponse
 from simple_history.admin import SimpleHistoryAdmin
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
-from .models import Company, Backup, PaymentMethod
 from .services import BackupService
-from .models import Currency, ExchangeRate, CompanyBankAccount
+from .models import Currency, ExchangeRate, CompanyBankAccount, Company, Backup, PaymentMethod
 import os
+from .mixins import CompanyFilterMixin
 
 
 @admin.register(Company)
-class CompanyAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
-    list_display = ['logo_preview', 'name', 'rif', 'tax_rate', 'is_active']
-    list_filter = ['is_active']
-    search_fields = ['name', 'rif']
+class CompanyAdmin(UnfoldModelAdmin):
+    """Admin de compañías - Ahora gestiona múltiples compañías"""
+    
+    list_display = ['code', 'name', 'rif', 'is_main', 'parent', 'is_active']
+    list_filter = ['is_main', 'is_active']
+    search_fields = ['code', 'name', 'rif']
     
     fieldsets = (
-        ('Datos de la Empresa', {
-            'fields': ('name', 'trade_name', 'rif', 'logo')
+        ('Identificación', {
+            'fields': ('code', 'name', 'trade_name', 'rif', 'parent')
         }),
         ('Contacto', {
-            'fields': ('address', 'phone', 'email', 'website')
+            'fields': ('address', 'phone', 'email', 'website', 'logo')
         }),
-        ('Configuración Fiscal', {
-            'fields': ('tax_rate',),
-            'classes': ('tab',),
-        }),
-        ('Configuración de Facturación', {
-            'fields': ('invoice_prefix', 'control_number_required'),
-            'classes': ('tab',),
+        ('Configuración', {
+            'fields': ('tax_rate', 'default_currency', 'invoice_prefix', 'control_number_required')
         }),
         ('Estado', {
-            'fields': ('is_active',),
-            'classes': ('tab',),
+            'fields': ('is_main', 'is_active')
         }),
     )
     
@@ -56,9 +52,22 @@ class CompanyAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
             return False
         return super().has_delete_permission(request, obj)
 
+    def save_model(self, request, obj, form, change):
+        """Al guardar, verificar que la compañía principal tenga su propio código"""
+        if obj.is_main and not obj.code:
+            obj.code = 'MAIN'
+        super().save_model(request, obj, form, change)
+    
+    def get_queryset(self, request):
+        """Los superusuarios ven todas, los demás solo las que tienen asignadas"""
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(users=request.user)
+
 
 @admin.register(Backup)
-class BackupAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+class BackupAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
     """Admin de respaldos - Solo crear"""
     
     # ✅ Usar template personalizado
@@ -132,7 +141,7 @@ class BackupAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
 
 
 @admin.register(Currency)
-class CurrencyAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+class CurrencyAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
     """Admin de monedas"""
     
     list_display = ['code', 'name', 'symbol', 'is_base_badge', 'is_active']
@@ -156,7 +165,7 @@ class CurrencyAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
         return "-"
 
 @admin.register(ExchangeRate)
-class ExchangeRateAdmin( UnfoldModelAdmin, SimpleHistoryAdmin):
+class ExchangeRateAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
     list_display = ['from_currency', 'to_currency', 'rate_display', 'date', 'source', 'user']
     list_filter = ['from_currency', 'to_currency', 'date']
     search_fields = ['source']
@@ -176,7 +185,7 @@ class ExchangeRateAdmin( UnfoldModelAdmin, SimpleHistoryAdmin):
 
 
 @admin.register(PaymentMethod)
-class PaymentMethodAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+class PaymentMethodAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
     list_display = ['name', 'code', 'is_active_badge', 'requires_approval_badge', 'icon', 'default_currency']
     list_filter = ['is_active', 'requires_approval']
     search_fields = ['name', 'code']
@@ -204,7 +213,7 @@ class PaymentMethodAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
 
 
 @admin.register(CompanyBankAccount)
-class CompanyBankAccountAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+class CompanyBankAccountAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
     list_display = [
         'bank_name', 
         'account_number', 

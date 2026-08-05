@@ -4,6 +4,8 @@ from django.contrib.auth import get_user_model
 from simple_history.models import HistoricalRecords
 from decimal import Decimal
 import uuid
+from django_erp.configuration.models import Company
+
 
 User = get_user_model()
 
@@ -41,9 +43,13 @@ class Product(models.Model):
     weight = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Peso (kg)")
     dimensions = models.CharField(max_length=100, blank=True, verbose_name="Dimensiones (LxAxA)")
     image = models.ImageField(upload_to='products/', blank=True, null=True, verbose_name="Imagen")
-    
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='products'
+    )
     is_active = models.BooleanField(default=True, verbose_name="Activo")
-    
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
     
@@ -94,13 +100,16 @@ class Location(models.Model):
     code = models.CharField(max_length=50, unique=True, verbose_name="Código")
     name = models.CharField(max_length=200, verbose_name="Nombre")
     description = models.TextField(blank=True, verbose_name="Descripción")
-    
     parent = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Ubicación padre")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='locations'
+    )
     is_active = models.BooleanField(default=True, verbose_name="Activo")
-    
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
-    
     history = HistoricalRecords()
 
     class Meta:
@@ -207,9 +216,13 @@ class Movement(models.Model):
         verbose_name="Tipo de origen"
     )
     source_reference = models.CharField(max_length=100, blank=True, verbose_name="Referencia")
-    
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='movements'
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
-    
     history = HistoricalRecords()
 
     class Meta:
