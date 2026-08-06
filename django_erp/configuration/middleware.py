@@ -28,6 +28,32 @@ class CurrentCompanyMiddleware:
             request.current_company = None
             return
 
+        # ✅ NUEVO: Si el usuario cambia de compañía a través del parámetro GET
+        if request.user.is_authenticated and 'company_id' in request.GET:
+            company_id = request.GET.get('company_id')
+            # Validar que el usuario tenga acceso a esa compañía
+            user_companies = self._get_user_companies(request.user)
+            if user_companies.filter(id=company_id, is_active=True).exists():
+                request.session['active_company_id'] = int(company_id)
+                # ✅ Redirigir a la misma URL sin el parámetro GET
+                # Para una mejor UX, rediriges a la misma página pero limpia.
+                from django.shortcuts import redirect
+                # Necesitamos evitar un bucle de redirección si la URL ya tiene el parámetro.
+                # Esta es una forma simple, asumiendo que `request.get_full_path()` tiene el parámetro.
+                path = request.get_full_path()
+                if 'company_id=' in path:
+                    # Eliminar el parámetro company_id de la URL
+                    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+                    parsed_url = urlparse(path)
+                    query_dict = parse_qs(parsed_url.query)
+                    query_dict.pop('company_id', None)  # Eliminar el parámetro
+                    new_query = urlencode(query_dict, doseq=True)
+                    new_path = urlunparse(parsed_url._replace(query=new_query))
+                    return redirect(new_path)
+            else:
+                # Si no tiene acceso, ignoramos el parámetro.
+                pass
+
         # ✅ Si el usuario es superusuario, puede ver todas las compañías
         if request.user.is_superuser:
             # ✅ Si no tiene compañía en sesión, intentar obtener la principal

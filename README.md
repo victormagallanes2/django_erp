@@ -77,6 +77,17 @@ Datos obligatorios para que el proyecto funcione adecuadamente esto incluye, mon
 
 
 
+## Otros comandos
+
+- Eliminar migraciones:
+
+Get-ChildItem -Path . -Recurse -Directory -Filter "migrations" | ForEach-Object {
+>>     Get-ChildItem -Path $_.FullName -Filter "*.py" | Where-Object { $_.Name -ne "__init__.py" } | Remove-Item -Force
+>>     Get-ChildItem -Path $_.FullName -Filter "*.pyc" | Remove-Item -Force
+>> }
+
+
+
 
 
 

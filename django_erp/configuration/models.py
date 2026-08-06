@@ -122,6 +122,21 @@ class Company(models.Model):
         super().save(*args, **kwargs)
 
     @classmethod
+    def get_active(cls):
+        """
+        Obtener la compañía activa del sistema.
+        Para uso en context_processors y otros lugares donde no hay request.
+        """
+        # ✅ Primero intentar obtener la compañía principal
+        main = cls.objects.filter(is_main=True, is_active=True).first()
+        if main:
+            return main
+        
+        # ✅ Si no hay principal, obtener la primera activa
+        first = cls.objects.filter(is_active=True).first()
+        return first
+
+    @classmethod
     def get_main_company(cls):
         """Obtener la compañía principal (matriz)"""
         return cls.objects.filter(is_main=True, is_active=True).first()
@@ -195,9 +210,7 @@ class Backup(models.Model):
 
 
 class Currency(models.Model):
-    """Moneda configurable"""
-    
-    code = models.CharField(max_length=10, unique=True, verbose_name="Código")
+    code = models.CharField(max_length=10, verbose_name="Código")
     name = models.CharField(max_length=50, verbose_name="Nombre")
     symbol = models.CharField(max_length=5, verbose_name="Símbolo")
     decimal_places = models.IntegerField(default=2, verbose_name="Decimales")
@@ -208,6 +221,7 @@ class Currency(models.Model):
         help_text="Solo una moneda puede ser la base. Ej: USD, EUR, etc."
     )
     is_active = models.BooleanField(default=True, verbose_name="Activo")
+    
     company = models.ForeignKey(
         Company,
         on_delete=models.CASCADE,
@@ -223,19 +237,30 @@ class Currency(models.Model):
     class Meta:
         verbose_name = "Moneda"
         verbose_name_plural = "Monedas"
-        ordering = ['code']
-    
+        ordering = ['company__code', 'code']
+        # ✅ UNICIDAD POR COMPAÑÍA + CÓDIGO
+        unique_together = [['company', 'code']]
+        indexes = [
+            models.Index(fields=['company', 'code']),
+            models.Index(fields=['is_base']),
+        ]
+
     def __str__(self):
-        return f"{self.code} - {self.symbol}"
+        return f"{self.code} - {self.symbol} ({self.company.code})"
     
     def save(self, *args, **kwargs):
         if self.is_base:
-            Currency.objects.filter(is_base=True).exclude(pk=self.pk).update(is_base=False)
+            # ✅ Solo una moneda base por compañía
+            Currency.objects.filter(is_base=True, company=self.company).exclude(pk=self.pk).update(is_base=False)
         super().save(*args, **kwargs)
     
     @classmethod
-    def get_base(cls):
-        return cls.objects.filter(is_base=True).first()
+    def get_base(cls, company=None):
+        """Obtener moneda base de una compañía"""
+        if company is None:
+            from .models import Company
+            company = Company.get_active()
+        return cls.objects.filter(is_base=True, company=company).first()
 
 
 class ExchangeRate(models.Model):
@@ -283,49 +308,79 @@ class ExchangeRate(models.Model):
         verbose_name = "Tasa de Cambio"
         verbose_name_plural = "Tasas de Cambio"
         ordering = ['-date']
-        unique_together = [['from_currency', 'to_currency', 'date']]
-    
+        unique_together = [['company', 'from_currency', 'to_currency', 'date']]
+        indexes = [
+            models.Index(fields=['company', 'date']),
+            models.Index(fields=['from_currency', 'to_currency']),
+        ]
+
     def __str__(self):
-        return f"1 {self.from_currency.code} = {self.rate} {self.to_currency.code}"
+        return f"1 {self.from_currency.code} = {self.rate} {self.to_currency.code} ({self.company.code})"
     
     @classmethod
-    def get_rate(cls, from_code, to_code, date=None):
+    def get_rate(cls, from_code, to_code, company=None, date=None):
+        """
+        Obtener tasa de cambio entre dos monedas para una compañía específica
+        """
         from datetime import date as date_type
+        from decimal import Decimal
+        
         if date is None:
             date = date_type.today()
         
-        from_currency = Currency.objects.get(code=from_code)
-        to_currency = Currency.objects.get(code=to_code)
+        # ✅ Si no se especifica compañía, obtener la activa
+        if company is None:
+            from .models import Company
+            company = Company.get_active()
         
+        # ✅ Si no hay compañía, retornar 1 (no hay tasa disponible)
+        if not company:
+            return Decimal('1')
+        
+        try:
+            # ✅ Buscar monedas POR COMPAÑÍA
+            from_currency = Currency.objects.get(code=from_code, company=company)
+            to_currency = Currency.objects.get(code=to_code, company=company)
+        except Currency.DoesNotExist:
+            # ✅ Si alguna moneda no existe, retornar 1
+            return Decimal('1')
+        
+        # ✅ Si es la misma moneda, retornar 1
         if from_currency == to_currency:
             return Decimal('1')
         
+        # ✅ Buscar tasa para la fecha específica
         rate = cls.objects.filter(
+            company=company,
             from_currency=from_currency,
             to_currency=to_currency,
             date=date
         ).first()
         
+        # ✅ Si no hay tasa para la fecha, buscar la más reciente
         if not rate:
             rate = cls.objects.filter(
+                company=company,
                 from_currency=from_currency,
                 to_currency=to_currency
             ).order_by('-date').first()
         
+        # ✅ Retornar la tasa o 1 si no existe
         return rate.rate if rate else Decimal('1')
     
     @classmethod
-    def get_today_rate(cls, from_code, to_code):
+    def get_today_rate(cls, from_code, to_code, company=None):
+        """Obtener tasa de cambio del día de hoy"""
         from datetime import date as date_type
         today = date_type.today()
-        return cls.get_rate(from_code, to_code, today)
+        return cls.get_rate(from_code, to_code, company, today)
 
 
 class PaymentMethod(models.Model):
     """Método de pago - Reutilizable en toda la empresa"""
     
     name = models.CharField(max_length=100, verbose_name="Nombre")
-    code = models.CharField(max_length=20, unique=True, verbose_name="Código")
+    code = models.CharField(max_length=20, verbose_name="Código")
     description = models.TextField(blank=True, verbose_name="Descripción")
     
     # ✅ NUEVO: ¿Requiere cuenta bancaria de la empresa?
@@ -376,10 +431,16 @@ class PaymentMethod(models.Model):
     class Meta:
         verbose_name = "Método de Pago"
         verbose_name_plural = "Métodos de Pago"
-        ordering = ['name']
-    
+        ordering = ['company__code', 'name']
+        # ✅ UNICIDAD POR COMPAÑÍA + CÓDIGO
+        unique_together = [['company', 'code']]
+        # ✅ Índice para búsquedas rápidas
+        indexes = [
+            models.Index(fields=['company', 'code']),
+        ]
+
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.company.code})"
 
 
 class CompanyBankAccount(models.Model):
@@ -429,7 +490,10 @@ class CompanyBankAccount(models.Model):
         verbose_name = "Cuenta Bancaria de la Empresa"
         verbose_name_plural = "Cuentas Bancarias de la Empresa"
         ordering = ['bank_name', 'account_number']
-        unique_together = [['bank_name', 'account_number']]
+        unique_together = [['company', 'bank_name', 'account_number']]
+        indexes = [
+            models.Index(fields=['company', 'is_default']),
+        ]
     
     def __str__(self):
         default_mark = " (⭐ Por defecto)" if self.is_default else ""
@@ -441,6 +505,11 @@ class CompanyBankAccount(models.Model):
         super().save(*args, **kwargs)
     
     @classmethod
-    def get_default(cls):
-        """Obtener la cuenta por defecto"""
-        return cls.objects.filter(is_default=True, is_active=True).first()
+    def get_default(cls, company=None):
+        """Obtener la cuenta por defecto de una compañía"""
+        if company is None:
+            from .models import Company
+            company = Company.get_active()
+        if company:
+            return cls.objects.filter(is_default=True, is_active=True, company=company).first()
+        return None
