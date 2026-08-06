@@ -8,7 +8,6 @@ from .models import Company
 class CurrentCompanyMiddleware:
     """
     Middleware para gestionar la compañía activa del usuario.
-    Similar al comportamiento de Odoo con múltiples compañías.
     """
     
     def __init__(self, get_response):
@@ -23,47 +22,30 @@ class CurrentCompanyMiddleware:
     def process_request(self, request):
         """Establece la compañía activa en cada petición"""
         
+        print("🔴 MIDDLEWARE EJECUTADO")
+        print(f"   Path: {request.path}")
+        print(f"   Usuario autenticado: {request.user.is_authenticated}")
+        
         # ✅ Solo para usuarios autenticados
         if not request.user.is_authenticated:
             request.current_company = None
+            print("   ⚠️ Usuario no autenticado, current_company = None")
             return
 
-        # ✅ NUEVO: Si el usuario cambia de compañía a través del parámetro GET
-        if request.user.is_authenticated and 'company_id' in request.GET:
-            company_id = request.GET.get('company_id')
-            # Validar que el usuario tenga acceso a esa compañía
-            user_companies = self._get_user_companies(request.user)
-            if user_companies.filter(id=company_id, is_active=True).exists():
-                request.session['active_company_id'] = int(company_id)
-                # ✅ Redirigir a la misma URL sin el parámetro GET
-                # Para una mejor UX, rediriges a la misma página pero limpia.
-                from django.shortcuts import redirect
-                # Necesitamos evitar un bucle de redirección si la URL ya tiene el parámetro.
-                # Esta es una forma simple, asumiendo que `request.get_full_path()` tiene el parámetro.
-                path = request.get_full_path()
-                if 'company_id=' in path:
-                    # Eliminar el parámetro company_id de la URL
-                    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
-                    parsed_url = urlparse(path)
-                    query_dict = parse_qs(parsed_url.query)
-                    query_dict.pop('company_id', None)  # Eliminar el parámetro
-                    new_query = urlencode(query_dict, doseq=True)
-                    new_path = urlunparse(parsed_url._replace(query=new_query))
-                    return redirect(new_path)
-            else:
-                # Si no tiene acceso, ignoramos el parámetro.
-                pass
-
-        # ✅ Si el usuario es superusuario, puede ver todas las compañías
+        # ✅ Si el usuario es superusuario
         if request.user.is_superuser:
+            print(f"   ✅ Superusuario: {request.user.username}")
+            
             # ✅ Si no tiene compañía en sesión, intentar obtener la principal
             if not request.session.get('active_company_id'):
                 main_company = Company.get_main_company()
                 if main_company:
                     request.session['active_company_id'] = main_company.id
                     request.current_company = main_company
+                    print(f"   📌 Usando compañía principal: {main_company.code} - {main_company.name}")
                 else:
                     request.current_company = None
+                    print("   ⚠️ No hay compañía principal")
             else:
                 # ✅ Validar que la compañía en sesión existe y está activa
                 try:
@@ -72,20 +54,22 @@ class CurrentCompanyMiddleware:
                         is_active=True
                     )
                     request.current_company = company
+                    print(f"   📌 Compañía de sesión: {company.code} - {company.name}")
                 except Company.DoesNotExist:
                     # ✅ Si la compañía no existe, limpiar sesión
                     request.session.pop('active_company_id', None)
                     request.current_company = None
+                    print("   ⚠️ Compañía de sesión no existe")
             return
 
         # ✅ Para usuarios normales (no superusuarios)
-        # ✅ Obtener las compañías asignadas al usuario
-        # Nota: Asumimos que el modelo User tiene una relación ManyToMany con Company
         user_companies = request.user.companies.all() if hasattr(request.user, 'companies') else Company.objects.none()
+        print(f"   👤 Usuario normal: {request.user.username}")
+        print(f"   📋 Compañías asignadas: {user_companies.count()}")
         
         if not user_companies.exists():
-            # ✅ Si el usuario no tiene compañías asignadas
             request.current_company = None
+            print("   ⚠️ Usuario sin compañías asignadas")
             return
 
         # ✅ Intentar obtener la compañía activa de la sesión
@@ -95,15 +79,20 @@ class CurrentCompanyMiddleware:
             try:
                 company = user_companies.get(id=company_id, is_active=True)
                 request.current_company = company
+                print(f"   📌 Compañía de sesión: {company.code} - {company.name}")
                 return
             except Company.DoesNotExist:
-                # ✅ La compañía en sesión no es válida o no está activa
                 request.session.pop('active_company_id', None)
+                print("   ⚠️ Compañía de sesión no válida")
 
-        # ✅ Si no hay compañía en sesión o no es válida, usar la primera
+        # ✅ Si no hay compañía en sesión, usar la primera
         default_company = user_companies.first()
         if default_company:
             request.session['active_company_id'] = default_company.id
             request.current_company = default_company
+            print(f"   📌 Usando primera compañía: {default_company.code} - {default_company.name}")
         else:
             request.current_company = None
+            print("   ⚠️ No hay compañía predeterminada")
+        
+        print("🔴 FIN MIDDLEWARE")

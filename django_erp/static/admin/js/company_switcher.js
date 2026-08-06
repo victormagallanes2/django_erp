@@ -38,7 +38,6 @@
                     console.log('📌 ID actual:', self.currentCompanyId);
                     
                     if (self.availableCompanies.length > 0) {
-                        // Buscar la compañía actual
                         if (self.currentCompanyId) {
                             var current = self.availableCompanies.find(function(c) {
                                 return String(c.id) === String(self.currentCompanyId);
@@ -49,7 +48,6 @@
                             }
                         }
                         
-                        // Si no se encontró, usar la primera
                         if (!self.currentCompanyName && self.availableCompanies.length > 0) {
                             self.currentCompanyId = self.availableCompanies[0].id;
                             self.currentCompanyName = self.availableCompanies[0].name;

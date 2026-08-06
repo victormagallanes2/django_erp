@@ -20,6 +20,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
+from django_erp.configuration import views
 
 
 # ✅ Health Check para verificar conexión real
@@ -31,6 +32,7 @@ def health_check(request):
 urlpatterns = [
     # ✅ Health Check (para detectar conexión real)
     path('admin/health-check/', health_check, name='health_check'),
+    path('admin/test-context/', views.test_context, name='test_context'),
     path('admin/sales/', include('django_erp.sales.urls')),
     path('admin/invoicing/', include('django_erp.invoicing.urls')),
     path('admin/purchasing/', include('django_erp.purchasing.urls')),

@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div style="padding: 20px; background: #f0f0f0; border: 2px solid #007bff; margin: 20px;">
+    <h1>🔴 PRUEBA DE CONTEXT PROCESSOR</h1>
+    
+    <h2>Datos del usuario:</h2>
+    <ul>
+        <li>Usuario: {{ user.username }}</li>
+        <li>Superusuario: {{ user.is_superuser }}</li>
+    </ul>
+    
+    <h2>Compañías disponibles:</h2>
+    <ul>
+        {% for comp in available_companies %}
+            <li>{{ comp.code }} - {{ comp.name }}</li>
+        {% empty %}
+            <li style="color: red;">⚠️ No hay compañías disponibles</li>
+        {% endfor %}
+    </ul>
+    
+    <h2>Compañía actual:</h2>
+    <p>{{ current_company|default:"None" }}</p>
+    
+    <h2>Datos JSON:</h2>
+    <pre>{{ available_companies_json }}</pre>
+</div>
+{% endblock %}

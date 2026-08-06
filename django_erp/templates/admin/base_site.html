@@ -1,96 +1,39 @@
-<!-- django_erp/templates/admin/base_site.html -->
 {% extends "admin/base_site.html" %}
 {% load static i18n %}
 
 {% block extrahead %}
     {{ block.super }}
-    
     <style>
-        #offline-badge, 
-        #sync-button-header, 
-        #force-offline-btn, 
-        #force-online-btn,
-        .connection-indicator,
-        #connection-status-container,
-        #offline-banner,
-        .offline-toast {
-            display: none !important;
-        }
-        
-        #user-tools {
-            display: flex !important;
-            align-items: center !important;
-            gap: 0.75rem !important;
-            flex-wrap: wrap !important;
+        #company-test-selector {
+            background: #dc3545 !important;
+            color: #fff !important;
+            padding: 10px 20px !important;
+            border-radius: 8px !important;
+            font-weight: bold !important;
+            font-size: 16px !important;
+            position: fixed !important;
+            top: 10px !important;
+            right: 10px !important;
+            z-index: 999999 !important;
+            border: 3px solid #ff0 !important;
         }
     </style>
 {% endblock %}
 
-{% block branding %}
-    <div id="site-name">
-        <a href="{% url 'admin:index' %}">
-            {{ site_header|default:_('Django administration') }}
-        </a>
-    </div>
-{% endblock %}
-
-{% block usertools %}
-    <div id="user-tools">
-        {# ✅ INCLUIR DESDE LA RUTA CORRECTA #}
-        {% include "admin/configuration/company_switcher.html" %}
-        
-        {% if user.is_active and user.is_staff %}
-            {% url 'django-admindocs-docroot' as docsroot %}
-            {% if docsroot %}
-                <a href="{{ docsroot }}">{% trans 'Documentation' %}</a>
-                <span class="text-gray-300 dark:text-gray-600">/</span>
-            {% endif %}
-        {% endif %}
-        {% if user.has_usable_password %}
-            <a href="{% url 'admin:password_change' %}">{% trans 'Change password' %}</a>
-            <span class="text-gray-300 dark:text-gray-600">/</span>
-        {% endif %}
-        <form id="logout-form" method="post" action="{% url 'admin:logout' %}" class="inline">
-            {% csrf_token %}
-            <button type="submit" class="button-logout">{% trans 'Log out' %}</button>
-        </form>
-    </div>
-{% endblock %}
-
-{% block content %}
-    {{ block.super }}
-{% endblock %}
-
-{# Cargar scripts al final #}
 {% block footer %}
     {{ block.super }}
     
     <script>
-        window.ERP_CONFIG = {{ ERP_CONFIG|safe }};
-        console.log("🔴 ERP_CONFIG cargado globalmente:", window.ERP_CONFIG);
+        (function() {
+            console.log("🔴 Inyectando selector en el body...");
+            
+            // ✅ Crear un elemento de prueba muy visible
+            var testDiv = document.createElement('div');
+            testDiv.id = 'company-test-selector';
+            testDiv.innerHTML = '🔴 SELECTOR DE COMPAÑÍAS AQUÍ';
+            document.body.appendChild(testDiv);
+            
+            console.log("✅ Elemento de prueba creado");
+        })();
     </script>
-    
-    {{ available_companies|json_script:"companies-data" }}
-    
-    <script>
-        var dataElement = document.getElementById('companies-data');
-        if (dataElement) {
-            try {
-                window.COMPANIES_DATA = JSON.parse(dataElement.textContent);
-                console.log("🏢 COMPANIES_DATA cargado:", window.COMPANIES_DATA.length, "compañías");
-            } catch (e) {
-                console.error("❌ Error parseando COMPANIES_DATA:", e);
-                window.COMPANIES_DATA = [];
-            }
-        } else {
-            console.warn("⚠️ No se encontró el elemento companies-data");
-            window.COMPANIES_DATA = [];
-        }
-        
-        window.CURRENT_COMPANY_ID = "{{ current_company.id|default:'' }}";
-        console.log("🏢 CURRENT_COMPANY_ID:", window.CURRENT_COMPANY_ID);
-    </script>
-    
-    <script src="{% static 'unfold/js/alpine/alpine.js' %}"></script>
-    <script src="{% static 'admin/js/company_switcher.js' %}"></script>
 {% endblock %}

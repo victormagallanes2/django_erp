@@ -77,7 +77,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                'django_erp.context_processors.erp_config',
+                'django_erp.configuration.context_processors.erp_config',
             ],
         },
     },
