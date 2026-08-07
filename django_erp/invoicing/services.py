@@ -2,7 +2,7 @@
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from decimal import Decimal, ROUND_HALF_UP
-from .models import Invoice, InvoiceLine
+from .models import Invoice, InvoiceLine  # ← SOLO importar modelos de invoicing
 from django_erp.configuration.models import Company, ExchangeRate
 from django.apps import apps
 from datetime import datetime
@@ -143,7 +143,7 @@ class InvoiceService:
         )
         
         # ============================================================
-        # ✅ COPIAR LÍNEAS
+        # ✅ COPIAR LÍNEAS - CON COMPAÑÍA ASIGNADA
         # ============================================================
         
         for line in sale_order.lines.all():
@@ -159,7 +159,8 @@ class InvoiceService:
                 description=line.description or line.product_name,
                 quantity=line.quantity,
                 unit_price=Decimal(str(line.unit_price)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
-                subtotal=line_subtotal
+                subtotal=line_subtotal,
+                company=company,  # ← ✅ ASIGNAR COMPAÑÍA A LA LÍNEA
             )
         
         # ============================================================
@@ -173,6 +174,7 @@ class InvoiceService:
         logger.info(f'   Pagos: {len(payment_summary)}')
         logger.info(f'   Total pagado: ${float(total_paid_usd):.2f}')
         logger.info(f'   Cambio: ${float(total_paid_usd - total):.2f}')
+        logger.info(f'   Compañía: {company.code} - {company.name}')
         
         return invoice
     

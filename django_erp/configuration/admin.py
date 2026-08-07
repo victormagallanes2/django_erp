@@ -1,3 +1,4 @@
+# configuration/admin.py
 from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse, path
@@ -71,7 +72,6 @@ class CompanyAdmin(UnfoldModelAdmin):
 class BackupAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
     """Admin de respaldos - Solo crear"""
     
-    # ✅ Usar template personalizado
     change_list_template = "admin/configuration/backup_changelist.html"
     
     list_display = ['name', 'file_size_display', 'status_badge', 'created_at', 'user']
@@ -116,7 +116,6 @@ class BackupAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
             label
         )
     
-    # ✅ Vista para crear desde el botón
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -135,15 +134,13 @@ class BackupAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
             self.message_user(request, f'❌ Error: {str(e)}', messages.ERROR)
             return redirect('admin:configuration_backup_changelist')
     
-    # ✅ Eliminar acciones del dropdown
     def get_actions(self, request):
-        # Retornar diccionario vacío para eliminar todas las acciones
         return {}
 
 
 @admin.register(Currency)
-class CurrencyAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
-    """Admin de monedas"""
+class CurrencyAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+    """✅ Admin de monedas GLOBALES - No usa CompanyFilterMixin"""
     
     list_display = ['code', 'name', 'symbol', 'is_base_badge', 'is_active']
     list_filter = ['is_active', 'is_base']
@@ -165,38 +162,90 @@ class CurrencyAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
             return "✅ Base"
         return "-"
 
+
 @admin.register(ExchangeRate)
 class ExchangeRateAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
-    list_display = ['from_currency', 'to_currency', 'rate_display', 'date', 'source', 'user']
-    list_filter = ['from_currency', 'to_currency', 'date']
-    search_fields = ['source']
+    """Admin de tasas de cambio POR COMPAÑÍA CON HISTORIAL"""
+    
+    list_display = [
+        'from_currency', 
+        'to_currency', 
+        'rate_display', 
+        'date', 
+        'effective_date',
+        'source', 
+        'user', 
+        'company'
+    ]
+    list_filter = ['from_currency', 'to_currency', 'date', 'effective_date', 'source', 'company']
+    search_fields = ['source', 'note']
+    autocomplete_fields = ['from_currency', 'to_currency']
     
     fieldsets = (
         ('Tasa de Cambio', {
             'fields': ('from_currency', 'to_currency', 'rate')
         }),
-        ('Información', {
-            'fields': ('source', 'user')
+        ('Vigencia', {
+            'fields': ('effective_date',),
+            'description': 'La tasa será aplicable desde esta fecha. Si se deja vacío, usa la fecha de hoy.'
+        }),
+        ('Compañía', {
+            'fields': ('company',)
+        }),
+        ('Información Adicional', {
+            'fields': ('source', 'user', 'note')
         }),
     )
     
+    readonly_fields = ['date', 'created_at', 'updated_at']
+    
     @admin.display(description='Tasa')
     def rate_display(self, obj):
-        return f"{obj.rate:.2f}"
+        return f"{obj.rate:.4f}"
+    
+    def save_model(self, request, obj, form, change):
+        """Guardar tasa de cambio - SIEMPRE crear un nuevo registro para historial"""
+        from datetime import date
+        
+        # ✅ Si no tiene fecha de vigencia, usar hoy
+        if not obj.effective_date:
+            obj.effective_date = date.today()
+        
+        # ✅ Si no tiene usuario, asignar el actual
+        if not obj.user:
+            obj.user = request.user
+        
+        # ✅ Si no tiene fuente, asignar 'Manual'
+        if not obj.source:
+            obj.source = 'Manual'
+        
+        # ✅ SIEMPRE crear un nuevo registro (no actualizar existente)
+        super().save_model(request, obj, form, change)
+        
+        # ✅ Mensaje informativo
+        self.message_user(
+            request,
+            f'✅ Tasa registrada: 1 {obj.from_currency.code} = {obj.rate} {obj.to_currency.code} '
+            f'(Vigente desde: {obj.effective_date.strftime("%Y-%m-%d")})',
+            messages.SUCCESS
+        )
 
 
 @admin.register(PaymentMethod)
 class PaymentMethodAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
-    list_display = ['name', 'code', 'is_active_badge', 'requires_approval_badge', 'icon', 'default_currency']
-    list_filter = ['is_active', 'requires_approval']
+    """✅ Admin de métodos de pago POR COMPAÑÍA"""
+    
+    list_display = ['name', 'code', 'is_active_badge', 'requires_approval_badge', 'icon', 'default_currency', 'company']
+    list_filter = ['is_active', 'requires_approval', 'company']
     search_fields = ['name', 'code']
+    autocomplete_fields = ['default_currency']
     
     fieldsets = (
         ('Información', {
             'fields': ('name', 'code', 'description')
         }),
         ('Configuración', {
-            'fields': ('is_active', 'requires_approval', 'icon', 'default_currency')
+            'fields': ('is_active', 'requires_approval', 'icon', 'default_currency', 'company')
         }),
     )
     
@@ -215,16 +264,20 @@ class PaymentMethodAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmi
 
 @admin.register(CompanyBankAccount)
 class CompanyBankAccountAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
+    """Admin de cuentas bancarias POR COMPAÑÍA"""
+    
     list_display = [
         'bank_name', 
         'account_number', 
         'account_holder', 
         'currency', 
         'is_default_badge', 
-        'is_active'
+        'is_active',
+        'company'
     ]
-    list_filter = ['currency', 'is_active', 'is_default']
+    list_filter = ['currency', 'is_active', 'is_default', 'company']
     search_fields = ['bank_name', 'account_number', 'account_holder']
+    autocomplete_fields = ['currency']
     
     fieldsets = (
         ('Datos de la Cuenta', {
@@ -234,7 +287,7 @@ class CompanyBankAccountAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistor
             'fields': ('currency',)
         }),
         ('Configuración', {
-            'fields': ('is_default', 'is_active')
+            'fields': ('is_default', 'is_active', 'company')
         }),
     )
     

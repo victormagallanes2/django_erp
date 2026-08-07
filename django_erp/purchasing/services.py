@@ -20,6 +20,7 @@ class PurchaseService:
         """Confirmar una orden de compra"""
         logger.info(f"🔴 Confirmando orden {order.number}")
         logger.info(f"   Estado actual: {order.status}")
+        logger.info(f"   Compañía: {order.company.code if order.company else 'Sin compañía'}")
         
         if not order.lines.exists():
             logger.error("   ❌ La orden no tiene líneas")
@@ -49,6 +50,7 @@ class PurchaseService:
         print(f"   ID de la orden: {order.id}")
         print(f"   Estado actual: {order.status}")
         print(f"   Usuario: {user}")
+        print(f"   Compañía: {order.company.code if order.company else 'Sin compañía'}")
         print("=" * 80)
         
         # ✅ Verificar líneas
@@ -105,6 +107,11 @@ class PurchaseService:
         if order.status not in ['ORDERED', 'RECEIVED']:
             print(f"   ❌ La orden no está en estado 'Ordenada' o 'Recibida'. Estado: {order.status}")
             raise ValidationError("Solo se pueden recibir órdenes en estado 'Ordenada' o 'Recibida' (sin movimientos)")
+        
+        # ✅ Obtener la compañía de la orden o la activa
+        company = order.company or Company.get_active()
+        if not company:
+            raise ValidationError("No hay una compañía asociada a esta orden o activa.")
         
         # ✅ Importar servicios de warehouse
         try:
@@ -184,6 +191,7 @@ class PurchaseService:
                     source_reference=order.number,
                     note=f"Recepción de compra {order.number} - {order.supplier.name}",
                     user=user or order.user
+                    # ✅ La compañía se asigna dentro de WarehouseService.create_entry
                 )
                 
                 movements_created += 1
@@ -191,6 +199,7 @@ class PurchaseService:
                 print(f"         Tipo: {movement.type}")
                 print(f"         Producto: {movement.product.name}")
                 print(f"         Cantidad: {movement.quantity}")
+                print(f"         Compañía: {movement.company.code if movement.company else 'Sin compañía'}")
                 
             except Exception as e:
                 print(f"      ❌ Error al crear movimiento: {str(e)}")
@@ -288,9 +297,10 @@ class PurchaseInvoiceService:
             status='DRAFT',
             user=user or purchase_order.user,
             sync_status='SYNCED',
+            company=company,  # ← ✅ ASIGNAR COMPAÑÍA A LA FACTURA
         )
         
-        # ✅ Copiar líneas
+        # ✅ Copiar líneas CON COMPAÑÍA
         for line in purchase_order.lines.all():
             PurchaseInvoiceLine.objects.create(
                 invoice=invoice,
@@ -301,7 +311,8 @@ class PurchaseInvoiceService:
                 description=line.description,
                 quantity=line.quantity,
                 unit_price=line.unit_price,
-                subtotal=line.subtotal
+                subtotal=line.subtotal,
+                company=company,  # ← ✅ ASIGNAR COMPAÑÍA A LA LÍNEA
             )
         
         # ✅ Calcular totales
@@ -315,5 +326,6 @@ class PurchaseInvoiceService:
         purchase_order.save()
         
         logger.info(f'✅ Factura de compra {invoice.number} creada desde orden {purchase_order.number}')
+        logger.info(f'   Compañía: {company.code} - {company.name}')
         
         return invoice

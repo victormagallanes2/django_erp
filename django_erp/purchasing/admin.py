@@ -9,7 +9,7 @@ from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from unfold.admin import TabularInline as UnfoldTabularInline
 from .models import Supplier, PurchaseOrder, PurchaseLine, PurchasePayment
 from decimal import Decimal, ROUND_HALF_UP
-from django_erp.configuration.models import ExchangeRate, Company
+from django_erp.configuration.models import ExchangeRate, Company, Currency
 import logging
 import traceback
 from .models import PurchaseInvoice, PurchaseInvoiceLine
@@ -124,7 +124,6 @@ class PurchaseOrderForm(forms.ModelForm):
         instance = kwargs.get('instance')
         
         # Obtener tasa de cambio
-        # ✅ Obtener IVA de la empresa
         from django_erp.configuration.models import Company
         company = Company.get_active()
         tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
@@ -265,6 +264,7 @@ def receive_orders_action(modeladmin, request, queryset):
                 messages.ERROR
             )
 
+
 class PurchasePaymentInline(UnfoldTabularInline):
     """Inline de pagos para órdenes de compra"""
     model = PurchasePayment
@@ -283,15 +283,15 @@ class PurchasePaymentInline(UnfoldTabularInline):
     readonly_fields = ['payment_date', 'amount_usd_display']
     autocomplete_fields = ['method', 'company_bank_account', 'currency']
     
-    # ✅ Ocultar el campo supplier (se asigna automáticamente)
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
         
-        # ✅ Moneda por defecto: USD
-        from django_erp.configuration.models import Currency
+        # ✅ Moneda por defecto: USD (global)
         try:
             usd = Currency.objects.get(code='USD')
             formset.form.base_fields['currency'].initial = usd.id
+            # ✅ TODAS las monedas activas (globales)
+            formset.form.base_fields['currency'].queryset = Currency.objects.filter(is_active=True)
         except Currency.DoesNotExist:
             pass
         
@@ -313,7 +313,6 @@ class PurchasePaymentInline(UnfoldTabularInline):
         queryset = super().get_queryset(request)
         return queryset.select_related('method', 'company_bank_account', 'currency', 'supplier')
     
-    # ✅ NUEVO: Guardar asignando el proveedor automáticamente
     def save_formset(self, request, form, formset, change):
         """Guardar pagos asignando el proveedor desde la orden"""
         instances = formset.save(commit=False)
@@ -332,7 +331,6 @@ class PurchasePaymentInline(UnfoldTabularInline):
         formset.save_m2m()
 
 
-
 class PurchaseInvoiceInline(UnfoldTabularInline):
     """Inline de facturas de compra en la orden"""
     model = PurchaseInvoice
@@ -343,7 +341,6 @@ class PurchaseInvoiceInline(UnfoldTabularInline):
     
     def has_add_permission(self, request, obj=None):
         return False
-
 
 
 @admin.register(PurchaseOrder)

@@ -9,7 +9,8 @@ import os
 import sys
 import django
 from decimal import Decimal
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+import traceback
 
 # ✅ CONFIGURAR DJANGO PRIMERO
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -143,46 +144,29 @@ def get_or_create_companies():
 
 
 # ============================================================
-# FUNCIÓN: Cargar Monedas por Compañía
+# FUNCIÓN: Cargar Monedas GLOBALES
 # ============================================================
 
-def load_currencies(company):
-    """Cargar monedas para una compañía específica"""
-    print(f"\n   📥 Cargando monedas para {company.code}...")
+def load_global_currencies():
+    """Cargar monedas GLOBALES (compartidas por todas las compañías)"""
+    print("\n" + "=" * 70)
+    print("💱 CARGANDO MONEDAS GLOBALES")
+    print("=" * 70)
     
-    # ✅ Definir monedas según el país de la compañía
-    currencies_data = {
-        'VE': [  # Venezuela
-            {'code': 'USD', 'name': 'Dólar Americano', 'symbol': '$', 'is_base': True},
-            {'code': 'BS', 'name': 'Bolívar', 'symbol': 'Bs.', 'is_base': False},
-            {'code': 'EUR', 'name': 'Euro', 'symbol': '€', 'is_base': False},
-        ],
-        'CO': [  # Colombia
-            {'code': 'USD', 'name': 'Dólar Americano', 'symbol': '$', 'is_base': True},
-            {'code': 'COP', 'name': 'Peso Colombiano', 'symbol': '$', 'is_base': False},
-            {'code': 'EUR', 'name': 'Euro', 'symbol': '€', 'is_base': False},
-        ],
-        'MX': [  # México
-            {'code': 'USD', 'name': 'Dólar Americano', 'symbol': '$', 'is_base': True},
-            {'code': 'MXN', 'name': 'Peso Mexicano', 'symbol': '$', 'is_base': False},
-            {'code': 'EUR', 'name': 'Euro', 'symbol': '€', 'is_base': False},
-        ],
-        'ES': [  # España (Europa)
-            {'code': 'EUR', 'name': 'Euro', 'symbol': '€', 'is_base': True},
-            {'code': 'USD', 'name': 'Dólar Americano', 'symbol': '$', 'is_base': False},
-            {'code': 'GBP', 'name': 'Libra Esterlina', 'symbol': '£', 'is_base': False},
-        ],
-    }
-    
-    # ✅ Obtener monedas para este país (o usar las de Venezuela por defecto)
-    country_code = company.code
-    currencies = currencies_data.get(country_code, currencies_data['VE'])
+    # ✅ Definir monedas globales
+    currencies_data = [
+        {'code': 'USD', 'name': 'Dólar Americano', 'symbol': '$', 'is_base': True},
+        {'code': 'BS', 'name': 'Bolívar', 'symbol': 'Bs.', 'is_base': False},
+        {'code': 'EUR', 'name': 'Euro', 'symbol': '€', 'is_base': False},
+        {'code': 'COP', 'name': 'Peso Colombiano', 'symbol': '$', 'is_base': False},
+        {'code': 'MXN', 'name': 'Peso Mexicano', 'symbol': '$', 'is_base': False},
+        {'code': 'GBP', 'name': 'Libra Esterlina', 'symbol': '£', 'is_base': False},
+    ]
     
     count = 0
-    for curr_data in currencies:
+    for curr_data in currencies_data:
         currency, created = Currency.objects.get_or_create(
             code=curr_data['code'],
-            company=company,
             defaults={
                 'name': curr_data['name'],
                 'symbol': curr_data['symbol'],
@@ -194,78 +178,134 @@ def load_currencies(company):
         if created:
             count += 1
             base_mark = " (BASE)" if currency.is_base else ""
-            print(f"      ✅ Creada: {currency.code} - {currency.name}{base_mark}")
+            print(f"   ✅ Creada: {currency.code} - {currency.name}{base_mark}")
         else:
-            print(f"      ℹ️ Ya existe: {currency.code} - {currency.name}")
+            print(f"   ℹ️ Ya existe: {currency.code} - {currency.name}")
     
-    print(f"   ✅ Monedas cargadas: {count} nuevas para {company.code}")
+    print(f"✅ Monedas globales cargadas: {count} nuevas")
     return count
 
 
 # ============================================================
-# FUNCIÓN: Cargar Tasas de Cambio por Compañía
+# FUNCIÓN: Cargar Tasas de Cambio por Compañía CON HISTORIAL
 # ============================================================
 
 def load_exchange_rates(company):
-    """Cargar tasas de cambio para una compañía específica"""
+    """Cargar tasas de cambio históricas para una compañía específica"""
     print(f"\n   📥 Cargando tasas de cambio para {company.code}...")
     
     try:
-        # ✅ Obtener moneda base
-        base_currency = Currency.objects.get(is_base=True, company=company)
-        
-        # ✅ Obtener todas las monedas de la compañía (excepto la base)
-        other_currencies = Currency.objects.filter(company=company).exclude(code=base_currency.code)
-        
-        if not other_currencies.exists():
-            print(f"      ⚠️ No hay otras monedas para {company.code}")
+        # ✅ Obtener moneda base global
+        base_currency = Currency.get_base()
+        if not base_currency:
+            print(f"   ⚠️ No se encontró moneda base global para {company.code}")
             return 0
+        
+        # ✅ Obtener monedas que no son base
+        other_currencies = Currency.objects.exclude(code=base_currency.code)
         
         count = 0
         today = date.today()
         
-        # ✅ Crear tasas de cambio desde la moneda base a las demás
         for currency in other_currencies:
-            # ✅ Tasa por defecto (1 USD = 1 de la moneda)
-            default_rate = Decimal('1.00')
+            # ✅ Definir tasas históricas para tener historial desde el inicio
+            historical_rates = []
             
-            # ✅ Tasas específicas por país
-            rate_value = default_rate
             if company.code == 'VE' and currency.code == 'BS':
-                rate_value = Decimal('40.00')  # 1 USD = 40 Bs.
+                # Simular tasas históricas para Venezuela
+                historical_rates = [
+                    {'date': today - timedelta(days=30), 'rate': Decimal('38.00')},
+                    {'date': today - timedelta(days=15), 'rate': Decimal('39.00')},
+                    {'date': today - timedelta(days=7), 'rate': Decimal('39.50')},
+                    {'date': today, 'rate': Decimal('40.00')},
+                ]
             elif company.code == 'CO' and currency.code == 'COP':
-                rate_value = Decimal('4000.00')  # 1 USD = 4000 COP
+                historical_rates = [
+                    {'date': today - timedelta(days=30), 'rate': Decimal('3800.00')},
+                    {'date': today - timedelta(days=15), 'rate': Decimal('3900.00')},
+                    {'date': today - timedelta(days=7), 'rate': Decimal('3950.00')},
+                    {'date': today, 'rate': Decimal('4000.00')},
+                ]
             elif company.code == 'MX' and currency.code == 'MXN':
-                rate_value = Decimal('18.00')  # 1 USD = 18 MXN
-            elif company.code == 'ES':
-                if currency.code == 'USD':
-                    rate_value = Decimal('1.10')  # 1 EUR = 1.10 USD
-                elif currency.code == 'GBP':
-                    rate_value = Decimal('0.85')  # 1 EUR = 0.85 GBP
+                historical_rates = [
+                    {'date': today - timedelta(days=30), 'rate': Decimal('17.00')},
+                    {'date': today - timedelta(days=15), 'rate': Decimal('17.50')},
+                    {'date': today - timedelta(days=7), 'rate': Decimal('17.80')},
+                    {'date': today, 'rate': Decimal('18.00')},
+                ]
+            elif company.code == 'ES' and currency.code == 'USD':
+                historical_rates = [
+                    {'date': today - timedelta(days=30), 'rate': Decimal('1.05')},
+                    {'date': today - timedelta(days=15), 'rate': Decimal('1.08')},
+                    {'date': today - timedelta(days=7), 'rate': Decimal('1.09')},
+                    {'date': today, 'rate': Decimal('1.10')},
+                ]
+            elif company.code == 'ES' and currency.code == 'GBP':
+                historical_rates = [
+                    {'date': today - timedelta(days=30), 'rate': Decimal('0.80')},
+                    {'date': today - timedelta(days=15), 'rate': Decimal('0.83')},
+                    {'date': today - timedelta(days=7), 'rate': Decimal('0.84')},
+                    {'date': today, 'rate': Decimal('0.85')},
+                ]
             
-            rate, created = ExchangeRate.objects.get_or_create(
-                from_currency=base_currency,
-                to_currency=currency,
-                date=today,
-                company=company,
-                defaults={
-                    'rate': rate_value,
-                    'source': 'Sistema',
-                    'user_id': None,
-                }
-            )
-            
-            if created:
-                count += 1
-                print(f"      ✅ Creada: 1 {base_currency.code} = {rate_value} {currency.code}")
+            # ✅ Si hay tasas históricas definidas, crearlas
+            if historical_rates:
+                for hist in historical_rates:
+                    rate, created = ExchangeRate.objects.get_or_create(
+                        from_currency=base_currency,
+                        to_currency=currency,
+                        company=company,
+                        effective_date=hist['date'],
+                        defaults={
+                            'rate': hist['rate'],
+                            'source': 'Sistema - Histórico',
+                            'note': f'Tasa histórica cargada para {hist["date"].strftime("%Y-%m-%d")}'
+                        }
+                    )
+                    if created:
+                        count += 1
+                        print(f"      ✅ Creada: 1 {base_currency.code} = {hist['rate']} {currency.code} (vigente desde {hist['date'].strftime('%Y-%m-%d')})")
+                    else:
+                        print(f"      ℹ️ Ya existe: 1 {base_currency.code} = {rate.rate} {currency.code} (vigente desde {rate.effective_date.strftime('%Y-%m-%d')})")
             else:
-                print(f"      ℹ️ Ya existe: 1 {base_currency.code} = {rate.rate} {currency.code}")
+                # ✅ Si no hay históricas, crear solo la tasa actual
+                rate_value = Decimal('1.00')
+                
+                if company.code == 'VE' and currency.code == 'BS':
+                    rate_value = Decimal('40.00')
+                elif company.code == 'CO' and currency.code == 'COP':
+                    rate_value = Decimal('4000.00')
+                elif company.code == 'MX' and currency.code == 'MXN':
+                    rate_value = Decimal('18.00')
+                elif company.code == 'ES':
+                    if currency.code == 'USD':
+                        rate_value = Decimal('1.10')
+                    elif currency.code == 'GBP':
+                        rate_value = Decimal('0.85')
+                
+                rate, created = ExchangeRate.objects.get_or_create(
+                    from_currency=base_currency,
+                    to_currency=currency,
+                    company=company,
+                    effective_date=today,
+                    defaults={
+                        'rate': rate_value,
+                        'source': 'Sistema',
+                        'note': 'Tasa inicial del sistema'
+                    }
+                )
+                if created:
+                    count += 1
+                    print(f"      ✅ Creada: 1 {base_currency.code} = {rate_value} {currency.code} (vigente desde hoy)")
+                else:
+                    print(f"      ℹ️ Ya existe: 1 {base_currency.code} = {rate.rate} {currency.code}")
         
         print(f"   ✅ Tasas cargadas: {count} nuevas para {company.code}")
         return count
         
-    except Currency.DoesNotExist:
-        print(f"   ⚠️ No se encontró moneda base para {company.code}")
+    except Exception as e:
+        print(f"   ❌ Error cargando tasas para {company.code}: {str(e)}")
+        traceback.print_exc()
         return 0
 
 
@@ -278,10 +318,13 @@ def load_payment_methods(company):
     print(f"\n   📥 Cargando métodos de pago para {company.code}...")
     
     try:
-        # ✅ Obtener moneda base de la compañía
-        base_currency = Currency.objects.get(is_base=True, company=company)
-    except Currency.DoesNotExist:
-        print(f"   ⚠️ No se encontró moneda base para {company.code}")
+        # ✅ Obtener moneda base global
+        base_currency = Currency.get_base()
+        if not base_currency:
+            print(f"   ⚠️ No se encontró moneda base global para {company.code}")
+            return 0
+    except Exception as e:
+        print(f"   ⚠️ Error obteniendo moneda base: {e}")
         return 0
     
     # ✅ Métodos de pago por defecto
@@ -295,25 +338,28 @@ def load_payment_methods(company):
     
     count = 0
     for method_data in payment_methods:
-        method, created = PaymentMethod.objects.get_or_create(
-            code=method_data['code'],
-            company=company,
-            defaults={
-                'name': method_data['name'],
-                'description': f"Método de pago: {method_data['name']}",
-                'requires_approval': method_data['requires_approval'],
-                'requires_company_bank': method_data['code'] in ['BANK_TRANSFER', 'CHECK'],
-                'requires_reference': method_data['code'] in ['BANK_TRANSFER', 'CHECK', 'CREDIT_CARD'],
-                'default_currency': base_currency,
-                'is_active': True,
-            }
-        )
-        
-        if created:
-            count += 1
-            print(f"      ✅ Creado: {method.name} ({method.code}) para {company.code}")
-        else:
-            print(f"      ℹ️ Ya existe: {method.name} ({method.code}) para {company.code}")
+        try:
+            method, created = PaymentMethod.objects.get_or_create(
+                code=method_data['code'],
+                company=company,
+                defaults={
+                    'name': method_data['name'],
+                    'description': f"Método de pago: {method_data['name']}",
+                    'requires_approval': method_data['requires_approval'],
+                    'requires_company_bank': method_data['code'] in ['BANK_TRANSFER', 'CHECK'],
+                    'requires_reference': method_data['code'] in ['BANK_TRANSFER', 'CHECK', 'CREDIT_CARD'],
+                    'default_currency': base_currency,
+                    'is_active': True,
+                }
+            )
+            
+            if created:
+                count += 1
+                print(f"      ✅ Creado: {method.name} ({method.code}) para {company.code}")
+            else:
+                print(f"      ℹ️ Ya existe: {method.name} ({method.code}) para {company.code}")
+        except Exception as e:
+            print(f"      ❌ Error creando método {method_data['code']}: {e}")
     
     print(f"   ✅ Métodos de pago cargados: {count} nuevos para {company.code}")
     return count
@@ -328,7 +374,10 @@ def load_company_bank_accounts(company):
     print(f"\n   📥 Creando cuentas bancarias para {company.code}...")
     
     try:
-        base_currency = Currency.objects.get(is_base=True, company=company)
+        base_currency = Currency.get_base()
+        if not base_currency:
+            print(f"   ⚠️ No se encontró moneda base global para {company.code}")
+            return 0
         
         # ✅ Cuentas bancarias según el país
         accounts = []
@@ -396,8 +445,9 @@ def load_company_bank_accounts(company):
         print(f"   ✅ Cuentas bancarias: {count} nuevas para {company.code}")
         return count
         
-    except Currency.DoesNotExist:
-        print(f"   ⚠️ No se encontró moneda base para {company.code}")
+    except Exception as e:
+        print(f"   ❌ Error cargando cuentas para {company.code}: {str(e)}")
+        traceback.print_exc()
         return 0
 
 
@@ -410,7 +460,10 @@ def load_demo_data(company):
     print(f"\n   📥 Cargando datos demo para {company.code}...")
     
     try:
-        base_currency = Currency.objects.get(is_base=True, company=company)
+        base_currency = Currency.get_base()
+        if not base_currency:
+            print(f"   ⚠️ No se encontró moneda base global")
+            return False
         
         # ✅ 1. Crear ubicaciones
         locations = []
@@ -529,6 +582,7 @@ def load_demo_data(company):
         
     except Exception as e:
         print(f"   ❌ Error en {company.code}: {str(e)}")
+        traceback.print_exc()
         return False
 
 
@@ -538,7 +592,10 @@ def load_demo_data(company):
 
 def load_groups():
     """Cargar grupos desde JSON (globales, sin compañía)"""
-    print("\n📥 Cargando grupos globales...")
+    print("\n" + "=" * 70)
+    print("👥 CARGANDO GRUPOS GLOBALES")
+    print("=" * 70)
+    
     file_path = os.path.join(DATA_DIR, 'groups.json')
     
     if not os.path.exists(file_path):
@@ -568,12 +625,14 @@ def load_groups():
 
 
 # ============================================================
-# FUNCIÓN: Cargar Usuarios (con compañías) - CORREGIDA
+# FUNCIÓN: Cargar Usuarios
 # ============================================================
 
 def load_users(companies):
     """Cargar usuarios y asignar compañías según el país"""
-    print("\n📥 Cargando usuarios...")
+    print("\n" + "=" * 70)
+    print("👤 CARGANDO USUARIOS")
+    print("=" * 70)
     
     count = 0
     
@@ -602,7 +661,7 @@ def load_users(companies):
         admin.companies.add(comp)
     print(f"   ✅ Admin tiene acceso a: {', '.join([c.code for c in companies.values()])}")
     
-    # ✅ Usuarios por compañía - CORREGIDO: usar data_item['company']
+    # ✅ Usuarios por compañía
     user_data = []
     for code in companies.keys():
         user_data.extend([
@@ -677,125 +736,136 @@ def load_all():
         print(f"❌ Error conectando: {e}")
         return
     
-    # ✅ PASO 1: Crear compañías
-    companies = get_or_create_companies()
-    
-    # ✅ PASO 2: Cargar datos globales y por compañía
-    with transaction.atomic():
+    try:
+        with transaction.atomic():
+            # ✅ PASO 1: Crear monedas globales PRIMERO
+            load_global_currencies()
+            
+            # ✅ PASO 2: Crear compañías
+            companies = get_or_create_companies()
+            
+            # ✅ PASO 3: Cargar datos globales
+            load_groups()
+            
+            # ✅ PASO 4: Cargar datos por compañía
+            print("\n" + "=" * 70)
+            print("📦 CARGANDO DATOS POR COMPAÑÍA")
+            print("=" * 70)
+            
+            for code, company in companies.items():
+                print("\n" + "-" * 70)
+                print(f"🏢 PROCESANDO: {company.code} - {company.name}")
+                print("-" * 70)
+                
+                # ✅ Asignar moneda por defecto a la compañía
+                if not company.default_currency:
+                    base = Currency.get_base()
+                    if base:
+                        company.default_currency = base
+                        company.save()
+                        print(f"   ✅ Moneda por defecto asignada: {base.code}")
+                
+                # 1. Tasas de cambio (con historial)
+                load_exchange_rates(company)
+                
+                # 2. Métodos de pago
+                load_payment_methods(company)
+                
+                # 3. Cuentas bancarias
+                load_company_bank_accounts(company)
+                
+                # 4. Datos de demostración
+                load_demo_data(company)
+            
+            # ✅ PASO 5: Cargar usuarios
+            load_users(companies)
+        
+        # ✅ VERIFICAR RESULTADOS
         print("\n" + "=" * 70)
-        print("📦 CARGANDO DATOS GLOBALES")
+        print("🔍 VERIFICANDO DATOS CARGADOS")
         print("=" * 70)
         
-        # Grupos (globales)
-        load_groups()
+        # ✅ Monedas globales
+        print(f"\n💱 MONEDAS GLOBALES: {Currency.objects.count()}")
+        for currency in Currency.objects.all():
+            base_mark = " (BASE)" if currency.is_base else ""
+            print(f"   • {currency.code} - {currency.name}{base_mark}")
         
-        # ✅ PASO 3: Cargar datos por compañía
+        # ✅ Compañías
+        print(f"\n🏢 COMPAÑÍAS: {Company.objects.count()}")
+        for comp in Company.objects.all():
+            parent = f" (Padre: {comp.parent.code})" if comp.parent else " (Principal)"
+            default_curr = comp.default_currency.code if comp.default_currency else "Sin moneda"
+            print(f"   • {comp.code} - {comp.name}{parent} - Moneda: {default_curr}")
+        
+        # ✅ Tasas de cambio por compañía
+        print(f"\n💰 TASAS DE CAMBIO POR COMPAÑÍA (con historial):")
+        for comp in Company.objects.all():
+            rates = ExchangeRate.objects.filter(company=comp)
+            if rates.exists():
+                print(f"   • {comp.code}: {rates.count()} tasas en total")
+                # Mostrar solo las últimas 3
+                last_rates = rates.order_by('-effective_date')[:3]
+                for rate in last_rates:
+                    print(f"      - {rate.effective_date.strftime('%Y-%m-%d')}: 1 {rate.from_currency.code} = {rate.rate} {rate.to_currency.code}")
+                if rates.count() > 3:
+                    print(f"      ... y {rates.count() - 3} más")
+        
+        # ✅ Métodos de pago
+        print(f"\n💳 MÉTODOS DE PAGO POR COMPAÑÍA:")
+        for comp in Company.objects.all():
+            methods = PaymentMethod.objects.filter(company=comp)
+            if methods.exists():
+                print(f"   • {comp.code}: {', '.join([m.code for m in methods])}")
+        
+        # ✅ Usuarios
+        print(f"\n👤 USUARIOS:")
+        for user in User.objects.all():
+            companies_list = user.companies.all()
+            company_codes = [c.code for c in companies_list]
+            print(f"   • {user.username} → {', '.join(company_codes) if company_codes else 'Sin compañía'}")
+            if user.is_superuser:
+                print(f"      (Superusuario)")
+        
+        # ✅ Productos por compañía
+        print(f"\n📦 PRODUCTOS:")
+        for comp in Company.objects.all():
+            products = Product.objects.filter(company=comp)
+            print(f"   • {comp.code}: {products.count()} productos")
+        
+        # ✅ Clientes por compañía
+        print(f"\n👤 CLIENTES:")
+        for comp in Company.objects.all():
+            customers = Customer.objects.filter(company=comp)
+            print(f"   • {comp.code}: {customers.count()} clientes")
+        
+        # ✅ Proveedores por compañía
+        print(f"\n🤝 PROVEEDORES:")
+        for comp in Company.objects.all():
+            suppliers = Supplier.objects.filter(company=comp)
+            print(f"   • {comp.code}: {suppliers.count()} proveedores")
+        
         print("\n" + "=" * 70)
-        print("📦 CARGANDO DATOS POR COMPAÑÍA")
+        print("✅ CARGA COMPLETADA EXITOSAMENTE")
         print("=" * 70)
-        
-        for code, company in companies.items():
-            print("\n" + "-" * 70)
-            print(f"🏢 PROCESANDO: {company.code} - {company.name}")
-            print("-" * 70)
-            
-            # 1. Monedas
-            load_currencies(company)
-            
-            # 2. Tasas de cambio
-            load_exchange_rates(company)
-            
-            # 3. Métodos de pago
-            load_payment_methods(company)
-            
-            # 4. Cuentas bancarias
-            load_company_bank_accounts(company)
-            
-            # 5. Datos de demostración
-            load_demo_data(company)
-        
-        # ✅ PASO 4: Cargar usuarios (después de todas las compañías)
-        print("\n" + "=" * 70)
-        print("📦 CARGANDO USUARIOS")
-        print("=" * 70)
-        load_users(companies)
-    
-    # ✅ VERIFICAR RESULTADOS
-    print("\n" + "=" * 70)
-    print("🔍 VERIFICANDO DATOS CARGADOS")
-    print("=" * 70)
-    
-    # ✅ Compañías
-    print(f"\n🏢 COMPAÑÍAS: {Company.objects.count()}")
-    for comp in Company.objects.all():
-        parent = f" (Padre: {comp.parent.code})" if comp.parent else " (Principal)"
-        print(f"   • {comp.code} - {comp.name}{parent}")
-    
-    # ✅ Monedas por compañía
-    print(f"\n💱 MONEDAS POR COMPAÑÍA:")
-    for comp in Company.objects.all():
-        currencies = Currency.objects.filter(company=comp)
-        base = currencies.filter(is_base=True).first()
-        base_mark = f" [BASE: {base.code}]" if base else " [SIN BASE]"
-        print(f"   • {comp.code}: {', '.join([c.code for c in currencies])}{base_mark}")
-    
-    # ✅ Tasas de cambio
-    print(f"\n💰 TASAS DE CAMBIO:")
-    for comp in Company.objects.all():
-        rates = ExchangeRate.objects.filter(company=comp)
-        if rates.exists():
-            print(f"   • {comp.code}: {rates.count()} tasas")
-            for rate in rates[:3]:
-                print(f"      - 1 {rate.from_currency.code} = {rate.rate} {rate.to_currency.code}")
-    
-    # ✅ Métodos de pago
-    print(f"\n💳 MÉTODOS DE PAGO:")
-    for comp in Company.objects.all():
-        methods = PaymentMethod.objects.filter(company=comp)
-        if methods.exists():
-            print(f"   • {comp.code}: {', '.join([m.code for m in methods])}")
-    
-    # ✅ Usuarios
-    print(f"\n👤 USUARIOS:")
-    for user in User.objects.all():
-        companies_list = user.companies.all()
-        company_codes = [c.code for c in companies_list]
-        print(f"   • {user.username} → {', '.join(company_codes) if company_codes else 'Sin compañía'}")
-        if user.is_superuser:
-            print(f"      (Superusuario)")
-    
-    # ✅ Productos por compañía
-    print(f"\n📦 PRODUCTOS:")
-    for comp in Company.objects.all():
-        products = Product.objects.filter(company=comp)
-        print(f"   • {comp.code}: {products.count()} productos")
-    
-    # ✅ Clientes por compañía
-    print(f"\n👤 CLIENTES:")
-    for comp in Company.objects.all():
-        customers = Customer.objects.filter(company=comp)
-        print(f"   • {comp.code}: {customers.count()} clientes")
-    
-    # ✅ Proveedores por compañía
-    print(f"\n🤝 PROVEEDORES:")
-    for comp in Company.objects.all():
-        suppliers = Supplier.objects.filter(company=comp)
-        print(f"   • {comp.code}: {suppliers.count()} proveedores")
-    
-    print("\n" + "=" * 70)
-    print("✅ CARGA COMPLETADA EXITOSAMENTE")
-    print("=" * 70)
-    print("\n💡 INSTRUCCIONES:")
-    print("   1. Ve al admin: http://127.0.0.1:8000/admin/")
-    print("   2. Inicia sesión con:")
-    print("      - Usuario: admin")
-    print("      - Contraseña: admin123")
-    print("   3. Busca el selector de compañías en la esquina superior derecha")
-    print("   4. Cambia entre compañías y verás los datos específicos de cada país")
-    print("\n🌍 COMPAÑÍAS DISPONIBLES:")
-    for code, comp in companies.items():
-        print(f"   • {code} - {comp.name} (IVA: {comp.tax_rate}%)")
+        print("\n💡 INSTRUCCIONES:")
+        print("   1. Ve al admin: http://127.0.0.1:8000/admin/")
+        print("   2. Inicia sesión con:")
+        print("      - Usuario: admin")
+        print("      - Contraseña: admin123")
+        print("   3. Busca el selector de compañías en la esquina superior derecha")
+        print("   4. Cambia entre compañías y verás los datos específicos de cada país")
+        print("\n🌍 COMPAÑÍAS DISPONIBLES:")
+        for code, comp in companies.items():
+            default_curr = comp.default_currency.code if comp.default_currency else "Sin moneda"
+            rates_count = ExchangeRate.objects.filter(company=comp).count()
+            print(f"   • {code} - {comp.name} (IVA: {comp.tax_rate}%, Moneda: {default_curr}, Tasas: {rates_count})")
 
 
 if __name__ == '__main__':
-    load_all()
+    try:
+        load_all()
+    except Exception as e:
+        print(f"\n❌ ERROR FATAL: {str(e)}")
+        traceback.print_exc()
+        sys.exit(1)

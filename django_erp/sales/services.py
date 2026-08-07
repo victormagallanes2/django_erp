@@ -8,6 +8,7 @@ from django.db.models.functions import TruncDay, TruncMonth, TruncYear
 from django.utils import timezone
 from decimal import Decimal
 from datetime import timedelta
+from django_erp.configuration.models import Company
 
 
 class SaleService:
@@ -17,6 +18,11 @@ class SaleService:
     @transaction.atomic
     def confirm_order(order, user=None):
         """✅ Confirmar una orden - Productos físicos y servicios"""
+        
+        # ✅ Obtener la compañía de la orden o la activa
+        company = order.company or Company.get_active()
+        if not company:
+            raise ValidationError("No hay una compañía asociada a esta orden o activa.")
         
         # ============================================================
         # 📦 1. PROCESAR PRODUCTOS Y SERVICIOS
@@ -54,6 +60,7 @@ class SaleService:
                         source_reference=order.number,
                         note=f"Venta {order.number} - {order.customer.name}",
                         user=user or order.user
+                        # ✅ La compañía se asigna dentro de WarehouseService.create_exit
                     )
                 else:
                     print(f"ℹ️ Warehouse no instalado. No se reduce stock para {line.product.name}")
@@ -86,7 +93,8 @@ class SaleService:
                     amount=order.total,
                     description=f"Venta {order.number} - {order.customer.name}",
                     reference=order.number,
-                    user=user or order.user
+                    user=user or order.user,
+                    company=company,  # ← ✅ ASIGNAR COMPAÑÍA A LA TRANSACCIÓN
                 )
                 
                 # 🔄 Recalcular totales de la caja
@@ -137,6 +145,7 @@ class SaleService:
                             source_reference=f"CANCEL-{order.number}",
                             note=f"Cancelación de venta {order.number}",
                             user=user or order.user
+                            # ✅ La compañía se asigna dentro de WarehouseService.create_entry
                         )
         
         return order

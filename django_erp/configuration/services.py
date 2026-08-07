@@ -120,3 +120,58 @@ class CurrencyService:
             return f"{currency.symbol} {price:.{currency.decimal_places}f}"
         except Currency.DoesNotExist:
             return f"${price:.2f}"
+
+    @staticmethod
+    def get_historical_rate(from_code, to_code, date, company=None):
+        """
+        Obtener la tasa de cambio vigente en una fecha específica
+        Útil para reportes contables de fechas pasadas
+        """
+        return ExchangeRate.get_rate(from_code, to_code, company, date)
+    
+    @staticmethod
+    def get_rate_history(from_code, to_code, company=None, days=30):
+        """
+        Obtener el historial de tasas de cambio
+        Útil para gráficos y reportes
+        """
+        return ExchangeRate.get_historical_rates(from_code, to_code, company, days)
+    
+    @staticmethod
+    def get_rate_change_summary(from_code, to_code, company=None, days=30):
+        """
+        Obtener resumen de cambios de tasa
+        Útil para auditoría
+        """
+        if company is None:
+            company = Company.get_active()
+        
+        if not company:
+            return None
+        
+        from_currency = Currency.objects.get(code=from_code)
+        to_currency = Currency.objects.get(code=to_code)
+        
+        rates = ExchangeRate.objects.filter(
+            company=company,
+            from_currency=from_currency,
+            to_currency=to_currency
+        ).order_by('effective_date')
+        
+        if not rates.exists():
+            return None
+        
+        first = rates.first()
+        last = rates.last()
+        
+        return {
+            'first_rate': first.rate,
+            'first_date': first.effective_date,
+            'last_rate': last.rate,
+            'last_date': last.effective_date,
+            'change': last.rate - first.rate,
+            'change_percent': ((last.rate - first.rate) / first.rate) * 100,
+            'total_changes': rates.count(),
+            'last_change': last,
+            'history': rates
+        }

@@ -66,7 +66,7 @@ class Company(models.Model):
         help_text="Activar si la empresa usa imprenta digital autorizada"
     )
 
-    # ✅ NUEVO: Moneda por defecto para esta compañía
+    # ✅ Moneda por defecto para esta compañía (Global)
     default_currency = models.ForeignKey(
         'configuration.Currency',
         on_delete=models.PROTECT,
@@ -76,7 +76,7 @@ class Company(models.Model):
         related_name='default_for_companies'
     )
 
-    # ✅ NUEVO: ¿Es la compañía principal?
+    # ✅ ¿Es la compañía principal?
     is_main = models.BooleanField(
         default=False,
         verbose_name="¿Es compañía principal?",
@@ -103,17 +103,14 @@ class Company(models.Model):
 
     def clean(self):
         """Validaciones personalizadas"""
-        # ✅ Validar que solo haya una compañía principal
         if self.is_main:
             existing = Company.objects.filter(is_main=True).exclude(pk=self.pk)
             if existing.exists():
                 raise ValidationError("Ya existe una compañía principal. Desactiva la otra primero.")
         
-        # ✅ Validar que no se pueda tener padre si es main
         if self.is_main and self.parent:
             raise ValidationError("La compañía principal no puede tener una compañía padre.")
         
-        # ✅ Validar que no se pueda tener a sí mismo como padre
         if self.parent and self.parent.pk == self.pk:
             raise ValidationError("Una compañía no puede ser su propio padre.")
 
@@ -123,16 +120,10 @@ class Company(models.Model):
 
     @classmethod
     def get_active(cls):
-        """
-        Obtener la compañía activa del sistema.
-        Para uso en context_processors y otros lugares donde no hay request.
-        """
-        # ✅ Primero intentar obtener la compañía principal
+        """Obtener la compañía activa del sistema."""
         main = cls.objects.filter(is_main=True, is_active=True).first()
         if main:
             return main
-        
-        # ✅ Si no hay principal, obtener la primera activa
         first = cls.objects.filter(is_active=True).first()
         return first
 
@@ -210,7 +201,9 @@ class Backup(models.Model):
 
 
 class Currency(models.Model):
-    code = models.CharField(max_length=10, verbose_name="Código")
+    """✅ MONEDA GLOBAL - Compartida por todas las compañías"""
+    
+    code = models.CharField(max_length=10, unique=True, verbose_name="Código")  # ← unique=True
     name = models.CharField(max_length=50, verbose_name="Nombre")
     symbol = models.CharField(max_length=5, verbose_name="Símbolo")
     decimal_places = models.IntegerField(default=2, verbose_name="Decimales")
@@ -222,13 +215,6 @@ class Currency(models.Model):
     )
     is_active = models.BooleanField(default=True, verbose_name="Activo")
     
-    company = models.ForeignKey(
-        Company,
-        on_delete=models.CASCADE,
-        verbose_name="Compañía/Sucursal",
-        related_name='currencies'
-    )
-    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -237,34 +223,29 @@ class Currency(models.Model):
     class Meta:
         verbose_name = "Moneda"
         verbose_name_plural = "Monedas"
-        ordering = ['company__code', 'code']
-        # ✅ UNICIDAD POR COMPAÑÍA + CÓDIGO
-        unique_together = [['company', 'code']]
+        ordering = ['code']
         indexes = [
-            models.Index(fields=['company', 'code']),
+            models.Index(fields=['code']),
             models.Index(fields=['is_base']),
         ]
 
     def __str__(self):
-        return f"{self.code} - {self.symbol} ({self.company.code})"
-    
+        return f"{self.code} - {self.symbol}"
+
     def save(self, *args, **kwargs):
         if self.is_base:
-            # ✅ Solo una moneda base por compañía
-            Currency.objects.filter(is_base=True, company=self.company).exclude(pk=self.pk).update(is_base=False)
+            # ✅ Solo una moneda base GLOBAL
+            Currency.objects.filter(is_base=True).exclude(pk=self.pk).update(is_base=False)
         super().save(*args, **kwargs)
     
     @classmethod
-    def get_base(cls, company=None):
-        """Obtener moneda base de una compañía"""
-        if company is None:
-            from .models import Company
-            company = Company.get_active()
-        return cls.objects.filter(is_base=True, company=company).first()
+    def get_base(cls):
+        """Obtener moneda base global"""
+        return cls.objects.filter(is_base=True).first()
 
 
 class ExchangeRate(models.Model):
-    """Tasa de cambio entre monedas"""
+    """✅ TASA DE CAMBIO POR COMPAÑÍA - Con historial completo para contabilidad"""
     
     from_currency = models.ForeignKey(
         Currency,
@@ -283,17 +264,29 @@ class ExchangeRate(models.Model):
         decimal_places=6,
         verbose_name="Tasa de cambio"
     )
-    date = models.DateField(auto_now_add=True, verbose_name="Fecha")
+    date = models.DateField(
+        auto_now_add=True, 
+        verbose_name="Fecha",
+        help_text="Fecha en que se registró esta tasa"
+    )
+    # ✅ NUEVO: Campo para fecha de vigencia (permite cargar tasas con fecha diferente)
+    effective_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de vigencia",
+        help_text="Fecha desde la cual aplica esta tasa. Si se deja vacío, usa la fecha de registro."
+    )
     source = models.CharField(
         max_length=100,
         blank=True,
-        verbose_name="Fuente"
+        verbose_name="Fuente",
+        help_text="Ej: BCV, DolarToday, Manual"
     )
     user = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
         null=True,
-        verbose_name="Usuario"
+        verbose_name="Usuario que registró"
     )
     company = models.ForeignKey(
         Company,
@@ -301,26 +294,51 @@ class ExchangeRate(models.Model):
         verbose_name="Compañía/Sucursal",
         related_name='exchangerate'
     )
+    # ✅ NUEVO: Nota o comentario sobre el cambio
+    note = models.TextField(
+        blank=True,
+        verbose_name="Nota",
+        help_text="Motivo del cambio de tasa"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     history = HistoricalRecords()
     
     class Meta:
         verbose_name = "Tasa de Cambio"
         verbose_name_plural = "Tasas de Cambio"
-        ordering = ['-date']
-        unique_together = [['company', 'from_currency', 'to_currency', 'date']]
+        ordering = ['-date', '-created_at']
+        # ✅ Permitir múltiples tasas por día (para contabilidad)
+        # Cada registro es único por su combinación de campos
+        unique_together = [
+            ['company', 'from_currency', 'to_currency', 'date', 'created_at']
+        ]
         indexes = [
             models.Index(fields=['company', 'date']),
             models.Index(fields=['from_currency', 'to_currency']),
+            models.Index(fields=['company', 'from_currency', 'to_currency', '-date']),
         ]
 
     def __str__(self):
-        return f"1 {self.from_currency.code} = {self.rate} {self.to_currency.code} ({self.company.code})"
+        effective = f" (vigente desde {self.effective_date})" if self.effective_date else ""
+        return f"1 {self.from_currency.code} = {self.rate} {self.to_currency.code} ({self.company.code}){effective}"
+    
+    def save(self, *args, **kwargs):
+        # ✅ Si no tiene fecha de vigencia, usar la fecha de registro
+        if not self.effective_date:
+            self.effective_date = self.date
+        
+        # ✅ Si no tiene fuente, asignar 'Manual'
+        if not self.source:
+            self.source = 'Manual'
+        
+        super().save(*args, **kwargs)
     
     @classmethod
     def get_rate(cls, from_code, to_code, company=None, date=None):
         """
-        Obtener tasa de cambio entre dos monedas para una compañía específica
+        Obtener la tasa de cambio VIGENTE para una fecha específica
+        Busca la tasa más reciente que sea <= a la fecha solicitada
         """
         from datetime import date as date_type
         from decimal import Decimal
@@ -328,76 +346,107 @@ class ExchangeRate(models.Model):
         if date is None:
             date = date_type.today()
         
-        # ✅ Si no se especifica compañía, obtener la activa
         if company is None:
             from .models import Company
             company = Company.get_active()
         
-        # ✅ Si no hay compañía, retornar 1 (no hay tasa disponible)
         if not company:
             return Decimal('1')
         
         try:
-            # ✅ Buscar monedas POR COMPAÑÍA
-            from_currency = Currency.objects.get(code=from_code, company=company)
-            to_currency = Currency.objects.get(code=to_code, company=company)
+            from_currency = Currency.objects.get(code=from_code)
+            to_currency = Currency.objects.get(code=to_code)
         except Currency.DoesNotExist:
-            # ✅ Si alguna moneda no existe, retornar 1
             return Decimal('1')
         
-        # ✅ Si es la misma moneda, retornar 1
         if from_currency == to_currency:
             return Decimal('1')
         
-        # ✅ Buscar tasa para la fecha específica
+        # ✅ Buscar la tasa más reciente (por fecha de vigencia y fecha de creación)
         rate = cls.objects.filter(
             company=company,
             from_currency=from_currency,
             to_currency=to_currency,
-            date=date
+            effective_date__lte=date  # ← Tasa vigente para esa fecha
+        ).order_by(
+            '-effective_date',  # Primero la más reciente
+            '-created_at'       # Si misma fecha, la más reciente en tiempo
         ).first()
         
-        # ✅ Si no hay tasa para la fecha, buscar la más reciente
+        # ✅ Si no hay tasa vigente para esa fecha, buscar la más reciente
         if not rate:
             rate = cls.objects.filter(
                 company=company,
                 from_currency=from_currency,
                 to_currency=to_currency
-            ).order_by('-date').first()
+            ).order_by('-effective_date', '-created_at').first()
         
-        # ✅ Retornar la tasa o 1 si no existe
         return rate.rate if rate else Decimal('1')
     
     @classmethod
     def get_today_rate(cls, from_code, to_code, company=None):
-        """Obtener tasa de cambio del día de hoy"""
+        """Obtener la tasa de cambio VIGENTE para hoy"""
         from datetime import date as date_type
         today = date_type.today()
         return cls.get_rate(from_code, to_code, company, today)
+    
+    @classmethod
+    def get_historical_rates(cls, from_code, to_code, company=None, days=30):
+        """
+        Obtener el historial de tasas de cambio para los últimos N días
+        Útil para reportes contables
+        """
+        from datetime import date as date_type, timedelta
+        from decimal import Decimal
+        
+        if company is None:
+            from .models import Company
+            company = Company.get_active()
+        
+        if not company:
+            return []
+        
+        try:
+            from_currency = Currency.objects.get(code=from_code)
+            to_currency = Currency.objects.get(code=to_code)
+        except Currency.DoesNotExist:
+            return []
+        
+        if from_currency == to_currency:
+            return []
+        
+        start_date = date_type.today() - timedelta(days=days)
+        
+        # ✅ Obtener todas las tasas en el período
+        rates = cls.objects.filter(
+            company=company,
+            from_currency=from_currency,
+            to_currency=to_currency,
+            effective_date__gte=start_date
+        ).order_by('effective_date', 'created_at')
+        
+        return rates
 
 
 class PaymentMethod(models.Model):
-    """Método de pago - Reutilizable en toda la empresa"""
+    """✅ MÉTODO DE PAGO POR COMPAÑÍA - Cada compañía tiene sus propios métodos"""
     
     name = models.CharField(max_length=100, verbose_name="Nombre")
     code = models.CharField(max_length=20, verbose_name="Código")
     description = models.TextField(blank=True, verbose_name="Descripción")
     
-    # ✅ NUEVO: ¿Requiere cuenta bancaria de la empresa?
     requires_company_bank = models.BooleanField(
         default=False,
         verbose_name="¿Requiere cuenta bancaria de la empresa?",
         help_text="Marcar si este método usa una cuenta de la empresa (transferencias, cheques)"
     )
     
-    # ✅ NUEVO: ¿Requiere referencia?
     requires_reference = models.BooleanField(
         default=False,
         verbose_name="¿Requiere referencia?",
         help_text="Marcar si este método requiere un número de referencia"
     )
     
-    # ✅ NUEVO: ¿Requiere aprobación?
     requires_approval = models.BooleanField(
         default=False,
         verbose_name="Requiere aprobación",
@@ -405,7 +454,7 @@ class PaymentMethod(models.Model):
     )
 
     default_currency = models.ForeignKey(
-        'configuration.Currency',
+        'configuration.Currency',  # ← Global
         on_delete=models.PROTECT,
         null=True,
         blank=True,
@@ -432,9 +481,7 @@ class PaymentMethod(models.Model):
         verbose_name = "Método de Pago"
         verbose_name_plural = "Métodos de Pago"
         ordering = ['company__code', 'name']
-        # ✅ UNICIDAD POR COMPAÑÍA + CÓDIGO
         unique_together = [['company', 'code']]
-        # ✅ Índice para búsquedas rápidas
         indexes = [
             models.Index(fields=['company', 'code']),
         ]
@@ -446,7 +493,6 @@ class PaymentMethod(models.Model):
 class CompanyBankAccount(models.Model):
     """Cuenta bancaria de la empresa (para pagos a proveedores)"""
     
-    # ✅ Datos de la cuenta
     bank_name = models.CharField(max_length=200, verbose_name="Banco")
     account_number = models.CharField(max_length=50, verbose_name="Número de cuenta")
     account_holder = models.CharField(max_length=200, verbose_name="Titular de la cuenta")
@@ -460,9 +506,8 @@ class CompanyBankAccount(models.Model):
         verbose_name="Tipo de cuenta"
     )
     
-    # ✅ Moneda de la cuenta
     currency = models.ForeignKey(
-        'configuration.Currency',
+        'configuration.Currency',  # ← Global
         on_delete=models.PROTECT,
         verbose_name="Moneda"
     )
@@ -473,7 +518,6 @@ class CompanyBankAccount(models.Model):
         related_name='companybankaccount'
     )
     
-    # ✅ ¿Es la cuenta por defecto?
     is_default = models.BooleanField(
         default=False,
         verbose_name="¿Cuenta por defecto?"
@@ -481,7 +525,6 @@ class CompanyBankAccount(models.Model):
     
     is_active = models.BooleanField(default=True, verbose_name="Activo")
     
-    # ✅ Auditoría
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     history = HistoricalRecords()
