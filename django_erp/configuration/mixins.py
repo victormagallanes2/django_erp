@@ -1,21 +1,16 @@
-# configuration/mixins.py
+# django_erp/configuration/mixins.py
+
 from django.contrib.admin import ModelAdmin
 
 class CompanyFilterMixin(ModelAdmin):
     """
     Mixin para ModelAdmin que filtra automáticamente los objetos por la compañía activa.
-    SOLO para modelos que tienen campo 'company'.
     También asigna automáticamente la compañía activa al crear nuevos objetos.
     """
     
     def get_queryset(self, request):
-        """Filtrar el queryset por la compañía activa (solo si el modelo tiene campo company)"""
+        """Filtrar el queryset por la compañía activa"""
         queryset = super().get_queryset(request)
-        
-        # ✅ Verificar si el modelo tiene el campo 'company'
-        if not hasattr(self.model, 'company'):
-            # Si el modelo no tiene campo company (ej: Currency global), devolver todo
-            return queryset
         
         # ✅ Obtener la compañía activa
         company = getattr(request, 'current_company', None)
@@ -30,22 +25,33 @@ class CompanyFilterMixin(ModelAdmin):
         return queryset.none()
     
     def save_model(self, request, obj, form, change):
-        """Asignar automáticamente la compañía activa al crear un objeto (solo si tiene campo company)"""
+        """Asignar automáticamente la compañía activa al crear un objeto"""
+        print(f"🔴 CompanyFilterMixin.save_model llamado")
+        print(f"   change: {change}")
+        print(f"   obj.company_id: {getattr(obj, 'company_id', 'NO EXISTE')}")
+        
         if not change:  # Si es un objeto nuevo
-            # ✅ Verificar si el modelo tiene el campo 'company'
-            if hasattr(obj, 'company'):
-                company = getattr(request, 'current_company', None)
-                if company:
+            company = getattr(request, 'current_company', None)
+            print(f"   company desde request: {company}")
+            
+            if company and hasattr(obj, 'company'):
+                obj.company = company
+                print(f"   ✅ Compañía asignada: {company.name} (ID: {company.id})")
+            else:
+                print(f"   ⚠️ No se pudo asignar compañía automáticamente")
+                # ✅ Intentar obtener la compañía activa de otra forma
+                from django_erp.configuration.models import Company
+                company = Company.get_active()
+                if company and hasattr(obj, 'company'):
                     obj.company = company
+                    print(f"   ✅ Compañía asignada (fallback): {company.name}")
+        
+        print(f"   obj.company_id FINAL: {obj.company_id}")
         super().save_model(request, obj, form, change)
     
     def get_form(self, request, obj=None, **kwargs):
-        """Pre-seleccionar la compañía activa en el formulario (solo si tiene campo company)"""
+        """Pre-seleccionar la compañía activa en el formulario"""
         form = super().get_form(request, obj, **kwargs)
-        
-        # ✅ Verificar si el modelo tiene el campo 'company'
-        if not hasattr(self.model, 'company'):
-            return form
         
         # ✅ Si es un objeto nuevo y el modelo tiene campo 'company'
         if not obj and 'company' in form.base_fields:

@@ -20,10 +20,11 @@ from django.urls import path
 from django.views.generic import TemplateView
 from unfold.views import UnfoldModelAdminViewMixin
 from .services import SaleReportService
+from django_erp.configuration.mixins import CompanyFilterMixin
 
 
 @admin.register(Customer)
-class CustomerAdmin(UnfoldModelAdmin):
+class CustomerAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     list_display = ['name', 'tax_id', 'email', 'phone', 'is_active']
     list_filter = ['is_active']
     search_fields = ['name', 'tax_id', 'email', 'phone']
@@ -338,7 +339,7 @@ class SalesReportView(UnfoldModelAdminViewMixin, TemplateView):
 
 
 @admin.register(SaleOrder)
-class SaleOrderAdmin(UnfoldModelAdmin):
+class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     form = SaleOrderForm
     
     list_display = ['number', 'customer', 'date', 'total', 'status', 'created_at']
@@ -601,7 +602,7 @@ class CashTransactionInline(UnfoldTabularInline):
 
 
 @admin.register(CashRegister)
-class CashRegisterAdmin(UnfoldModelAdmin):
+class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     """
     Administrador de caja con:
     - Filtro por usuario (vendedor solo ve su caja)
@@ -786,7 +787,7 @@ class CashRegisterAdmin(UnfoldModelAdmin):
 
 
 @admin.register(CashTransaction)
-class CashTransactionAdmin(UnfoldModelAdmin):
+class CashTransactionAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     list_display = [
         'register', 
         'type', 

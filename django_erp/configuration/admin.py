@@ -10,7 +10,7 @@ from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from .services import BackupService
 from .models import Currency, ExchangeRate, CompanyBankAccount, Company, Backup, PaymentMethod
 import os
-from .mixins import CompanyFilterMixin
+from django_erp.configuration.mixins import CompanyFilterMixin
 
 
 @admin.register(Company)

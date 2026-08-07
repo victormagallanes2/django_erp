@@ -6,10 +6,11 @@ from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from .models import Product, Location, Movement
 from django_erp.configuration.services import CurrencyService
 from django_erp.configuration.models import ExchangeRate, Currency
+from django_erp.configuration.mixins import CompanyFilterMixin
 
 
 @admin.register(Product)
-class ProductAdmin(SimpleHistoryAdmin, UnfoldModelAdmin):
+class ProductAdmin(CompanyFilterMixin, SimpleHistoryAdmin, UnfoldModelAdmin):
     """Admin de productos con precios en USD y BS"""
     
     list_display = [
@@ -123,7 +124,7 @@ class ProductAdmin(SimpleHistoryAdmin, UnfoldModelAdmin):
 
 
 @admin.register(Location)
-class LocationAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+class LocationAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
     """Admin de ubicaciones"""
     
     list_display = ['code', 'name', 'parent', 'is_active']
@@ -132,7 +133,7 @@ class LocationAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
 
 
 @admin.register(Movement)
-class MovementAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+class MovementAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
     """Admin de movimientos"""
     
     list_display = [

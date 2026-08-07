@@ -13,12 +13,13 @@ from django_erp.configuration.models import ExchangeRate, Company, Currency
 import logging
 import traceback
 from .models import PurchaseInvoice, PurchaseInvoiceLine
+from django_erp.configuration.mixins import CompanyFilterMixin
 
 logger = logging.getLogger(__name__)
 
 
 @admin.register(Supplier)
-class SupplierAdmin(UnfoldModelAdmin):
+class SupplierAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     list_display = ['name', 'tax_id', 'email', 'phone', 'is_active']
     list_filter = ['is_active']
     search_fields = ['name', 'tax_id', 'email', 'phone']
@@ -344,7 +345,7 @@ class PurchaseInvoiceInline(UnfoldTabularInline):
 
 
 @admin.register(PurchaseOrder)
-class PurchaseOrderAdmin(UnfoldModelAdmin):
+class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     form = PurchaseOrderForm
     
     list_display = [
@@ -554,7 +555,7 @@ class PurchaseInvoiceLineInline(UnfoldTabularInline):
 
 
 @admin.register(PurchaseInvoice)
-class PurchaseInvoiceAdmin(UnfoldModelAdmin):
+class PurchaseInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     """Admin de facturas de compra"""
     
     list_display = [

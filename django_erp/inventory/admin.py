@@ -5,10 +5,11 @@ from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from .models import Inventory, ValuationMethod, PhysicalCount
 from .services import InventoryService
 from django_erp.configuration.models import ExchangeRate
+from django_erp.configuration.mixins import CompanyFilterMixin
 
 
 @admin.register(Inventory)
-class InventoryAdmin(UnfoldModelAdmin):
+class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     list_display = [
         'product',
         'location',
@@ -42,13 +43,13 @@ class InventoryAdmin(UnfoldModelAdmin):
 
 
 @admin.register(ValuationMethod)
-class ValuationMethodAdmin(UnfoldModelAdmin):
+class ValuationMethodAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     list_display = ['product', 'method', 'standard_cost']
     search_fields = ['product__name']
 
 
 @admin.register(PhysicalCount)
-class PhysicalCountAdmin(UnfoldModelAdmin):
+class PhysicalCountAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     list_display = ['product', 'location', 'count_date', 'counted_quantity', 'system_quantity', 'difference', 'status']
     list_filter = ['status', 'count_date']
     search_fields = ['product__name']

@@ -10,6 +10,7 @@ from .models import Invoice, InvoiceLine
 from django_erp.configuration.models import Company, PaymentMethod, Currency
 from django.utils.safestring import mark_safe
 from decimal import Decimal, ROUND_HALF_UP
+from django_erp.configuration.mixins import CompanyFilterMixin
 
 
 class InvoiceLineInline(UnfoldTabularInline):
@@ -205,7 +206,7 @@ class InvoiceForm(forms.ModelForm):
 
 
 @admin.register(Invoice)
-class InvoiceAdmin(UnfoldModelAdmin):
+class InvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     form = InvoiceForm
     
     list_display = ['number', 'customer_name', 'customer_rif', 'issuer_rif', 'date', 'total', 'status', 'created_at', 'paid_amount_display']
