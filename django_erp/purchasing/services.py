@@ -50,7 +50,7 @@ class PurchaseService:
         print(f"   ID de la orden: {order.id}")
         print(f"   Estado actual: {order.status}")
         print(f"   Usuario: {user}")
-        print(f"   Compañía: {order.company.code if order.company else 'Sin compañía'}")
+        print(f"   Compañía de la orden: {order.company.code if order.company else 'Sin compañía'}")
         print("=" * 80)
         
         # ✅ Verificar líneas
@@ -82,12 +82,10 @@ class PurchaseService:
             print("   ✅ Módulo Warehouse está instalado")
         
         # ✅ IMPORTANTE: Permitir procesar incluso si ya está RECEIVED
-        # Pero solo si no tiene movimientos asociados
         if order.status == 'RECEIVED':
             print("   ⚠️ La orden ya está en estado RECEIVED")
             print("   🔍 Verificando si ya tiene movimientos...")
             
-            # ✅ Verificar si ya tiene movimientos
             from django_erp.warehouse.models import Movement
             existing_movements = Movement.objects.filter(
                 source_reference=order.number,
@@ -108,10 +106,12 @@ class PurchaseService:
             print(f"   ❌ La orden no está en estado 'Ordenada' o 'Recibida'. Estado: {order.status}")
             raise ValidationError("Solo se pueden recibir órdenes en estado 'Ordenada' o 'Recibida' (sin movimientos)")
         
-        # ✅ Obtener la compañía de la orden o la activa
-        company = order.company or Company.get_active()
+        # ✅ USAR LA COMPAÑÍA DE LA ORDEN, no Company.get_active()
+        company = order.company
         if not company:
-            raise ValidationError("No hay una compañía asociada a esta orden o activa.")
+            raise ValidationError("No hay una compañía asociada a esta orden.")
+        
+        print(f"   ✅ Compañía a usar para movimientos: {company.code} - {company.name}")
         
         # ✅ Importar servicios de warehouse
         try:
@@ -128,7 +128,6 @@ class PurchaseService:
         for idx, line in enumerate(order.lines.all(), 1):
             print(f"   --- PROCESANDO LÍNEA {idx} ---")
             
-            # ✅ Solo procesar si tiene producto
             if not line.product:
                 print(f"      ⚠️ Línea sin producto, saltando...")
                 continue
@@ -143,7 +142,6 @@ class PurchaseService:
             
             print(f"      ✅ Es un producto físico, creando movimiento...")
             
-            # ✅ Determinar ubicación
             location_id = line.location.id if line.location else None
             print(f"      Ubicación ID: {location_id}")
             
@@ -181,6 +179,7 @@ class PurchaseService:
                 print(f"         Precio unitario: {line.unit_price}")
                 print(f"         Source Type: PURCHASE")
                 print(f"         Source Reference: {order.number}")
+                print(f"         Compañía a asignar: {company.code}")
                 
                 movement = WarehouseService.create_entry(
                     product_id=line.product.id,
@@ -190,8 +189,8 @@ class PurchaseService:
                     source_type='PURCHASE',
                     source_reference=order.number,
                     note=f"Recepción de compra {order.number} - {order.supplier.name}",
-                    user=user or order.user
-                    # ✅ La compañía se asigna dentro de WarehouseService.create_entry
+                    user=user or order.user,
+                    company=company  # ← ✅ PASAR LA COMPAÑÍA EXPLÍCITAMENTE
                 )
                 
                 movements_created += 1
@@ -267,10 +266,10 @@ class PurchaseInvoiceService:
         if purchase_order.invoiced:
             raise ValidationError("Esta orden ya tiene una factura")
         
-        # ✅ Obtener empresa
-        company = Company.get_active()
+        # ✅ Obtener empresa (usar la de la orden)
+        company = purchase_order.company
         if not company:
-            raise ValidationError("No hay una empresa configurada")
+            raise ValidationError("No hay una empresa configurada para esta orden")
         
         # ✅ Generar número de factura
         last_invoice = PurchaseInvoice.objects.order_by('-id').first()
@@ -297,7 +296,7 @@ class PurchaseInvoiceService:
             status='DRAFT',
             user=user or purchase_order.user,
             sync_status='SYNCED',
-            company=company,  # ← ✅ ASIGNAR COMPAÑÍA A LA FACTURA
+            company=company,  # ← ✅ ASIGNAR COMPAÑÍA DE LA ORDEN
         )
         
         # ✅ Copiar líneas CON COMPAÑÍA
@@ -312,7 +311,7 @@ class PurchaseInvoiceService:
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 subtotal=line.subtotal,
-                company=company,  # ← ✅ ASIGNAR COMPAÑÍA A LA LÍNEA
+                company=company,  # ← ✅ ASIGNAR COMPAÑÍA DE LA ORDEN
             )
         
         # ✅ Calcular totales

@@ -137,7 +137,8 @@ class MovementAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
     """Admin de movimientos"""
     
     list_display = [
-        'product', 
+        'product',
+        'company',
         'type', 
         'quantity', 
         'unit_price_usd_display',  # ✅ Precio en USD
@@ -148,7 +149,7 @@ class MovementAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
         'location_to', 
         'created_at'
     ]
-    list_filter = ['type', 'source_type']
+    list_filter = ['type', 'source_type', 'company']
     search_fields = ['product__name', 'product__code', 'source_reference']
     readonly_fields = ['total', 'user', 'created_at']
     autocomplete_fields = ['product']

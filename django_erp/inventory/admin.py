@@ -13,16 +13,25 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     list_display = [
         'product',
         'location',
+        'company_display',
         'quantity',
         'total_value_usd_display',
         'total_value_bs_display',
         'updated_at'
     ]
-    list_filter = ['location']
-    search_fields = ['product__name', 'product__code']
+    list_filter = ['company', 'location']
+    search_fields = ['product__name', 'product__code', 'company__name', 'company__code']
     readonly_fields = ['updated_at']
 
-
+    @admin.display(description='Compañía', ordering='company__name')
+    def company_display(self, obj):
+        if obj.company:
+            return format_html(
+                '<span style="font-weight: 500;">{} - {}</span>',
+                obj.company.code,
+                obj.company.name
+            )
+        return "Sin compañía"
 
     # ✅ Campo: Total en USD
     @admin.display(description='Valor total (USD)')
@@ -44,15 +53,16 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
 
 @admin.register(ValuationMethod)
 class ValuationMethodAdmin(CompanyFilterMixin, UnfoldModelAdmin):
-    list_display = ['product', 'method', 'standard_cost']
-    search_fields = ['product__name']
+    list_display = ['product', 'company', 'method', 'standard_cost']
+    list_filter = ['company', 'method']
+    search_fields = ['product__name', 'company__name']
 
 
 @admin.register(PhysicalCount)
 class PhysicalCountAdmin(CompanyFilterMixin, UnfoldModelAdmin):
-    list_display = ['product', 'location', 'count_date', 'counted_quantity', 'system_quantity', 'difference', 'status']
-    list_filter = ['status', 'count_date']
-    search_fields = ['product__name']
+    list_display = ['product', 'location', 'company', 'count_date', 'counted_quantity', 'system_quantity', 'difference', 'status']
+    list_filter = ['company', 'status', 'count_date']
+    search_fields = ['product__name', 'company__name']
     readonly_fields = ['difference', 'user', 'created_at']
     
     def save_model(self, request, obj, form, change):

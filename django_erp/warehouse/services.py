@@ -14,12 +14,17 @@ class WarehouseService:
     @staticmethod
     @transaction.atomic
     def create_entry(product_id, quantity, location_to_id, source_type='MANUAL', 
-                     source_reference='', note='', user=None, unit_price=0):
+                     source_reference='', note='', user=None, unit_price=0, company=None):
         """Registrar entrada de mercancía a una ubicación"""
-        # ✅ Obtener la compañía activa
-        company = Company.get_active()
-        if not company:
-            raise ValidationError("No hay una compañía activa para este movimiento.")
+        
+        # ✅ Si no se pasó compañía, usar la activa como fallback
+        if company is None:
+            company = Company.get_active()
+            if not company:
+                raise ValidationError("No hay una compañía activa para este movimiento.")
+            logger.warning(f"⚠️ No se pasó compañía a create_entry, usando fallback: {company.code}")
+        else:
+            logger.info(f"✅ Usando compañía pasada como parámetro: {company.code}")
         
         logger.info(f"🔴 CREANDO ENTRADA para compañía {company.code}")
         logger.info(f"   Producto ID: {product_id}")
@@ -43,7 +48,7 @@ class WarehouseService:
             source_reference=source_reference,
             note=note,
             user=user,
-            company=company,  # ← ✅ Asignar compañía
+            company=company,  # ← ✅ Usar la compañía pasada como parámetro
         )
         
         logger.info(f"   ✅ Movimiento creado: ID {movement.id} para compañía {company.code}")
@@ -52,12 +57,17 @@ class WarehouseService:
     @staticmethod
     @transaction.atomic
     def create_exit(product_id, quantity, location_from_id, source_type='MANUAL', 
-                    source_reference='', note='', user=None, unit_price=0):
+                    source_reference='', note='', user=None, unit_price=0, company=None):
         """Registrar salida de mercancía desde una ubicación"""
-        # ✅ Obtener la compañía activa
-        company = Company.get_active()
-        if not company:
-            raise ValidationError("No hay una compañía activa para este movimiento.")
+        
+        # ✅ Si no se pasó compañía, usar la activa como fallback
+        if company is None:
+            company = Company.get_active()
+            if not company:
+                raise ValidationError("No hay una compañía activa para este movimiento.")
+            logger.warning(f"⚠️ No se pasó compañía a create_exit, usando fallback: {company.code}")
+        else:
+            logger.info(f"✅ Usando compañía pasada como parámetro: {company.code}")
         
         logger.info(f"🔴 CREANDO SALIDA para compañía {company.code}")
         logger.info(f"   Producto ID: {product_id}")
@@ -81,7 +91,7 @@ class WarehouseService:
             source_reference=source_reference,
             note=note,
             user=user,
-            company=company,  # ← ✅ Asignar compañía
+            company=company,  # ← ✅ Usar la compañía pasada como parámetro
         )
         
         logger.info(f"   ✅ Movimiento creado: ID {movement.id} para compañía {company.code}")
@@ -90,12 +100,17 @@ class WarehouseService:
     @staticmethod
     @transaction.atomic
     def create_transfer(product_id, quantity, location_from_id, location_to_id, 
-                        note='', user=None, unit_price=0):
+                        note='', user=None, unit_price=0, company=None):
         """Trasladar producto de una ubicación a otra"""
-        # ✅ Obtener la compañía activa
-        company = Company.get_active()
-        if not company:
-            raise ValidationError("No hay una compañía activa para este movimiento.")
+        
+        # ✅ Si no se pasó compañía, usar la activa como fallback
+        if company is None:
+            company = Company.get_active()
+            if not company:
+                raise ValidationError("No hay una compañía activa para este movimiento.")
+            logger.warning(f"⚠️ No se pasó compañía a create_transfer, usando fallback: {company.code}")
+        else:
+            logger.info(f"✅ Usando compañía pasada como parámetro: {company.code}")
         
         logger.info(f"🔴 CREANDO TRASLADO para compañía {company.code}")
         logger.info(f"   Producto ID: {product_id}")
@@ -122,7 +137,7 @@ class WarehouseService:
             location_to=location_to,
             note=note,
             user=user,
-            company=company,  # ← ✅ Asignar compañía
+            company=company,  # ← ✅ Usar la compañía pasada como parámetro
         )
         
         logger.info(f"   ✅ Movimiento creado: ID {movement.id} para compañía {company.code}")
