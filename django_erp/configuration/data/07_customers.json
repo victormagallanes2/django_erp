@@ -1,0 +1,57 @@
+[
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "name": "María González",
+      "tax_id": "V-12345678",
+      "email": "maria.gonzalez@example.com",
+      "phone": "+58-414-555-1234",
+      "address": "Av. Principal, Edificio Central, Caracas",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "name": "Carlos Pérez",
+      "tax_id": "V-87654321",
+      "email": "carlos.perez@example.com",
+      "phone": "+58-426-555-5678",
+      "address": "Calle 2, Barquisimeto, Lara",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "name": "Ana Rodríguez",
+      "tax_id": "V-34567890",
+      "email": "ana.rodriguez@example.com",
+      "phone": "+58-416-555-9012",
+      "address": "Av. Libertador, Valencia, Carabobo",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "name": "John Doe",
+      "tax_id": "US-987654321",
+      "email": "john.doe@example.com",
+      "phone": "+1-555-0199",
+      "address": "456 Oak St, Los Angeles, CA 90001",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "name": "Jane Smith",
+      "tax_id": "US-123456789",
+      "email": "jane.smith@example.com",
+      "phone": "+1-555-0198",
+      "address": "789 Pine Ave, San Francisco, CA 94101",
+      "is_active": true
+    }
+  }
+]

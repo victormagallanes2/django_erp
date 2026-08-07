@@ -1,0 +1,35 @@
+[
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "name": "Distribuidora Unisex C.A.",
+      "tax_id": "J-12345678-9",
+      "email": "ventas@distribuidoraunisex.com",
+      "phone": "+58-212-555-1111",
+      "address": "Av. Libertador, Edificio Unisex, Caracas",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "name": "Productos Capilares Premium",
+      "tax_id": "J-98765432-1",
+      "email": "info@capilarespremium.com",
+      "phone": "+58-414-555-2222",
+      "address": "Calle 3, Urbanización El Bosque, Caracas",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "name": "Professional Hair Supplies LLC",
+      "tax_id": "12-3456789",
+      "email": "info@prohair.com",
+      "phone": "+1-555-0199",
+      "address": "123 Main St, Suite 200, New York, NY 10001",
+      "is_active": true
+    }
+  }
+]

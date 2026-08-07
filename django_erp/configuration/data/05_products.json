@@ -1,0 +1,146 @@
+[
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "code": "PROD-001-PEL01",
+      "name": "Shampoo Profesional",
+      "description": "Shampoo para todo tipo de cabello",
+      "unit": "UNIT",
+      "price": 15.00,
+      "is_service": false,
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "code": "PROD-002-PEL01",
+      "name": "Acondicionador Hidratante",
+      "description": "Acondicionador con keratina",
+      "unit": "UNIT",
+      "price": 12.00,
+      "is_service": false,
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "code": "PROD-003-PEL01",
+      "name": "Cera Modeladora",
+      "description": "Cera para peinar y modelar",
+      "unit": "UNIT",
+      "price": 8.00,
+      "is_service": false,
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "code": "PROD-004-PEL01",
+      "name": "Tinte de Cabello",
+      "description": "Tinte profesional de larga duración",
+      "unit": "UNIT",
+      "price": 25.00,
+      "is_service": false,
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "code": "PROD-005-PEL01",
+      "name": "Navaja de Afeitar",
+      "description": "Navaja de afeitar profesional",
+      "unit": "UNIT",
+      "price": 5.00,
+      "is_service": false,
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "code": "SERV-001-PEL01",
+      "name": "Corte de Cabello",
+      "description": "Corte de cabello para hombre y mujer",
+      "unit": "UNIT",
+      "price": 10.00,
+      "is_service": true,
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "code": "SERV-002-PEL01",
+      "name": "Tinte y Coloración",
+      "description": "Tinte profesional con productos de calidad",
+      "unit": "UNIT",
+      "price": 35.00,
+      "is_service": true,
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "code": "SERV-003-PEL01",
+      "name": "Afeitado Clásico",
+      "description": "Afeitado con navaja y toalla caliente",
+      "unit": "UNIT",
+      "price": 15.00,
+      "is_service": true,
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "code": "PROD-001-PEL02",
+      "name": "Premium Shampoo",
+      "description": "Professional shampoo for all hair types",
+      "unit": "UNIT",
+      "price": 20.00,
+      "is_service": false,
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "code": "PROD-002-PEL02",
+      "name": "Hair Clay",
+      "description": "Matte hair clay for styling",
+      "unit": "UNIT",
+      "price": 12.00,
+      "is_service": false,
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "code": "SERV-001-PEL02",
+      "name": "Haircut",
+      "description": "Professional haircut for men and women",
+      "unit": "UNIT",
+      "price": 30.00,
+      "is_service": true,
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "code": "SERV-002-PEL02",
+      "name": "Beard Trim",
+      "description": "Professional beard trimming and shaping",
+      "unit": "UNIT",
+      "price": 15.00,
+      "is_service": true,
+      "is_active": true
+    }
+  }
+]

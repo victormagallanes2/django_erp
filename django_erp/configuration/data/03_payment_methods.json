@@ -1,0 +1,93 @@
+[
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "name": "Efectivo (Bs.)",
+      "code": "CASH_BS",
+      "description": "Pago en efectivo en Bolívares",
+      "requires_company_bank": false,
+      "requires_reference": false,
+      "requires_approval": false,
+      "default_currency_code": "BS",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "name": "Efectivo (USD)",
+      "code": "CASH_USD",
+      "description": "Pago en efectivo en Dólares",
+      "requires_company_bank": false,
+      "requires_reference": false,
+      "requires_approval": false,
+      "default_currency_code": "USD",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "name": "Transferencia Bancaria",
+      "code": "BANK_TRANSFER",
+      "description": "Transferencia bancaria",
+      "requires_company_bank": true,
+      "requires_reference": true,
+      "requires_approval": true,
+      "default_currency_code": "USD",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "name": "Pago Móvil",
+      "code": "MOBILE_PAYMENT",
+      "description": "Pago móvil",
+      "requires_company_bank": false,
+      "requires_reference": true,
+      "requires_approval": false,
+      "default_currency_code": "BS",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "name": "Cash",
+      "code": "CASH",
+      "description": "Payment in cash",
+      "requires_company_bank": false,
+      "requires_reference": false,
+      "requires_approval": false,
+      "default_currency_code": "USD",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "name": "Credit Card",
+      "code": "CREDIT_CARD",
+      "description": "Payment via credit card",
+      "requires_company_bank": true,
+      "requires_reference": true,
+      "requires_approval": false,
+      "default_currency_code": "USD",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "name": "Debit Card",
+      "code": "DEBIT_CARD",
+      "description": "Payment via debit card",
+      "requires_company_bank": true,
+      "requires_reference": true,
+      "requires_approval": false,
+      "default_currency_code": "USD",
+      "is_active": true
+    }
+  }
+]

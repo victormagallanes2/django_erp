@@ -1,0 +1,71 @@
+[
+  {
+    "username": "admin",
+    "fields": {
+      "password": "admin123",
+      "email": "admin@peluqueria.com",
+      "first_name": "Administrador",
+      "last_name": "Principal",
+      "is_superuser": true,
+      "is_staff": true,
+      "is_active": true,
+      "company_codes": ["PEL01", "PEL02"]
+    }
+  },
+  {
+    "username": "gerente_pel01",
+    "fields": {
+      "password": "123456",
+      "email": "gerente@estiloycorte.com",
+      "first_name": "Laura",
+      "last_name": "Martínez",
+      "is_superuser": false,
+      "is_staff": true,
+      "is_active": true,
+      "company_codes": ["PEL01"],
+      "groups": ["Administradores"]
+    }
+  },
+  {
+    "username": "barbero_pel01",
+    "fields": {
+      "password": "123456",
+      "email": "barbero@estiloycorte.com",
+      "first_name": "Luis",
+      "last_name": "Fernández",
+      "is_superuser": false,
+      "is_staff": true,
+      "is_active": true,
+      "company_codes": ["PEL01"],
+      "groups": ["Ventas"]
+    }
+  },
+  {
+    "username": "gerente_pel02",
+    "fields": {
+      "password": "123456",
+      "email": "manager@thebarbershop.com",
+      "first_name": "Sarah",
+      "last_name": "Smith",
+      "is_superuser": false,
+      "is_staff": true,
+      "is_active": true,
+      "company_codes": ["PEL02"],
+      "groups": ["Administradores"]
+    }
+  },
+  {
+    "username": "barbero_pel02",
+    "fields": {
+      "password": "123456",
+      "email": "barber@thebarbershop.com",
+      "first_name": "Mike",
+      "last_name": "Johnson",
+      "is_superuser": false,
+      "is_staff": true,
+      "is_active": true,
+      "company_codes": ["PEL02"],
+      "groups": ["Ventas"]
+    }
+  }
+]

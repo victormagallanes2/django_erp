@@ -1,0 +1,29 @@
+[
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "code": "ALM-PEL01-01",
+      "name": "Almacén Principal - Caracas",
+      "description": "Almacén principal de la sucursal Caracas",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "code": "ALM-PEL01-02",
+      "name": "Almacén Secundario - Barquisimeto",
+      "description": "Almacén secundario de la sucursal Barquisimeto",
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "code": "ALM-PEL02-01",
+      "name": "Main Warehouse - Los Angeles",
+      "description": "Main warehouse in Los Angeles",
+      "is_active": true
+    }
+  }
+]

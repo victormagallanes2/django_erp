@@ -1,0 +1,12 @@
+[
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "from_currency_code": "USD",
+      "to_currency_code": "BS",
+      "rate": 42.50,
+      "source": "BCV",
+      "user_username": "admin"
+    }
+  }
+]

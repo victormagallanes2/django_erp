@@ -1,0 +1,37 @@
+[
+  {
+    "code": "PEL01",
+    "fields": {
+      "name": "Estilo & Corte C.A.",
+      "rif": "J-87654321-0",
+      "trade_name": "Estilo & Corte",
+      "address": "Av. Principal, Centro Comercial Plaza, Caracas, Venezuela",
+      "phone": "+58-212-555-9876",
+      "email": "info@estiloycorte.com",
+      "website": "https://estiloycorte.com",
+      "tax_rate": 16.00,
+      "invoice_prefix": "EC",
+      "control_number_required": false,
+      "is_main": true,
+      "is_active": true
+    }
+  },
+  {
+    "code": "PEL02",
+    "fields": {
+      "name": "The Barber Shop LLC",
+      "rif": "98-7654321",
+      "trade_name": "The Barber Shop",
+      "address": "789 Sunset Blvd, Los Angeles, CA 90028, USA",
+      "phone": "+1-555-0199",
+      "email": "info@thebarbershop.com",
+      "website": "https://thebarbershop.com",
+      "tax_rate": 8.00,
+      "invoice_prefix": "TBS",
+      "control_number_required": false,
+      "is_main": false,
+      "is_active": true,
+      "parent_code": "PEL01"
+    }
+  }
+]

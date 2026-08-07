@@ -1,10 +1,20 @@
 [
   {
-    "model": "configuration.currency",
-    "pk": 2,
+    "company_code": "PEL01",
+    "fields": {
+      "code": "USD",
+      "name": "Dólar Americano",
+      "symbol": "$",
+      "decimal_places": 2,
+      "is_base": true,
+      "is_active": true
+    }
+  },
+  {
+    "company_code": "PEL01",
     "fields": {
       "code": "BS",
-      "name": "Bolívar",
+      "name": "Bolívar Soberano",
       "symbol": "Bs.",
       "decimal_places": 2,
       "is_base": false,
@@ -12,20 +22,7 @@
     }
   },
   {
-    "model": "configuration.currency",
-    "pk": 3,
-    "fields": {
-      "code": "EUR",
-      "name": "Euro",
-      "symbol": "€",
-      "decimal_places": 2,
-      "is_base": false,
-      "is_active": true
-    }
-  },
-  {
-    "model": "configuration.currency",
-    "pk": 1,
+    "company_code": "PEL02",
     "fields": {
       "code": "USD",
       "name": "US Dollar",
