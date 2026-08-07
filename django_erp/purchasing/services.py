@@ -190,7 +190,7 @@ class PurchaseService:
                     source_reference=order.number,
                     note=f"Recepción de compra {order.number} - {order.supplier.name}",
                     user=user or order.user,
-                    company=company  # ← ✅ PASAR LA COMPAÑÍA EXPLÍCITAMENTE
+                    company=order.company  # ← ✅ PASAR LA COMPAÑÍA EXPLÍCITAMENTE
                 )
                 
                 movements_created += 1

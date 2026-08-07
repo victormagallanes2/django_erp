@@ -41,7 +41,7 @@ class Inventory(models.Model):
     class Meta:
         verbose_name = "Inventario"
         verbose_name_plural = "Inventarios"
-        unique_together = [['product', 'location']]
+        unique_together = [['product', 'location', 'company']]
         permissions = [
             ("can_view_inventory", "Puede ver inventarios"),
             ("can_edit_inventory", "Puede editar inventarios"),

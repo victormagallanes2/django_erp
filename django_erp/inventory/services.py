@@ -54,11 +54,11 @@ class InventoryService:
         inventory, created = Inventory.objects.get_or_create(
             product=movement.product,
             location=location,
+            company=movement.company,
             defaults={
                 'quantity': 0,
                 'average_cost': 0,
                 'total_value': 0,
-                'company': movement.company
             }
         )
         
