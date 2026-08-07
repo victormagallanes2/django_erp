@@ -1,25 +1,29 @@
-# django_erp/purchasing/admin.py - Reemplazar completamente el admin
-
+# django_erp/purchasing/admin.py
 from django.contrib import admin
 from django import forms
 from django.utils.html import format_html
 from django.contrib import messages
-from django.core.exceptions import ValidationError
+from decimal import Decimal
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from unfold.admin import TabularInline as UnfoldTabularInline
 from .models import Supplier, PurchaseOrder, PurchaseLine, PurchasePayment
-from decimal import Decimal, ROUND_HALF_UP
-from django_erp.configuration.models import ExchangeRate, Company, Currency
+from django_erp.configuration.models import ExchangeRate, Company
+from django_erp.configuration.mixins import CompanyFilterMixin
 import logging
 import traceback
 from .models import PurchaseInvoice, PurchaseInvoiceLine
-from django_erp.configuration.mixins import CompanyFilterMixin
 
 logger = logging.getLogger(__name__)
 
 
+# ============================================================
+# ADMIN: PROVEEDORES
+# ============================================================
+
 @admin.register(Supplier)
 class SupplierAdmin(CompanyFilterMixin, UnfoldModelAdmin):
+    """Admin de proveedores con multicompañía"""
+    
     list_display = ['name', 'tax_id', 'email', 'phone', 'is_active']
     list_filter = ['is_active']
     search_fields = ['name', 'tax_id', 'email', 'phone']
@@ -34,6 +38,10 @@ class SupplierAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     )
     readonly_fields = ['created_at', 'updated_at']
 
+
+# ============================================================
+# INLINES
+# ============================================================
 
 class PurchaseLineInline(UnfoldTabularInline):
     """Inline de líneas de compra"""
@@ -56,6 +64,69 @@ class PurchaseLineInline(UnfoldTabularInline):
         queryset = super().get_queryset(request)
         return queryset.select_related('product')
 
+
+class PurchasePaymentInline(UnfoldTabularInline):
+    """Inline de pagos para órdenes de compra"""
+    model = PurchasePayment
+    extra = 0
+    fields = [
+        'method', 
+        'company_bank_account', 
+        'currency', 
+        'amount', 
+        'amount_usd_display', 
+        'reference', 
+        'supplier_bank',
+        'status',
+        'payment_date'
+    ]
+    readonly_fields = ['payment_date', 'amount_usd_display']
+    autocomplete_fields = ['method', 'company_bank_account', 'currency']
+    
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        from django_erp.configuration.models import Currency, CompanyBankAccount
+        
+        # Moneda por defecto: USD
+        try:
+            usd = Currency.objects.get(code='USD')
+            formset.form.base_fields['currency'].initial = usd.id
+        except Currency.DoesNotExist:
+            pass
+        
+        # Cuenta bancaria por defecto
+        default_account = CompanyBankAccount.get_default()
+        if default_account:
+            formset.form.base_fields['company_bank_account'].initial = default_account.id
+        
+        return formset
+    
+    @admin.display(description='Monto en USD')
+    def amount_usd_display(self, obj):
+        if obj and obj.amount_usd:
+            return f"$ {obj.amount_usd:,.2f}"
+        return "$ 0.00"
+    
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.select_related('method', 'company_bank_account', 'currency', 'supplier')
+
+
+class PurchaseInvoiceInline(UnfoldTabularInline):
+    """Inline de facturas de compra en la orden"""
+    model = PurchaseInvoice
+    extra = 0
+    fields = ['number', 'date_issued', 'total', 'status']
+    readonly_fields = ['number', 'date_issued', 'total', 'status']
+    can_delete = False
+    
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+# ============================================================
+# FORMULARIO DE ORDEN DE COMPRA
+# ============================================================
 
 class PurchaseOrderForm(forms.ModelForm):
     """Formulario de orden de compra"""
@@ -124,11 +195,11 @@ class PurchaseOrderForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         instance = kwargs.get('instance')
         
-        # Obtener tasa de cambio
-        from django_erp.configuration.models import Company
+        # Obtener tasa de cambio y IVA
         company = Company.get_active()
         tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
         rate = ExchangeRate.get_today_rate('USD', 'BS')
+        
         if rate:
             self.initial['rate_display'] = f"1 USD = Bs. {rate:.2f}"
         else:
@@ -140,9 +211,9 @@ class PurchaseOrderForm(forms.ModelForm):
             tax = subtotal * (tax_rate / Decimal('100'))
             total = subtotal + tax
             
-            self.initial['subtotal_display'] = subtotal
-            self.initial['tax_display'] = tax
-            self.initial['total_display'] = total
+            self.initial['subtotal_display'] = f"{subtotal:.2f}"
+            self.initial['tax_display'] = f"{tax:.2f}"
+            self.initial['total_display'] = f"{total:.2f}"
             
             if rate:
                 self.initial['subtotal_bs_display'] = f"{(subtotal * rate):.2f}"
@@ -155,12 +226,6 @@ class PurchaseOrderForm(forms.ModelForm):
             self.initial['subtotal_bs_display'] = "0.00"
             self.initial['tax_bs_display'] = "0.00"
             self.initial['total_bs_display'] = "0.00"
-            
-            # Autollenar datos de la empresa
-            company = Company.get_active()
-            if company:
-                self.initial['tax_rate'] = company.tax_rate
-                self.initial['tax_rate_display'] = f"{company.tax_rate}%"
             
             # Generar número automático
             from datetime import datetime
@@ -178,7 +243,7 @@ class PurchaseOrderForm(forms.ModelForm):
             self.fields['number'].disabled = True
             self.initial['status'] = 'DRAFT'
         
-        # Configurar opciones de estado
+        # Configurar opciones de estado según el estado actual
         if instance and instance.pk:
             if instance.status == 'DRAFT':
                 self.fields['status'].choices = [
@@ -206,6 +271,10 @@ class PurchaseOrderForm(forms.ModelForm):
                 ('ORDERED', 'Ordenada'),
             ]
 
+
+# ============================================================
+# ACCIONES PERSONALIZADAS
+# ============================================================
 
 @admin.action(description='✅ Confirmar órdenes seleccionadas')
 def confirm_orders_action(modeladmin, request, queryset):
@@ -266,90 +335,20 @@ def receive_orders_action(modeladmin, request, queryset):
             )
 
 
-class PurchasePaymentInline(UnfoldTabularInline):
-    """Inline de pagos para órdenes de compra"""
-    model = PurchasePayment
-    extra = 0
-    fields = [
-        'method', 
-        'company_bank_account', 
-        'currency', 
-        'amount', 
-        'amount_usd_display', 
-        'reference', 
-        'supplier_bank',
-        'status',
-        'payment_date'
-    ]
-    readonly_fields = ['payment_date', 'amount_usd_display']
-    autocomplete_fields = ['method', 'company_bank_account', 'currency']
-    
-    def get_formset(self, request, obj=None, **kwargs):
-        formset = super().get_formset(request, obj, **kwargs)
-        
-        # ✅ Moneda por defecto: USD (global)
-        try:
-            usd = Currency.objects.get(code='USD')
-            formset.form.base_fields['currency'].initial = usd.id
-            # ✅ TODAS las monedas activas (globales)
-            formset.form.base_fields['currency'].queryset = Currency.objects.filter(is_active=True)
-        except Currency.DoesNotExist:
-            pass
-        
-        # ✅ Cuenta bancaria por defecto
-        from django_erp.configuration.models import CompanyBankAccount
-        default_account = CompanyBankAccount.get_default()
-        if default_account:
-            formset.form.base_fields['company_bank_account'].initial = default_account.id
-        
-        return formset
-    
-    @admin.display(description='Monto en USD')
-    def amount_usd_display(self, obj):
-        if obj and obj.amount_usd:
-            return f"$ {obj.amount_usd:,.2f}"
-        return "$ 0.00"
-    
-    def get_queryset(self, request):
-        queryset = super().get_queryset(request)
-        return queryset.select_related('method', 'company_bank_account', 'currency', 'supplier')
-    
-    def save_formset(self, request, form, formset, change):
-        """Guardar pagos asignando el proveedor desde la orden"""
-        instances = formset.save(commit=False)
-        
-        # ✅ Obtener la orden
-        purchase_order = form.instance
-        
-        for obj in formset.deleted_objects:
-            obj.delete()
-        
-        for obj in instances:
-            # ✅ Asignar proveedor desde la orden
-            obj.supplier = purchase_order.supplier
-            obj.save()
-        
-        formset.save_m2m()
-
-
-class PurchaseInvoiceInline(UnfoldTabularInline):
-    """Inline de facturas de compra en la orden"""
-    model = PurchaseInvoice
-    extra = 0
-    fields = ['number', 'date_issued', 'total', 'status']
-    readonly_fields = ['number', 'date_issued', 'total', 'status']
-    can_delete = False
-    
-    def has_add_permission(self, request, obj=None):
-        return False
-
+# ============================================================
+# ADMIN: ÓRDENES DE COMPRA
+# ============================================================
 
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
+    """Admin de órdenes de compra con multicompañía"""
+    
     form = PurchaseOrderForm
     
+    # ✅ Listado con columna de compañía
     list_display = [
         'number', 
+        'company_display',
         'supplier', 
         'date', 
         'expected_delivery',
@@ -359,8 +358,12 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         'status', 
         'created_at'
     ]
-    list_filter = ['status', 'date']
-    search_fields = ['number', 'supplier__name']
+    
+    # ✅ Filtros incluyendo compañía
+    list_filter = ['status', 'date', 'company']
+    
+    # ✅ Búsqueda incluyendo compañía
+    search_fields = ['number', 'supplier__name', 'company__name', 'company__code']
     
     inlines = [PurchaseLineInline, PurchasePaymentInline, PurchaseInvoiceInline]
     actions = [confirm_orders_action, receive_orders_action]
@@ -390,7 +393,30 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     
     class Media:
         js = ('admin/js/purchase_order_admin.js', 'admin/js/purchase_payment_admin.js')
-
+    
+    # ============================================================
+    # MÉTODOS PERSONALIZADOS
+    # ============================================================
+    
+    @admin.display(description='Compañía', ordering='company__name')
+    def company_display(self, obj):
+        """Mostrar la compañía con formato y colores"""
+        if obj.company:
+            colors = {
+                'MAIN': '#2d6a4f',
+                'COL': '#1e3a5f',
+                'MX': '#d4a017',
+                'ES': '#c1121f',
+            }
+            color = colors.get(obj.company.code, '#6c757d')
+            return format_html(
+                '<span style="font-weight: 500; color: {};">{} - {}</span>',
+                color,
+                obj.company.code,
+                obj.company.name
+            )
+        return "Sin compañía"
+    
     def get_form(self, request, obj=None, **kwargs):
         """Pasar el request al formulario"""
         form = super().get_form(request, obj, **kwargs)
@@ -398,10 +424,21 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         return form
     
     def save_model(self, request, obj, form, change):
-        """Guardar la orden y procesar cambios de estado"""
+        """Guardar la orden y procesar cambios de estado."""
         from .services import PurchaseService, PurchaseInvoiceService
         
-        # ✅ Obtener el estado anterior ANTES de guardar
+        # ✅ ASIGNAR COMPAÑÍA A LA ORDEN
+        if not obj.company_id:
+            company = getattr(request, 'current_company', None)
+            if not company:
+                company = Company.get_active()
+            if company:
+                obj.company = company
+            else:
+                self.message_user(request, '❌ No hay una compañía activa.', messages.ERROR)
+                return
+        
+        # ✅ Obtener el estado anterior
         old_status = None
         if change and obj.pk:
             try:
@@ -409,22 +446,18 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             except PurchaseOrder.DoesNotExist:
                 pass
         
-        # ✅ Obtener el nuevo estado del formulario
         new_status = form.cleaned_data.get('status')
         
         print(f"🔴 ===== SAVE_MODEL INICIADO =====")
         print(f"   Orden: {obj.number}")
-        print(f"   Change: {change}")
+        print(f"   Compañía: {obj.company.code if obj.company else 'NINGUNA'}")
         print(f"   Estado anterior: {old_status}")
         print(f"   Nuevo estado: {new_status}")
         
-        # ✅ Asegurar que tax_rate se establezca desde la empresa si es nueva
+        # ✅ Asegurar tax_rate
         if not change and not obj.tax_rate:
             company = Company.get_active()
-            if company:
-                obj.tax_rate = company.tax_rate
-            else:
-                obj.tax_rate = Decimal('16.00')
+            obj.tax_rate = company.tax_rate if company else Decimal('16.00')
         
         if not obj.user:
             obj.user = request.user
@@ -432,112 +465,99 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         # ✅ Guardar la orden
         super().save_model(request, obj, form, change)
         
-        # ✅ Recalcular totales después de guardar
+        # ✅ Recalcular totales
         if obj.pk:
             obj.calculate_totals()
             obj.save(update_fields=['subtotal', 'tax', 'total'])
         
-        # ✅ Procesar cambio de estado (si cambió)
+        # ✅ Procesar cambio de estado
         if old_status != new_status:
-            print(f"   🔄 El estado cambió de {old_status} a {new_status}")
-            
-            try:
-                if new_status == 'ORDERED':
-                    print("   ✅ EJECUTANDO: Confirmando orden...")
-                    result = PurchaseService.confirm_order(obj, request.user)
-                    print(f"   ✅ Resultado: {result}")
-                    self.message_user(
-                        request, 
-                        f'✅ Orden {obj.number} confirmada exitosamente', 
-                        messages.SUCCESS
-                    )
-                
-                elif new_status == 'RECEIVED':
-                    print("   📦 EJECUTANDO: Recibiendo orden...")
-                    
-                    # ✅ PASO 1: Recibir la orden (esto cambia el estado a RECEIVED)
-                    result = PurchaseService.receive_order(obj, request.user)
-                    print(f"   ✅ Resultado: {result}")
-                    
-                    # ✅ PASO 2: Recargar la orden desde la BD para tener el estado actualizado
-                    obj.refresh_from_db()
-                    
-                    # ✅ PASO 3: Generar factura (ahora la orden ya está en estado RECEIVED)
-                    print("   📄 Generando factura de compra...")
-                    try:
-                        # ✅ Verificar que no tenga factura aún
-                        if not obj.invoiced:
-                            invoice = PurchaseInvoiceService.create_invoice_from_purchase_order(
-                                obj.id, 
-                                request.user
-                            )
-                            print(f"   ✅ Factura {invoice.number} generada")
-                            self.message_user(
-                                request, 
-                                f'✅ Orden {obj.number} recibida. Factura de compra {invoice.number} generada automáticamente.', 
-                                messages.SUCCESS
-                            )
-                        else:
-                            print(f"   ℹ️ La orden ya tiene factura")
-                            self.message_user(
-                                request, 
-                                f'✅ Orden {obj.number} recibida (ya tenía factura).', 
-                                messages.SUCCESS
-                            )
-                    except Exception as e:
-                        print(f"   ❌ Error generando factura: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        self.message_user(
-                            request, 
-                            f'⚠️ Orden recibida pero error al generar factura: {str(e)}', 
-                            messages.WARNING
-                        )
-                
-                elif new_status == 'CANCELLED':
-                    print("   ❌ EJECUTANDO: Cancelando orden...")
-                    result = PurchaseService.cancel_order(obj, request.user)
-                    print(f"   ✅ Resultado: {result}")
-                    self.message_user(
-                        request, 
-                        f'✅ Orden {obj.number} cancelada exitosamente', 
-                        messages.SUCCESS
-                    )
-            
-            except Exception as e:
-                print(f"   ❌ Error: {str(e)}")
-                print(traceback.format_exc())
-                
-                self.message_user(
-                    request, 
-                    f'❌ Error: {str(e)}', 
-                    messages.ERROR
-                )
-                # ✅ Revertir al estado anterior
-                obj.status = old_status
-                obj.save(update_fields=['status'])
-        else:
-            print("   ℹ️ El estado no cambió")
+            self._process_status_change(request, obj, old_status, new_status)
         
         print("🔴 ===== FIN SAVE_MODEL =====")
     
+    def _process_status_change(self, request, obj, old_status, new_status):
+        """Procesar cambios de estado de la orden."""
+        from .services import PurchaseService, PurchaseInvoiceService
+        
+        try:
+            if new_status == 'ORDERED':
+                print("   ✅ Confirmando orden...")
+                PurchaseService.confirm_order(obj, request.user)
+                self.message_user(request, f'✅ Orden {obj.number} confirmada', messages.SUCCESS)
+            
+            elif new_status == 'RECEIVED':
+                print("   📦 Recibiendo orden...")
+                PurchaseService.receive_order(obj, request.user)
+                obj.refresh_from_db()
+                
+                # Generar factura
+                if not obj.invoiced:
+                    invoice = PurchaseInvoiceService.create_invoice_from_purchase_order(
+                        obj.id, request.user
+                    )
+                    self.message_user(
+                        request, 
+                        f'✅ Orden recibida. Factura {invoice.number} generada.', 
+                        messages.SUCCESS
+                    )
+            
+            elif new_status == 'CANCELLED':
+                print("   ❌ Cancelando orden...")
+                PurchaseService.cancel_order(obj, request.user)
+                self.message_user(request, f'✅ Orden {obj.number} cancelada', messages.SUCCESS)
+        
+        except Exception as e:
+            print(f"   ❌ Error: {str(e)}")
+            traceback.print_exc()
+            self.message_user(request, f'❌ Error: {str(e)}', messages.ERROR)
+            obj.status = old_status
+            obj.save(update_fields=['status'])
+    
     def save_formset(self, request, form, formset, change):
-        """Guardar líneas y recalcular totales"""
+        """
+        Guardar líneas y recalcular totales.
+        ASIGNACIÓN EXPLÍCITA DE COMPAÑÍA A LAS LÍNEAS.
+        """
         print("🔴 ===== SAVE_FORMSET INICIADO =====")
         
-        # ✅ 1. Guardar las líneas
-        super().save_formset(request, form, formset, change)
+        # ✅ Obtener la compañía activa
+        company = getattr(request, 'current_company', None)
+        if not company:
+            company = Company.get_active()
         
-        # ✅ 2. Obtener la instancia actualizada
+        print(f"   Compañía para líneas: {company.code if company else 'NINGUNA'}")
+        
+        # ✅ Guardar las líneas con compañía asignada
+        instances = formset.save(commit=False)
+        
+        for instance in instances:
+            # ✅ Asignar compañía a la línea
+            if hasattr(instance, 'company') and not instance.company_id:
+                instance.company = company
+                print(f"   ✅ Compañía asignada a línea: {instance}")
+            instance.save()
+        
+        # ✅ Guardar relaciones ManyToMany
+        formset.save_m2m()
+        
+        # ✅ Eliminar objetos marcados para borrar
+        for obj in formset.deleted_objects:
+            obj.delete()
+        
+        # ✅ Recalcular totales
         obj = form.instance
-        
-        # ✅ 3. Recalcular totales
-        obj.calculate_totals()
-        obj.save(update_fields=['subtotal', 'tax', 'total', 'updated_at'])
+        if obj.pk:
+            obj.calculate_totals()
+            obj.save(update_fields=['subtotal', 'tax', 'total', 'updated_at'])
         
         print(f"   ✅ Total calculado: {obj.total}")
         print("🔴 ===== FIN SAVE_FORMSET =====")
 
+
+# ============================================================
+# ADMIN: FACTURAS DE COMPRA
+# ============================================================
 
 class PurchaseInvoiceLineInline(UnfoldTabularInline):
     """Inline de líneas de factura de compra"""
@@ -556,18 +576,19 @@ class PurchaseInvoiceLineInline(UnfoldTabularInline):
 
 @admin.register(PurchaseInvoice)
 class PurchaseInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
-    """Admin de facturas de compra"""
+    """Admin de facturas de compra con multicompañía"""
     
     list_display = [
         'number', 
+        'company_display',
         'supplier', 
         'date_issued', 
         'total', 
         'status', 
         'created_at'
     ]
-    list_filter = ['status', 'date_issued']
-    search_fields = ['number', 'supplier__name', 'supplier_rif']
+    list_filter = ['status', 'date_issued', 'company']
+    search_fields = ['number', 'supplier__name', 'supplier_rif', 'company__name']
     
     inlines = [PurchaseInvoiceLineInline]
     autocomplete_fields = ['supplier', 'purchase_order']
@@ -594,6 +615,16 @@ class PurchaseInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     
     class Media:
         js = ('admin/js/purchase_invoice_admin.js',)
+    
+    @admin.display(description='Compañía', ordering='company__name')
+    def company_display(self, obj):
+        if obj.company:
+            return format_html(
+                '<span style="font-weight: 500;">{} - {}</span>',
+                obj.company.code,
+                obj.company.name
+            )
+        return "Sin compañía"
     
     def save_model(self, request, obj, form, change):
         if not obj.user:
