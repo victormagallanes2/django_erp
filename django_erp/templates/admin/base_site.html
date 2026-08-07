@@ -1,39 +1,127 @@
+{# django_erp/templates/admin/base_site.html #}
 {% extends "admin/base_site.html" %}
-{% load static i18n %}
+{% load i18n static %}
 
 {% block extrahead %}
     {{ block.super }}
     <style>
-        #company-test-selector {
-            background: #dc3545 !important;
-            color: #fff !important;
-            padding: 10px 20px !important;
-            border-radius: 8px !important;
-            font-weight: bold !important;
-            font-size: 16px !important;
-            position: fixed !important;
-            top: 10px !important;
-            right: 10px !important;
-            z-index: 999999 !important;
-            border: 3px solid #ff0 !important;
+        .company-selector-injected {
+            display: inline-block;
+            margin-right: 15px;
+            vertical-align: middle;
+        }
+        .company-selector-injected select {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 4px;
+            padding: 5px 10px;
+            font-size: 13px;
+            cursor: pointer;
+            min-width: 180px;
+            max-width: 250px;
+        }
+        .company-selector-injected select option {
+            color: #333;
+            background: #fff;
+        }
+        .dark .company-selector-injected select {
+            background: rgba(0,0,0,0.3);
+            border-color: rgba(255,255,255,0.15);
+            color: #fff;
+        }
+        .dark .company-selector-injected select option {
+            color: #fff;
+            background: #1a1a1a;
+        }
+        .company-selector-injected .badge {
+            background: #0d6efd;
+            color: white;
+            padding: 2px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+            display: inline-block;
+            vertical-align: middle;
+            margin-left: 5px;
         }
     </style>
-{% endblock %}
-
-{% block footer %}
-    {{ block.super }}
     
     <script>
-        (function() {
-            console.log("🔴 Inyectando selector en el body...");
+        document.addEventListener('DOMContentLoaded', function() {
+            // Esperar a que el DOM esté listo
+            function injectSelector() {
+                var userTools = document.getElementById('user-tools');
+                if (!userTools) {
+                    setTimeout(injectSelector, 200);
+                    return;
+                }
+                
+                // Verificar si ya está inyectado
+                if (userTools.querySelector('.company-selector-injected')) {
+                    return;
+                }
+                
+                // Obtener datos de compañías
+                var companies = {{ available_companies|safe|default:'[]' }};
+                var currentId = {{ current_company.id|default:'null' }};
+                
+                if (companies.length < 2) {
+                    return;
+                }
+                
+                // Crear wrapper
+                var wrapper = document.createElement('span');
+                wrapper.className = 'company-selector-injected';
+                
+                // Crear formulario
+                var form = document.createElement('form');
+                form.method = 'get';
+                form.id = 'company-selector-injected-form';
+                form.style.display = 'inline';
+                
+                // Crear select
+                var select = document.createElement('select');
+                select.name = 'company_id';
+                select.onchange = function() {
+                    this.closest('form').submit();
+                };
+                
+                // Agregar opciones
+                companies.forEach(function(company) {
+                    var option = document.createElement('option');
+                    option.value = company.id;
+                    if (String(company.id) === String(currentId)) {
+                        option.selected = true;
+                    }
+                    option.textContent = company.name + ' (' + company.code + ')';
+                    select.appendChild(option);
+                });
+                
+                form.appendChild(select);
+                wrapper.appendChild(form);
+                
+                // Agregar badge
+                if (currentId) {
+                    var badge = document.createElement('span');
+                    badge.className = 'badge';
+                    var current = companies.find(function(c) {
+                        return String(c.id) === String(currentId);
+                    });
+                    if (current) {
+                        badge.textContent = current.code;
+                        wrapper.appendChild(badge);
+                    }
+                }
+                
+                // Insertar al inicio de user-tools
+                userTools.insertBefore(wrapper, userTools.firstChild);
+            }
             
-            // ✅ Crear un elemento de prueba muy visible
-            var testDiv = document.createElement('div');
-            testDiv.id = 'company-test-selector';
-            testDiv.innerHTML = '🔴 SELECTOR DE COMPAÑÍAS AQUÍ';
-            document.body.appendChild(testDiv);
-            
-            console.log("✅ Elemento de prueba creado");
-        })();
+            // Intentar inyectar varias veces
+            setTimeout(injectSelector, 100);
+            setTimeout(injectSelector, 300);
+            setTimeout(injectSelector, 600);
+        });
     </script>
 {% endblock %}

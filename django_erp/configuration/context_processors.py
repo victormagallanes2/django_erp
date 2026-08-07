@@ -21,9 +21,15 @@ def erp_config(request):
                 'change_url': f"{request.path}?company_id={comp.id}"
             })
     
+    # ✅ Asegurar que el JSON sea válido
+    try:
+        companies_json = json.dumps(available_companies, cls=DjangoJSONEncoder)
+    except:
+        companies_json = '[]'
+    
     return {
         'available_companies': available_companies,
-        'available_companies_json': json.dumps(available_companies, cls=DjangoJSONEncoder),
+        'available_companies_json': companies_json,
         'current_company': company,
         'ERP_CONFIG': {
             'tax_rate': float(company.tax_rate) if company else 16.0,

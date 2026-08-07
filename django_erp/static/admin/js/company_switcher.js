@@ -4,10 +4,9 @@
     'use strict';
     
     console.log('📢 company_switcher.js cargado');
-    console.log('   Alpine disponible:', typeof Alpine !== 'undefined');
     
     if (typeof Alpine === 'undefined') {
-        console.error('❌ Alpine NO está disponible');
+        console.warn('⚠️ Alpine NO está disponible, usando selector simple');
         return;
     }
     
@@ -26,13 +25,16 @@
                 console.log('🏢 Inicializando companySwitcher...');
                 
                 try {
-                    self.availableCompanies = window.COMPANIES_DATA || [];
+                    // Obtener datos de compañías desde el context processor
+                    self.availableCompanies = window.COMPANIES_DATA || 
+                                             {{ available_companies_json|safe|default:'[]' }};
                     
                     if (!Array.isArray(self.availableCompanies)) {
                         self.availableCompanies = [];
                     }
                     
-                    self.currentCompanyId = window.CURRENT_COMPANY_ID || null;
+                    self.currentCompanyId = window.CURRENT_COMPANY_ID || 
+                                            {{ current_company.id|default:'null' }};
                     
                     console.log('📋 Compañías:', self.availableCompanies.length);
                     console.log('📌 ID actual:', self.currentCompanyId);
@@ -48,6 +50,7 @@
                             }
                         }
                         
+                        // Si no se encontró la compañía actual, usar la primera
                         if (!self.currentCompanyName && self.availableCompanies.length > 0) {
                             self.currentCompanyId = self.availableCompanies[0].id;
                             self.currentCompanyName = self.availableCompanies[0].name;

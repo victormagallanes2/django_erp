@@ -9,4 +9,5 @@ urlpatterns = [
     path('backup/create/', views.backup_create, name='backup_create'),
     path('backup/<int:backup_id>/download/', views.backup_download, name='backup_download'),
     path('backup/<int:backup_id>/delete/', views.backup_delete, name='backup_delete'),
+    path('switch-company/', views.switch_company, name='switch_company'),
 ]

@@ -19,6 +19,7 @@ class CompanyAdmin(UnfoldModelAdmin):
     list_display = ['code', 'name', 'rif', 'is_main', 'parent', 'is_active']
     list_filter = ['is_main', 'is_active']
     search_fields = ['code', 'name', 'rif']
+    change_list_template = "admin/configuration/company_changelist.html"
     
     fieldsets = (
         ('Identificación', {

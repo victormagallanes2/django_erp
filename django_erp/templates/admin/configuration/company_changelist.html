@@ -1,0 +1,102 @@
+{# django_erp/templates/admin/configuration/company_changelist.html #}
+{% extends "admin/change_list.html" %}
+{% load i18n static %}
+
+{% block object-tools %}
+    {# ============================================================ #}
+    {# ✅ SELECTOR DE COMPAÑÍAS - ESTILOS UNFOLD                    #}
+    {# ============================================================ #}
+    {% if available_companies|length > 1 %}
+    <div class="inline-flex items-center gap-2 mr-3 float-left">
+        <form method="get" action="" id="company-selector-form" class="inline-block">
+            <div class="relative inline-block">
+                <select name="company_id" 
+                        id="company-selector"
+                        class="
+                            appearance-none
+                            cursor-pointer
+                            inline-flex
+                            items-center
+                            gap-2
+                            pl-4
+                            pr-8
+                            py-1.5
+                            text-sm
+                            font-medium
+                            text-gray-700
+                            dark:text-gray-200
+                            bg-gray-100
+                            dark:bg-gray-700
+                            hover:bg-gray-200
+                            dark:hover:bg-gray-600
+                            border
+                            border-gray-300
+                            dark:border-gray-600
+                            rounded-md
+                            shadow-sm
+                            focus:outline-none
+                            focus:ring-2
+                            focus:ring-blue-500/50
+                            focus:border-blue-500
+                            transition-all
+                            duration-150
+                            ease-in-out
+                            min-w-[200px]
+                            max-w-[280px]
+                            h-8
+                        "
+                        onchange="document.getElementById('company-selector-form').submit()">
+                    {% for company in available_companies %}
+                        <option value="{{ company.id }}" 
+                                {% if company.id == current_company.id %}selected{% endif %}
+                                class="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                            🏢 {{ company.name }} ({{ company.code }})
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+    
+    {# ============================================================ #}
+    {# ✅ BOTONES ORIGINALES DE OBJECT-TOOLS                         #}
+    {# ============================================================ #}
+    {{ block.super }}
+{% endblock %}
+
+{# ============================================================ #}
+{# ✅ ESTILOS ADICIONALES                                        #}
+{# ============================================================ #}
+{% block extrahead %}
+    {{ block.super }}
+    <style>
+        #company-selector:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        
+        .dark #company-selector:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        
+        #company-selector:focus {
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+        }
+        
+        @media (max-width: 768px) {
+            .company-selector-wrapper {
+                float: none !important;
+                display: flex !important;
+                width: 100% !important;
+                margin-bottom: 10px !important;
+            }
+            .company-selector-wrapper select {
+                flex: 1 !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+                width: 100% !important;
+            }
+        }
+    </style>
+{% endblock %}

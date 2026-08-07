@@ -32,7 +32,6 @@ def health_check(request):
 urlpatterns = [
     # ✅ Health Check (para detectar conexión real)
     path('admin/health-check/', health_check, name='health_check'),
-    path('admin/test-context/', views.test_context, name='test_context'),
     path('admin/sales/', include('django_erp.sales.urls')),
     path('admin/invoicing/', include('django_erp.invoicing.urls')),
     path('admin/purchasing/', include('django_erp.purchasing.urls')),
