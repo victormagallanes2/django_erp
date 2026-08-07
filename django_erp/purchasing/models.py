@@ -185,6 +185,13 @@ class PurchaseOrder(models.Model):
 
     def save(self, *args, **kwargs):
         """Guardar - Igual que invoicing"""
+        # ✅ RED DE SEGURIDAD: si no viene compañía asignada (por ejemplo,
+        # al crear una orden fuera del admin), usar la compañía activa.
+        if not self.company_id:
+            company = Company.get_active()
+            if company:
+                self.company = company
+
         # ✅ Si es nueva orden, establecer tasa de IVA desde la empresa
         if not self.pk:
             if not self.tax_rate or self.tax_rate == 0:
@@ -288,6 +295,11 @@ class PurchaseLine(models.Model):
         return f"{self.order.number} - {self.product_name or 'Producto sin nombre'}"
 
     def save(self, *args, **kwargs):
+        # ✅ RED DE SEGURIDAD: heredar la compañía de la orden padre si no
+        # viene asignada explícitamente (por admin, shell, API, etc.)
+        if not self.company_id and self.order_id:
+            self.company_id = self.order.company_id
+
         # ✅ Si hay producto, guardar nombre y código - Igual que invoicing
         if self.product:
             self.product_code = self.product.code
@@ -451,7 +463,12 @@ class PurchasePayment(models.Model):
 
     def save(self, *args, **kwargs):
         from django_erp.configuration.models import ExchangeRate
-        
+
+        # ✅ RED DE SEGURIDAD: heredar la compañía de la orden de compra
+        # padre si no viene asignada explícitamente.
+        if not self.company_id and self.purchase_order_id:
+            self.company_id = self.purchase_order.company_id
+
         self.clean()
         
         # ✅ Establecer moneda por defecto
@@ -682,6 +699,11 @@ class PurchaseInvoice(models.Model):
     def save(self, *args, **kwargs):
         if not self.uuid:
             self.uuid = uuid.uuid4()
+
+        # ✅ RED DE SEGURIDAD: heredar la compañía de la orden de compra
+        # asociada si no viene asignada explícitamente.
+        if not self.company_id and self.purchase_order_id:
+            self.company_id = self.purchase_order.company_id
         
         if self.purchase_order and self.purchase_order.supplier:
             self.supplier = self.purchase_order.supplier
