@@ -1,4 +1,4 @@
-# sales/services.py
+# sales/services.py - CORREGIDO
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.apps import apps
@@ -24,6 +24,8 @@ class SaleService:
         if not company:
             raise ValidationError("No hay una compañía asociada a esta orden o activa.")
         
+        print(f"🔴 CONFIRMANDO ORDEN {order.number} para compañía {company.code}")
+        
         # ============================================================
         # 📦 1. PROCESAR PRODUCTOS Y SERVICIOS
         # ============================================================
@@ -38,10 +40,16 @@ class SaleService:
                 # ✅ Si es producto físico, verificar stock
                 if apps.is_installed('django_erp.inventory'):
                     from django_erp.inventory.services import InventoryService
+                    
+                    # ✅ CORREGIDO: Pasar la compañía para obtener el inventario correcto
                     stock = InventoryService.get_stock_by_location(
                         line.product.id,
-                        line.location.id if line.location else None
+                        line.location.id if line.location else None,
+                        company=company  # ← ✅ PASAR LA COMPAÑÍA
                     )
+                    
+                    print(f"   📦 Producto: {line.product.name}, Stock: {stock}, Solicitado: {line.quantity}")
+                    
                     if stock < line.quantity:
                         raise ValidationError(
                             f"❌ Stock insuficiente para {line.product.name}. "
@@ -51,16 +59,32 @@ class SaleService:
                 # ✅ Crear movimiento de salida para productos físicos
                 if apps.is_installed('django_erp.warehouse'):
                     from django_erp.warehouse.services import WarehouseService
+                    
+                    # ✅ Asegurar que la ubicación tenga compañía
+                    location_id = line.location.id if line.location else None
+                    if location_id:
+                        from django_erp.warehouse.models import Location
+                        try:
+                            location = Location.objects.get(id=location_id, company=company)
+                        except Location.DoesNotExist:
+                            # ✅ Si la ubicación no pertenece a la compañía, buscar una por defecto
+                            location = Location.objects.filter(company=company, is_active=True).first()
+                            if location:
+                                location_id = location.id
+                                print(f"   ⚠️ Ubicación cambiada a: {location.code}")
+                            else:
+                                raise ValidationError(f"No hay ubicación disponible para la compañía {company.code}")
+                    
                     WarehouseService.create_exit(
                         product_id=line.product.id,
                         quantity=line.quantity,
-                        location_from_id=line.location.id if line.location else None,
+                        location_from_id=location_id,
                         unit_price=line.unit_price,
                         source_type='SALE',
                         source_reference=order.number,
                         note=f"Venta {order.number} - {order.customer.name}",
-                        user=user or order.user
-                        # ✅ La compañía se asigna dentro de WarehouseService.create_exit
+                        user=user or order.user,
+                        company=company  # ← ✅ PASAR LA COMPAÑÍA
                     )
                 else:
                     print(f"ℹ️ Warehouse no instalado. No se reduce stock para {line.product.name}")
@@ -104,7 +128,6 @@ class SaleService:
                 
             except ValidationError as e:
                 print(f"⚠️ Error al registrar en caja: {e}")
-                # ⚠️ Lanzar error para que la transacción se revierta
                 raise ValidationError(f"❌ Error al registrar en caja: {str(e)}")
         
         # ============================================================
@@ -119,7 +142,6 @@ class SaleService:
             except Exception as e:
                 print(f"⚠️ Error al generar factura: {e}")
                 # No detener el proceso si falla la factura
-                # raise ValidationError(f"Error al generar factura: {str(e)}")
         
         return order
     
@@ -144,8 +166,8 @@ class SaleService:
                             source_type='MANUAL',
                             source_reference=f"CANCEL-{order.number}",
                             note=f"Cancelación de venta {order.number}",
-                            user=user or order.user
-                            # ✅ La compañía se asigna dentro de WarehouseService.create_entry
+                            user=user or order.user,
+                            company=order.company  # ← ✅ PASAR LA COMPAÑÍA
                         )
         
         return order

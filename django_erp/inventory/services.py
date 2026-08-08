@@ -1,4 +1,4 @@
-# inventory/services.py
+# inventory/services.py - CORREGIDO
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from .models import Inventory, ValuationMethod, PhysicalCount
@@ -22,25 +22,40 @@ class InventoryService:
         return apps.get_model('warehouse', 'Location')
     
     @staticmethod
-    def get_stock_by_location(product_id, location_id):
+    def get_stock_by_location(product_id, location_id, company=None):
         """Obtener stock de un producto en una ubicación específica"""
         try:
-            inventory = Inventory.objects.get(product_id=product_id, location_id=location_id)
-            return inventory.quantity
-        except Inventory.DoesNotExist:
+            # ✅ CORREGIDO: Filtrar por compañía si se proporciona
+            queryset = Inventory.objects.filter(product_id=product_id, location_id=location_id)
+            if company:
+                queryset = queryset.filter(company=company)
+            
+            # ✅ Usar first() en lugar de get() para evitar errores de múltiples objetos
+            inventory = queryset.first()
+            
+            if inventory:
+                logger.info(f"🔴 Stock encontrado: {inventory.quantity} para producto {product_id} en ubicación {location_id}")
+                return inventory.quantity
+            else:
+                logger.info(f"🔴 No hay stock para producto {product_id} en ubicación {location_id}")
+                return 0
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo stock: {e}")
             return 0
     
     @staticmethod
-    def get_total_stock(product_id):
+    def get_total_stock(product_id, company=None):
         """Obtener stock total de un producto en todas las ubicaciones"""
-        inventories = Inventory.objects.filter(product_id=product_id)
-        return sum(inv.quantity for inv in inventories) if inventories else 0
+        queryset = Inventory.objects.filter(product_id=product_id)
+        if company:
+            queryset = queryset.filter(company=company)
+        return sum(inv.quantity for inv in queryset) if queryset else 0
     
     @staticmethod
     @transaction.atomic
     def update_stock_from_movement(movement):
         """Actualizar inventario desde un movimiento físico"""
-        # movement viene de warehouse.models.Movement (referencia dinámica)
+        # movement viene de warehouse.models.Movement
         # pero es un objeto real, podemos usarlo directamente
         
         # ✅ Determinar la ubicación correcta
@@ -50,11 +65,11 @@ class InventoryService:
             logger.warning(f"⚠️ Movimiento {movement.id} sin ubicación, no se actualiza inventario")
             return
         
-        # ✅ Usar get_or_create con la ubicación correcta
+        # ✅ CORREGIDO: Usar get_or_create con company en los defaults
         inventory, created = Inventory.objects.get_or_create(
             product=movement.product,
             location=location,
-            company=movement.company,
+            company=movement.company,  # ← ✅ USAR LA COMPAÑÍA DEL MOVIMIENTO
             defaults={
                 'quantity': 0,
                 'average_cost': 0,
@@ -120,11 +135,11 @@ class InventoryService:
         inventory, created = Inventory.objects.get_or_create(
             product=count.product,
             location=count.location,
+            company=count.company,  # ← ✅ USAR LA COMPAÑÍA DEL CONTEO
             defaults={
                 'quantity': 0,
                 'average_cost': 0,
                 'total_value': 0,
-                'company': count.company
             }
         )
         inventory.quantity = count.counted_quantity

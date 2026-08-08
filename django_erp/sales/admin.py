@@ -1,4 +1,4 @@
-# sales/admin.py - VERSIÓN CON FORZADO DE CONFIRMACIÓN
+# sales/admin.py - VERSIÓN COMPLETA CON CAJA
 from django.contrib import admin
 from django import forms
 from django.utils.html import format_html
@@ -13,8 +13,8 @@ from .models import CashRegister, CashTransaction
 from .helpers import get_open_register
 from decimal import Decimal, ROUND_HALF_UP
 from django.utils import timezone
-from django_erp.configuration.models import ExchangeRate
-from .models import Payment  # ← NUEVO
+from django_erp.configuration.models import ExchangeRate, Company
+from .models import Payment
 from django_erp.configuration.models import PaymentMethod
 from django.urls import path
 from django.views.generic import TemplateView
@@ -40,8 +40,47 @@ class CustomerAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     readonly_fields = ['created_at', 'updated_at']
 
 
+class SaleLineInlineForm(forms.ModelForm):
+    """Formulario personalizado para líneas de venta"""
+    class Meta:
+        model = SaleLine
+        fields = '__all__'
+    
+    def __init__(self, *args, **kwargs):
+        self._request = kwargs.pop('request', None)
+        super().__init__(*args, **kwargs)
+    
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        
+        if not instance.company_id:
+            if hasattr(instance, 'order') and instance.order_id:
+                try:
+                    order = SaleOrder.objects.get(id=instance.order_id)
+                    instance.company = order.company
+                except SaleOrder.DoesNotExist:
+                    pass
+            
+            if not instance.company_id and self._request:
+                company = getattr(self._request, 'current_company', None)
+                if company:
+                    instance.company = company
+            
+            if not instance.company_id:
+                company = Company.get_active()
+                if company:
+                    instance.company = company
+        
+        if commit:
+            instance.save()
+            self.save_m2m()
+        
+        return instance
+
+
 class SaleLineInline(UnfoldTabularInline):
     model = SaleLine
+    form = SaleLineInlineForm
     extra = 0
     fields = ['product', 'location', 'quantity', 'unit_price', 'subtotal']
     readonly_fields = ['subtotal']
@@ -54,7 +93,96 @@ class SaleLineInline(UnfoldTabularInline):
         formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
         formset.form.base_fields['unit_price'].initial = 0
         formset.form.base_fields['quantity'].initial = 1
-        return formset
+        
+        class FormSetWithRequest(formset):
+            def __init__(self, *args, **kwargs):
+                self._request = request
+                super().__init__(*args, **kwargs)
+            
+            def _construct_form(self, i, **kwargs):
+                kwargs['request'] = self._request
+                return super()._construct_form(i, **kwargs)
+        
+        return FormSetWithRequest
+
+
+class PaymentInlineForm(forms.ModelForm):
+    """Formulario personalizado para pagos"""
+    class Meta:
+        model = Payment
+        fields = '__all__'
+    
+    def __init__(self, *args, **kwargs):
+        self._request = kwargs.pop('request', None)
+        super().__init__(*args, **kwargs)
+    
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        
+        if not instance.company_id:
+            if hasattr(instance, 'sale_order') and instance.sale_order_id:
+                try:
+                    order = SaleOrder.objects.get(id=instance.sale_order_id)
+                    instance.company = order.company
+                except SaleOrder.DoesNotExist:
+                    pass
+            
+            if not instance.company_id and self._request:
+                company = getattr(self._request, 'current_company', None)
+                if company:
+                    instance.company = company
+            
+            if not instance.company_id:
+                company = Company.get_active()
+                if company:
+                    instance.company = company
+        
+        if commit:
+            instance.save()
+            self.save_m2m()
+        
+        return instance
+
+
+class PaymentInline(UnfoldTabularInline):
+    model = Payment
+    form = PaymentInlineForm
+    extra = 0
+    fields = ['method', 'currency', 'amount', 'amount_usd_display', 'reference', 'payment_date']
+    readonly_fields = ['payment_date', 'amount_usd_display']
+    autocomplete_fields = ['method', 'currency']
+
+    @admin.display(description='Monto en USD')
+    def amount_usd_display(self, obj):
+        if obj and obj.amount_usd:
+            return f"$ {obj.amount_usd:,.2f}"
+        return "$ 0.00"
+    
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        
+        if obj is None:
+            from django_erp.configuration.models import Currency
+            try:
+                usd = Currency.objects.get(code='USD')
+                formset.form.base_fields['currency'].initial = usd.id
+            except Currency.DoesNotExist:
+                pass
+        
+        class FormSetWithRequest(formset):
+            def __init__(self, *args, **kwargs):
+                self._request = request
+                super().__init__(*args, **kwargs)
+            
+            def _construct_form(self, i, **kwargs):
+                kwargs['request'] = self._request
+                return super()._construct_form(i, **kwargs)
+        
+        return FormSetWithRequest
+    
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.select_related('method', 'currency')
 
 
 class SaleOrderForm(forms.ModelForm):
@@ -108,22 +236,40 @@ class SaleOrderForm(forms.ModelForm):
         label="Tasa del día",
         initial="1 USD = Bs. 0.00"
     )
-    
 
     class Meta:
         model = SaleOrder
         fields = ['number', 'customer', 'status', 'note']
-    
+        widgets = {
+            'number': forms.TextInput(attrs={'readonly': 'readonly'}),
+        }
+
     def __init__(self, *args, **kwargs):
         self._request = kwargs.pop('request', None)
-        super().__init__(*args, **kwargs)
         instance = kwargs.get('instance')
         
-        from django_erp.configuration.models import ExchangeRate
-        from django_erp.configuration.models import Company
-        company = Company.get_active()
+        super().__init__(*args, **kwargs)
+        
+        if self._request and not instance:
+            company = getattr(self._request, 'current_company', None)
+            if company:
+                self.instance.company = company
+                print(f"🔴 Compañía asignada a la instancia: {company.code}")
+            else:
+                fallback = Company.get_active()
+                if fallback:
+                    self.instance.company = fallback
+                    print(f"🔴 FALLBACK: Usando compañía {fallback.code}")
+                else:
+                    print("🔴 ERROR: No hay compañía activa")
+                    self.add_error(None, 'No hay una compañía activa.')
+        elif instance and instance.pk and instance.company:
+            print(f"🔴 Orden existente con compañía: {instance.company.code}")
+        
+        company = self.instance.company or Company.get_active()
         tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
         rate = ExchangeRate.get_today_rate('USD', 'BS')
+        
         if rate:
             self.initial['rate_display'] = f"1 USD = Bs. {rate:.2f}"
         else:
@@ -131,7 +277,6 @@ class SaleOrderForm(forms.ModelForm):
         
         if instance and instance.pk:
             subtotal = sum(line.subtotal for line in instance.lines.all())
-            # ✅ Usar la tasa de la empresa
             tax = subtotal * (tax_rate / Decimal('100'))
             total = subtotal + tax
             
@@ -191,14 +336,12 @@ class SaleOrderForm(forms.ModelForm):
                 ]
 
     def clean(self):
-        """✅ Validar que haya caja abierta para confirmar"""
         cleaned_data = super().clean()
         status = cleaned_data.get('status')
-        # Solo validar si se está confirmando
+        
         if status == 'CONFIRMED':
             from .helpers import has_open_register
             
-            # Intentar obtener el usuario del request
             user = None
             if hasattr(self, '_request') and self._request:
                 user = self._request.user
@@ -222,7 +365,6 @@ class SaleOrderForm(forms.ModelForm):
 
 @admin.action(description='🔄 Reconfirmar orden (forzar reducción de stock)')
 def reconfirm_order_action(modeladmin, request, queryset):
-    """Acción para reconfirmar órdenes y forzar reducción de stock"""
     from .services import SaleService
     from .signals import order_confirmed
     
@@ -230,19 +372,16 @@ def reconfirm_order_action(modeladmin, request, queryset):
         try:
             print(f"🔴 Reconfirmando orden {order.number}")
             
-            # ✅ Verificar caja abierta
             try:
                 get_open_register(request.user)
             except ValidationError as e:
                 modeladmin.message_user(request, f"Error con {order.number}: {str(e)}", messages.ERROR)
                 continue
             
-            # ✅ Verificar que tenga líneas
             if not order.lines.exists():
                 modeladmin.message_user(request, f"La orden {order.number} no tiene líneas.", messages.WARNING)
                 continue
             
-            # ✅ Reducir stock manualmente
             for line in order.lines.all():
                 if line.product and not line.product.is_service:
                     print(f"   Reduciendo stock de {line.product.name} x {line.quantity}")
@@ -256,7 +395,8 @@ def reconfirm_order_action(modeladmin, request, queryset):
                             source_type='SALE',
                             source_reference=order.number,
                             note=f"Venta {order.number} - Reconfirmación",
-                            user=request.user
+                            user=request.user,
+                            company=order.company
                         )
                         print(f"   ✅ Stock reducido para {line.product.name}")
                     except Exception as e:
@@ -264,7 +404,6 @@ def reconfirm_order_action(modeladmin, request, queryset):
                         modeladmin.message_user(request, f"Error con {order.number}: {e}", messages.ERROR)
                         continue
             
-            # ✅ Registrar en caja si no existe transacción
             existing = CashTransaction.objects.filter(
                 reference=order.number,
                 type='SALE'
@@ -285,57 +424,66 @@ def reconfirm_order_action(modeladmin, request, queryset):
             modeladmin.message_user(request, f"Error con {order.number}: {e}", messages.ERROR)
 
 
-class PaymentInline(UnfoldTabularInline):
-    model = Payment
-    extra = 0
-    fields = ['method', 'currency', 'amount', 'amount_usd_display', 'reference', 'payment_date']
-    readonly_fields = ['payment_date', 'amount_usd_display']
-    autocomplete_fields = ['method', 'currency']
-
-    @admin.display(description='Monto en USD')
-    def amount_usd_display(self, obj):
-        """Mostrar el monto convertido a USD con formato correcto"""
-        if obj and obj.amount_usd:
-            return f"$ {obj.amount_usd:,.2f}"
-        return "$ 0.00"
-    
-    def get_formset(self, request, obj=None, **kwargs):
-        formset = super().get_formset(request, obj, **kwargs)
-        
-        # ✅ Establecer moneda por defecto: USD
-        if obj is None:
-            from django_erp.configuration.models import Currency
-            try:
-                usd = Currency.objects.get(code='USD')
-                formset.form.base_fields['currency'].initial = usd.id
-            except Currency.DoesNotExist:
-                pass
-        
-        return formset
-    
-    def get_queryset(self, request):
-        queryset = super().get_queryset(request)
-        return queryset.select_related('method', 'currency')
-
-
 class SalesReportView(UnfoldModelAdminViewMixin, TemplateView):
-    title = "Reporte de Ventas"  # Título en el encabezado
-    permission_required = ('sales.can_view_reports',) # Permiso que ya tienes definido
-    template_name = "admin/sales/sales_report.html" # Crearemos esta plantilla
+    title = "Reporte de Ventas"
+    permission_required = ('sales.can_view_reports',)
+    template_name = "admin/sales/sales_report.html"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
-        # Obtener totales generales
         grand_totals = SaleReportService.get_grand_totals()
         context['grand_totals'] = grand_totals
-
-        # Obtener datos para el gráfico (últimos 30 días por defecto)
         labels, totals = SaleReportService.get_totals_by_period(period_type='day', days_back=30)
         context['chart_labels'] = labels
         context['chart_totals'] = totals
-
         return context
+
+
+class CashRegisterForm(forms.ModelForm):
+    """Formulario personalizado para caja con asignación de compañía"""
+    class Meta:
+        model = CashRegister
+        fields = '__all__'
+    
+    def __init__(self, *args, **kwargs):
+        self._request = kwargs.pop('request', None)
+        super().__init__(*args, **kwargs)
+        
+        # ✅ Si es una nueva caja, asignar compañía
+        if self._request and not self.instance.pk:
+            company = getattr(self._request, 'current_company', None)
+            if company:
+                self.instance.company = company
+                print(f"🔴 Compañía asignada a la caja: {company.code}")
+            else:
+                fallback = Company.get_active()
+                if fallback:
+                    self.instance.company = fallback
+                    print(f"🔴 FALLBACK: Compañía para caja: {fallback.code}")
+                else:
+                    print("🔴 ERROR: No hay compañía activa para la caja")
+                    self.add_error(None, 'No hay una compañía activa para abrir la caja.')
+    
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        
+        # ✅ Red de seguridad: asignar compañía si no tiene
+        if not instance.company_id:
+            if self._request:
+                company = getattr(self._request, 'current_company', None)
+                if company:
+                    instance.company = company
+            
+            if not instance.company_id:
+                company = Company.get_active()
+                if company:
+                    instance.company = company
+        
+        if commit:
+            instance.save()
+            self.save_m2m()
+        
+        return instance
 
 
 @admin.register(SaleOrder)
@@ -377,56 +525,80 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         js = ('admin/js/sale_order_admin.js',)
 
     def get_form(self, request, obj=None, **kwargs):
-        """Pasar el request al formulario para validación"""
-        form = super().get_form(request, obj, **kwargs)
-        form._request = request
-        return form
+        form_class = super().get_form(request, obj, **kwargs)
+        
+        def form_with_request(*args, **kwargs):
+            kwargs['request'] = request
+            return form_class(*args, **kwargs)
+        
+        return form_with_request
     
     def save_model(self, request, obj, form, change):
-        """Guardar la orden (sin calcular totales aquí)"""
+        if not obj.company_id:
+            company = getattr(request, 'current_company', None)
+            if company:
+                obj.company = company
+                print(f"🔴 Compañía asignada en save_model: {company.code}")
+            else:
+                company = Company.get_active()
+                if company:
+                    obj.company = company
+                    print(f"🔴 FALLBACK en save_model: {company.code}")
+                else:
+                    self.message_user(request, '❌ No hay una compañía activa.', messages.ERROR)
+                    raise forms.ValidationError('No hay una compañía activa configurada en el sistema.')
+        
         if not obj.user:
             obj.user = request.user
         
         obj._status_changed_by = request.user
         
-        # ✅ Guardar el objeto (los totales se calculan en save_formset)
         super().save_model(request, obj, form, change)
 
     def get_urls(self):
-        """
-        Agrega la URL personalizada para el reporte de ventas.
-        """
-        # `admin_view` es crucial para que la vista herede la configuración del admin
         custom_view = self.admin_site.admin_view(SalesReportView.as_view(model_admin=self))
-        
-        # Obtenemos las URLs originales (del admin) y añadimos la nuestra
         urls = super().get_urls()
         custom_urls = [
             path('sales-report/', custom_view, name='sales_salesreport'),
         ]
         return custom_urls + urls
 
-
     def save_formset(self, request, form, formset, change):
-        """Guardar líneas, calcular totales y procesar confirmación"""
         from .services import SaleService
         from .signals import order_confirmed
         from decimal import Decimal
         
-        # ✅ 1. Guardar las líneas
-        super().save_formset(request, form, formset, change)
+        company = form.instance.company
+        if not company:
+            company = getattr(request, 'current_company', None)
+            if not company:
+                company = Company.get_active()
         
-        # ✅ 2. Calcular totales desde las líneas
+        print(f"🔴 save_formset - Compañía: {company.code if company else 'NINGUNA'}")
+        
+        instances = formset.save(commit=False)
+        for instance in instances:
+            if hasattr(instance, 'company') and not instance.company_id:
+                instance.company = company
+                print(f"   ✅ Compañía asignada a {instance.__class__.__name__}")
+                if isinstance(instance, Payment):
+                    instance.save(update_fields=['company'])
+        
+        for instance in instances:
+            instance.save()
+        
+        formset.save_m2m()
+        
+        for obj in formset.deleted_objects:
+            obj.delete()
+        
         obj = form.instance
         
-        # ✅ Asegurar que subtotal sea Decimal
         subtotal = Decimal('0.00')
         for line in obj.lines.all():
             subtotal += Decimal(str(line.subtotal))
         
-        # ✅ Obtener IVA de la empresa
-        from django_erp.configuration.models import Company
-        company = Company.get_active()
+        company = obj.company or Company.get_active()
         tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
         
         tax = subtotal * (tax_rate / Decimal('100'))
@@ -436,25 +608,15 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         obj.tax = tax
         obj.total = total
         
-        # ✅ 3. Guardar la orden con los totales
         obj.save()
         
-        print(f"🔴 Totales calculados para {obj.number}:")
-        print(f"   Subtotal: {subtotal}")
-        print(f"   IVA: {tax}")
-        print(f"   Total: {total}")
+        print(f"🔴 Totales calculados para {obj.number}: Subtotal={subtotal}, IVA={tax}, Total={total}")
         
-        # ✅ 4. Verificar si el estado es CONFIRMED
         new_status = form.cleaned_data.get('status')
         
-        print(f"   Nuevo estado: {new_status}")
-        
-        # ✅ 5. PROCESAR SIEMPRE QUE EL ESTADO SEA CONFIRMED
-        # ✅ 5. PROCESAR SIEMPRE QUE EL ESTADO SEA CONFIRMED
         if new_status == 'CONFIRMED':
             print(f"🔴 PROCESANDO CONFIRMACIÓN para {obj.number}")
             
-            # ✅ Verificar si la orden ya fue procesada (tiene movimiento)
             from django_erp.warehouse.models import Movement
             has_movement = Movement.objects.filter(
                 source_reference=obj.number,
@@ -462,10 +624,8 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             ).exists()
             
             if has_movement:
-                print(f"   ⚠️ La orden {obj.number} ya fue procesada anteriormente (tiene movimientos).")
-                print(f"   ℹ️ No se procesa nuevamente para evitar duplicados.")
+                print(f"   ⚠️ La orden {obj.number} ya fue procesada")
                 
-                # ✅ Verificar si tiene transacción en caja
                 from .models import CashTransaction
                 has_transaction = CashTransaction.objects.filter(
                     reference=obj.number,
@@ -473,14 +633,11 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 ).exists()
                 
                 if not has_transaction and obj.total > 0:
-                    print(f"   🔴 La orden tiene movimientos pero no transacción en caja. Registrando...")
+                    print(f"   🔴 Registrando transacción en caja...")
                     obj._status_changed_by = request.user
-                    # ✅ Solo registrar en caja, no crear factura
-                    from .signals import order_confirmed
                     order_confirmed.send(sender=SaleOrder, order=obj)
                     self.message_user(request, f'✅ Transacción en caja registrada para {obj.number}', messages.SUCCESS)
                 
-                # ✅ Reubicar líneas si es necesario
                 for line in obj.lines.all():
                     if line.product and not line.location:
                         from django_erp.inventory.models import Inventory
@@ -490,22 +647,12 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                             line.save()
                 return
             
-            # ✅ Verificar caja abierta
             try:
                 get_open_register(request.user)
             except ValidationError as e:
                 self.message_user(request, str(e), messages.ERROR)
                 return
             
-            # ✅ PROCESAR CONFIRMACIÓN
-            print(f"   ✅ Procesando confirmación por primera vez...")
-            
-            # ✅ ✅ ✅ CORREGIDO: Solo llamar a confirm_order
-            # confirm_order ya se encarga de:
-            #   1. Reducir stock
-            #   2. Crear factura
-            #   3. Registrar en caja
-            print(f"   🔴 Confirmando orden...")
             try:
                 SaleService.confirm_order(obj, request.user)
                 print(f"   ✅ Orden confirmada exitosamente")
@@ -516,12 +663,8 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 obj.save()
                 return
             
-            # ✅ ✅ ✅ ELIMINADO: Ya no se emite la señal manualmente
-            # order_confirmed.send(sender=SaleOrder, order=obj)
-            
             self.message_user(request, f'✅ Orden {obj.number} confirmada exitosamente', messages.SUCCESS)
         
-        # ✅ Reubicar líneas si es necesario
         for line in obj.lines.all():
             if line.product and not line.location:
                 from django_erp.inventory.models import Inventory
@@ -533,13 +676,11 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
 
 @admin.action(description='✅ Abrir caja seleccionada')
 def open_register_action(modeladmin, request, queryset):
-    """🟢 Abrir una caja"""
     for register in queryset:
         if register.status == 'OPEN':
             modeladmin.message_user(request, f'La caja {register.number} ya está abierta.', messages.WARNING)
             continue
         
-        # ✅ Verificar que el usuario no tenga otra caja abierta
         if CashRegister.objects.filter(user=register.user, status='OPEN').exists():
             modeladmin.message_user(
                 request, 
@@ -556,7 +697,6 @@ def open_register_action(modeladmin, request, queryset):
 
 @admin.action(description='🔒 Cerrar caja seleccionada')
 def close_register_action(modeladmin, request, queryset):
-    """🔒 Cerrar una caja"""
     for register in queryset:
         if register.status != 'OPEN':
             modeladmin.message_user(request, f'La caja {register.number} no está abierta.', messages.WARNING)
@@ -580,12 +720,8 @@ def close_register_action(modeladmin, request, queryset):
 
 
 class CashTransactionInline(UnfoldTabularInline):
-    """
-    Inline para mostrar las transacciones de una caja en modo solo lectura.
-    Los vendedores pueden ver sus propias transacciones aquí.
-    """
     model = CashTransaction
-    extra = 0  # No mostrar filas vacías para agregar
+    extra = 0
     can_delete = False
     readonly_fields = ['type', 'amount', 'description', 'reference', 'user', 'created_at']
     fields = ['type', 'amount', 'description', 'reference', 'user', 'created_at']
@@ -593,27 +729,18 @@ class CashTransactionInline(UnfoldTabularInline):
     ordering = ('-created_at',)
 
     def has_add_permission(self, request, obj=None):
-        """❌ Deshabilitar la capacidad de agregar transacciones desde aquí"""
         return False
 
     def get_queryset(self, request):
-        """🔍 Asegurar un rendimiento óptimo al cargar las transacciones"""
         return super().get_queryset(request).select_related('user')
 
 
 @admin.register(CashRegister)
 class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
-    """
-    Administrador de caja con:
-    - Filtro por usuario (vendedor solo ve su caja)
-    - Inline de transacciones en solo lectura
-    - Validación de apertura múltiple
-    """
+    form = CashRegisterForm  # ✅ Usar formulario personalizado
     
-    # ✅ INLINES: Mostrar transacciones debajo de la caja
     inlines = [CashTransactionInline]
     
-    # ✅ LISTADO: Columnas que se muestran
     list_display = [
         'number', 
         'user', 
@@ -627,10 +754,8 @@ class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     list_filter = ['status', 'date']
     search_fields = ['number', 'user__username']
     
-    # ✅ ACCIONES: Abrir y cerrar caja
     actions = [open_register_action, close_register_action]
     
-    # ✅ CAMPOS: Organización del formulario
     fieldsets = (
         ('📌 Información', {'fields': ('user', 'status')}),
         ('💰 Dinero', {
@@ -652,74 +777,46 @@ class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         }),
     )
     
-    # ✅ CAMPOS DE SOLO LECTURA
     readonly_fields = ['number',
         'opened_at', 'closed_at', 'total_sales', 
         'total_expenses', 'total_withdrawals', 'expected_total'
     ]
 
-    # ============================================================
-    # 🔍 MÉTODO: FILTRAR POR USUARIO
-    # ============================================================
-    
     def get_queryset(self, request):
-        """
-        🔒 Un vendedor solo ve sus propias cajas.
-        👑 Un administrador ve todas las cajas.
-        """
         qs = super().get_queryset(request)
-        
-        # ✅ Si es superusuario, ve todo
         if request.user.is_superuser:
             return qs
-        
-        # ✅ Si es usuario normal, solo ve sus propias cajas
         return qs.filter(user=request.user)
 
-    # ============================================================
-    # 📝 MÉTODO: CONFIGURAR FORMULARIO
-    # ============================================================
-    
     def get_form(self, request, obj=None, **kwargs):
-        """
-        ✏️ Configurar el formulario:
-        - El número es de solo lectura (se genera automáticamente)
-        - El usuario es el actual (solo lectura)
-        - Estado por defecto: "Abierta"
-        """
-        form = super().get_form(request, obj, **kwargs)
+        """✅ Pasar el request al formulario"""
+        form_class = super().get_form(request, obj, **kwargs)
         
-        if obj is None:
-            # ✅ Nueva caja: asignar usuario actual
-            form.base_fields['user'].initial = request.user
-            form.base_fields['user'].disabled = True  # 🔒 No se puede cambiar
-            
-            # ✅ Establecer estado por defecto como "Abierta"
-            form.base_fields['status'].initial = 'OPEN'
-            
-            # 🔢 El número se genera automáticamente, no se muestra en el formulario
-            # o se muestra como solo lectura
-            if 'number' in form.base_fields:
-                # Lo dejamos como solo lectura para que no se pueda editar
-                form.base_fields['number'].disabled = True
-                form.base_fields['number'].required = False
+        def form_with_request(*args, **kwargs):
+            kwargs['request'] = request
+            return form_class(*args, **kwargs)
         
-        return form
+        return form_with_request
 
-    # ============================================================
-    # 💾 MÉTODO: GUARDAR
-    # ============================================================
-    
     def save_model(self, request, obj, form, change):
-        """
-        💾 Guardar la caja.
-        El método save() del modelo genera el número automáticamente.
-        """
-        # ✅ El número se genera en el método save() del modelo
-        # ✅ Solo necesitamos llamar a super()
+        """✅ Guardar la caja con compañía asignada"""
+        # ✅ Red de seguridad: asignar compañía si no tiene
+        if not obj.company_id:
+            company = getattr(request, 'current_company', None)
+            if company:
+                obj.company = company
+                print(f"🔴 Compañía asignada a caja en save_model: {company.code}")
+            else:
+                company = Company.get_active()
+                if company:
+                    obj.company = company
+                    print(f"🔴 FALLBACK: Compañía para caja en save_model: {company.code}")
+                else:
+                    self.message_user(request, '❌ No hay una compañía activa para abrir la caja.', messages.ERROR)
+                    raise forms.ValidationError('No hay una compañía activa configurada en el sistema.')
+        
         super().save_model(request, obj, form, change)
         
-        # 👇 Opcional: Mostrar mensaje de confirmación
         if not change and obj.number:
             self.message_user(
                 request, 
@@ -727,13 +824,8 @@ class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 messages.SUCCESS
             )
 
-    # ============================================================
-    # 🏷️ MÉTODOS PARA MOSTRAR DATOS
-    # ============================================================
-    
     @admin.display(description='Estado')
     def status_badge(self, obj):
-        """🟢 Muestra el estado con colores"""
         colors = {
             'OPEN': ('#28a745', '✅ Abierta'),
             'CLOSED': ('#17a2b8', '🔒 Cerrada'),
@@ -748,12 +840,10 @@ class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     
     @admin.display(description='Total Ventas (USD)')
     def total_sales_usd_display(self, obj):
-        """💰 Total en USD"""
         return f"$ {obj.total_sales:,.2f}"
     
     @admin.display(description='Total Ventas (Bs.)')
     def total_sales_bs_display(self, obj):
-        """💰 Total en Bolívares"""
         try:
             rate = ExchangeRate.get_today_rate('USD', 'BS')
             if rate:
@@ -765,12 +855,10 @@ class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     
     @admin.display(description='Total Esperado (USD)')
     def expected_total_usd_display(self, obj):
-        """💰 Total esperado en USD"""
         return f"$ {obj.expected_total:,.2f}"
     
     @admin.display(description='Diferencia (USD)')
     def difference_usd_display(self, obj):
-        """📊 Diferencia con color"""
         if obj.difference is not None:
             try:
                 diff = Decimal(str(obj.difference))
@@ -783,7 +871,6 @@ class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             except:
                 return "$ 0.00"
         return "-"
-
 
 
 @admin.register(CashTransaction)
