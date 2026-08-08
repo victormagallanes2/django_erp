@@ -431,11 +431,28 @@ class SalesReportView(UnfoldModelAdminViewMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        grand_totals = SaleReportService.get_grand_totals()
+        
+        # ✅ OBTENER LA COMPAÑÍA ACTIVA DEL REQUEST
+        company = getattr(self.request, 'current_company', None)
+        if not company:
+            company = Company.get_active()
+        
+        # ✅ PASAR LA COMPAÑÍA A LOS SERVICIOS
+        grand_totals = SaleReportService.get_grand_totals(company=company)
+        labels, totals = SaleReportService.get_totals_by_period(
+            period_type='day', 
+            days_back=30,
+            company=company
+        )
+        
         context['grand_totals'] = grand_totals
-        labels, totals = SaleReportService.get_totals_by_period(period_type='day', days_back=30)
         context['chart_labels'] = labels
         context['chart_totals'] = totals
+        
+        # ✅ AGREGAR LA COMPAÑÍA AL CONTEXTO PARA MOSTRAR EN EL TEMPLATE
+        context['company_name'] = company.name if company else "Todas"
+        context['company_code'] = company.code if company else ""
+        
         return context
 
 
@@ -490,9 +507,9 @@ class CashRegisterForm(forms.ModelForm):
 class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     form = SaleOrderForm
     
-    list_display = ['number', 'customer', 'date', 'total', 'status', 'created_at']
-    list_filter = ['status', 'date']
-    search_fields = ['number', 'customer__name']
+    list_display = ['number', 'customer', 'company_display', 'date', 'total', 'status', 'created_at']
+    list_filter = ['status', 'date', 'company']
+    search_fields = ['number', 'customer__name', 'company__name', 'company__code']
     
     inlines = [SaleLineInline, PaymentInline]
     
@@ -523,6 +540,14 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     
     class Media:
         js = ('admin/js/sale_order_admin.js',)
+
+
+    @admin.display(description='Compañía', ordering='company__name')
+    def company_display(self, obj):
+        """Mostrar la compañía"""
+        if obj.company:
+            return f"{obj.company.code} - {obj.company.name}"
+        return "Sin compañía"
 
     def get_form(self, request, obj=None, **kwargs):
         form_class = super().get_form(request, obj, **kwargs)
