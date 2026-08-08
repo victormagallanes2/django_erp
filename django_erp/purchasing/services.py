@@ -106,7 +106,7 @@ class PurchaseService:
             print(f"   ❌ La orden no está en estado 'Ordenada' o 'Recibida'. Estado: {order.status}")
             raise ValidationError("Solo se pueden recibir órdenes en estado 'Ordenada' o 'Recibida' (sin movimientos)")
         
-        # ✅ USAR LA COMPAÑÍA DE LA ORDEN, no Company.get_active()
+        # ✅ USAR LA COMPAÑÍA DE LA ORDEN
         company = order.company
         if not company:
             raise ValidationError("No hay una compañía asociada a esta orden.")
@@ -142,21 +142,49 @@ class PurchaseService:
             
             print(f"      ✅ Es un producto físico, creando movimiento...")
             
-            location_id = line.location.id if line.location else None
-            print(f"      Ubicación ID: {location_id}")
+            # ✅ OBTENER UBICACIÓN DE LA COMPAÑÍA
+            location_id = None
             
+            # 1. Intentar usar la ubicación sugerida en la línea
+            if line.location:
+                # Verificar que la ubicación pertenezca a la compañía
+                if line.location.company_id == company.id:
+                    location_id = line.location.id
+                    print(f"      ✅ Usando ubicación de la línea: {line.location.code}")
+                else:
+                    print(f"      ⚠️ Ubicación {line.location.code} no pertenece a {company.code}")
+            
+            # 2. Si no hay ubicación válida, usar la por defecto de la compañía
             if not location_id:
-                print("      🔍 Buscando ubicación por defecto...")
-                default_location = Location.objects.filter(is_active=True).first()
+                print("      🔍 Buscando ubicación por defecto de la compañía...")
+                
+                # ✅ Buscar ubicación por defecto de esta compañía
+                default_location = Location.objects.filter(
+                    company=company,
+                    is_active=True
+                ).first()
+                
+                # ✅ Si no existe, crearla
+                if not default_location:
+                    default_location = Location.objects.create(
+                        code=f"ALM-{company.code}",
+                        name=f"Almacén Principal - {company.name}",
+                        description=f"Almacén principal de {company.name}",
+                        company=company,
+                        is_active=True
+                    )
+                    print(f"      ✅ Creada ubicación por defecto: {default_location.code}")
+                
                 if default_location:
                     location_id = default_location.id
-                    print(f"      ✅ Ubicación por defecto: {default_location.name} (ID: {location_id})")
-                else:
-                    print("      ❌ No hay ubicaciones disponibles")
-                    raise ValidationError(
-                        f"No hay ubicación para el producto {line.product.name}. "
-                        "Crea una ubicación en el módulo de Almacén."
-                    )
+                    print(f"      ✅ Ubicación por defecto: {default_location.code} - {default_location.name}")
+            
+            if not location_id:
+                print("      ❌ No hay ubicaciones disponibles")
+                raise ValidationError(
+                    f"No hay ubicación para el producto {line.product.name} en {company.code}. "
+                    "Crea una ubicación en el módulo de Almacén."
+                )
             
             # ✅ Verificar si ya existe un movimiento para esta línea
             existing_movement = Movement.objects.filter(
@@ -190,7 +218,7 @@ class PurchaseService:
                     source_reference=order.number,
                     note=f"Recepción de compra {order.number} - {order.supplier.name}",
                     user=user or order.user,
-                    company=order.company  # ← ✅ PASAR LA COMPAÑÍA EXPLÍCITAMENTE
+                    company=company  # ← ✅ PASAR LA COMPAÑÍA EXPLÍCITAMENTE
                 )
                 
                 movements_created += 1
@@ -199,6 +227,7 @@ class PurchaseService:
                 print(f"         Producto: {movement.product.name}")
                 print(f"         Cantidad: {movement.quantity}")
                 print(f"         Compañía: {movement.company.code if movement.company else 'Sin compañía'}")
+                print(f"         Ubicación: {movement.location_to.code if movement.location_to else 'Sin ubicación'}")
                 
             except Exception as e:
                 print(f"      ❌ Error al crear movimiento: {str(e)}")

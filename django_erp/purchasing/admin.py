@@ -437,7 +437,8 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
 
     def save_model(self, request, obj, form, change):
         """Guardar la orden y procesar cambios de estado."""
-        # ✅ ASIGNAR COMPAÑÍA A LA ORDEN (una sola vez, misma fuente para todo el request)
+        
+        # ✅ ASIGNAR COMPAÑÍA A LA ORDEN
         if not obj.company_id:
             company = self._resolve_company(request)
             if company:
@@ -445,7 +446,12 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             else:
                 self.message_user(request, '❌ No hay una compañía activa. Configura una compañía antes de continuar.', messages.ERROR)
                 raise forms.ValidationError('No hay una compañía activa configurada en el sistema.')
-
+        
+        # ✅ ✅ ✅ ASEGURAR QUE STATUS NO SEA NONE (¡ESTA ES LA CLAVE PARA EVITAR EL ERROR!)
+        if not obj.status:
+            obj.status = 'DRAFT'
+            print(f"⚠️ Status era None, asignando DRAFT para {obj.number}")
+        
         # ✅ Obtener el estado anterior
         old_status = None
         if change and obj.pk:
@@ -455,6 +461,10 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 pass
 
         new_status = form.cleaned_data.get('status')
+        
+        # ✅ SI NEW_STATUS ES NONE, USAR EL OBJ.STATUS
+        if new_status is None:
+            new_status = obj.status
 
         logger.debug(
             "save_model orden=%s compañía=%s estado_anterior=%s estado_nuevo=%s",
@@ -469,7 +479,7 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         if not obj.user:
             obj.user = request.user
 
-        # ✅ Guardar la orden (con company_id ya garantizado)
+        # ✅ ✅ ✅ GUARDAR LA ORDEN (con status asegurado)
         super().save_model(request, obj, form, change)
 
         # ✅ Recalcular totales

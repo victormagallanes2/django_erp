@@ -10,7 +10,32 @@ logger = logging.getLogger(__name__)
 
 class WarehouseService:
     """Servicios de gestión física del almacén"""
-    
+
+    @staticmethod
+    def get_or_create_default_location(company):
+        """Obtener o crear una ubicación por defecto para la compañía"""
+        if not company:
+            return None
+        
+        # Buscar ubicación por defecto de esta compañía
+        default_location = Location.objects.filter(
+            company=company,
+            is_active=True
+        ).first()
+        
+        if not default_location:
+            # Crear ubicación por defecto para esta compañía
+            default_location = Location.objects.create(
+                code=f"ALM-{company.code}",
+                name=f"Almacén Principal - {company.name}",
+                description=f"Almacén principal de {company.name}",
+                company=company,
+                is_active=True
+            )
+            logger.info(f"✅ Creada ubicación por defecto para {company.code}: {default_location.code}")
+        
+        return default_location
+
     @staticmethod
     @transaction.atomic
     def create_entry(product_id, quantity, location_to_id, source_type='MANUAL', 

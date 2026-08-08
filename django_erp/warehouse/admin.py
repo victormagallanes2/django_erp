@@ -125,11 +125,153 @@ class ProductAdmin(CompanyFilterMixin, SimpleHistoryAdmin, UnfoldModelAdmin):
 
 @admin.register(Location)
 class LocationAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
-    """Admin de ubicaciones"""
+    """
+    Admin de ubicaciones - FILTRADO Y ASIGNACIÓN POR COMPAÑÍA
+    """
     
-    list_display = ['code', 'name', 'parent', 'is_active']
-    list_filter = ['is_active']
-    search_fields = ['code', 'name']
+    # ✅ Listado con compañía visible
+    list_display = [
+        'code', 
+        'name', 
+        'company_display',  # ← Mostrar compañía
+        'parent', 
+        'is_active'
+    ]
+    
+    # ✅ Filtros incluyendo compañía
+    list_filter = ['is_active', 'company']
+    
+    # ✅ Búsqueda incluyendo compañía
+    search_fields = ['code', 'name', 'company__name', 'company__code']
+    
+    # ✅ Ordenación por compañía y código
+    ordering = ['company__code', 'code']
+    
+    fieldsets = (
+        ('Información de la Ubicación', {
+            'fields': ('code', 'name', 'description', 'parent')
+        }),
+        ('Compañía', {
+            'fields': ('company',),
+            'description': 'Esta ubicación pertenece a una compañía específica'
+        }),
+        ('Estado', {
+            'fields': ('is_active',)
+        }),
+    )
+    
+    readonly_fields = ['created_at', 'updated_at']
+    
+    # ✅ Método para mostrar la compañía con formato
+    @admin.display(description='Compañía', ordering='company__name')
+    def company_display(self, obj):
+        """Mostrar la compañía con formato y colores"""
+        if obj.company:
+            colors = {
+                'MAIN': '#2d6a4f',
+                'COL': '#1e3a5f',
+                'MX': '#d4a017',
+                'ES': '#c1121f',
+            }
+            color = colors.get(obj.company.code, '#6c757d')
+            return format_html(
+                '<span style="font-weight: 500; color: {};">{} - {}</span>',
+                color,
+                obj.company.code,
+                obj.company.name
+            )
+        return "Sin compañía"
+    
+    # ✅ Sobrescribir get_queryset para filtrar por compañía
+    def get_queryset(self, request):
+        """
+        Mostrar solo ubicaciones de la compañía actual.
+        Los superusuarios ven todas las compañías.
+        """
+        qs = super().get_queryset(request)
+        
+        # ✅ Si es superusuario, ver todo
+        if request.user.is_superuser:
+            return qs
+        
+        # ✅ Si hay compañía activa, filtrar
+        company = getattr(request, 'current_company', None)
+        if company:
+            return qs.filter(company=company)
+        
+        # ✅ Si no hay compañía activa, no mostrar nada
+        return qs.none()
+    
+    # ✅ Sobrescribir save_model para asignar compañía automáticamente
+    def save_model(self, request, obj, form, change):
+        """
+        Asignar la compañía activa al guardar una ubicación.
+        """
+        print(f"🔴 ===== LocationAdmin: save_model =====")
+        print(f"   Ubicación: {obj.code} - {obj.name}")
+        print(f"   Tiene company: {hasattr(obj, 'company')}")
+        print(f"   company_id actual: {getattr(obj, 'company_id', 'NO TIENE')}")
+        
+        # ✅ OBTENER COMPAÑÍA ACTIVA
+        company = getattr(request, 'current_company', None)
+        
+        # ✅ Si no hay compañía en request, obtener de la sesión o la principal
+        if not company and request.session.get('active_company_id'):
+            try:
+                company = Company.objects.get(
+                    id=request.session['active_company_id'],
+                    is_active=True
+                )
+                print(f"   Compañía de sesión: {company.code}")
+            except Company.DoesNotExist:
+                pass
+        
+        # ✅ Fallback: compañía principal
+        if not company:
+            from django_erp.configuration.models import Company
+            company = Company.get_main_company()
+            print(f"   Fallback (compañía principal): {company.code if company else 'None'}")
+        
+        # ✅ ASIGNAR COMPAÑÍA
+        if company and hasattr(obj, 'company'):
+            obj.company = company
+            print(f"   ✅ Compañía asignada: {company.code} (ID: {company.id})")
+        else:
+            print(f"   ❌ No se encontró compañía activa para asignar")
+        
+        print(f"   company_id después de asignar: {obj.company_id}")
+        print("🔴 ===== FIN LocationAdmin save_model =====")
+        
+        super().save_model(request, obj, form, change)
+    
+    # ✅ Método para asegurar que el formulario muestre la compañía actual
+    def get_form(self, request, obj=None, **kwargs):
+        """
+        Configurar el formulario para mostrar la compañía actual.
+        """
+        form = super().get_form(request, obj, **kwargs)
+        
+        # ✅ Si es una nueva ubicación, pre-seleccionar la compañía actual
+        if obj is None:
+            company = getattr(request, 'current_company', None)
+            if company:
+                form.base_fields['company'].initial = company.id
+                # ✅ Opcional: hacer el campo de solo lectura para que no se pueda cambiar
+                # form.base_fields['company'].disabled = True
+        
+        return form
+    
+    # ✅ Método para verificar permisos de eliminación
+    def has_delete_permission(self, request, obj=None):
+        """
+        Prevenir eliminación de ubicaciones que tienen inventario.
+        """
+        if obj:
+            # Verificar si tiene inventario asociado
+            from django_erp.inventory.models import Inventory
+            if Inventory.objects.filter(location=obj).exists():
+                return False
+        return super().has_delete_permission(request, obj)
 
 
 @admin.register(Movement)

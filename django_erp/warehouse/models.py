@@ -116,6 +116,7 @@ class Location(models.Model):
         verbose_name = "Ubicación"
         verbose_name_plural = "Ubicaciones"
         ordering = ['code']
+        unique_together = [['code', 'company']]
 
     def __str__(self):
         return f"{self.code} - {self.name}"
