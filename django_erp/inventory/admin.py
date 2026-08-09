@@ -8,14 +8,19 @@ from .models import (
     Product, Location, Movement,
     Inventory, ValuationMethod, PhysicalCount
 )
-from django_erp.configuration.models import ExchangeRate, Currency
+from django_erp.configuration.models import ExchangeRate, Currency, Company
 from django_erp.configuration.mixins import CompanyFilterMixin
 from .services import InventoryService
 from .models import DeliveryNote, DeliveryNoteLine, ReceiptNote, ReceiptNoteLine
+from django.contrib import messages
+from django.core.exceptions import ValidationError
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# ADMIN: PRODUCTOS (ANTIGUO WAREHOUSE)
+# ADMIN: PRODUCTOS
 # ============================================================
 
 @admin.register(Product)
@@ -109,7 +114,7 @@ class ProductAdmin(CompanyFilterMixin, SimpleHistoryAdmin, UnfoldModelAdmin):
 
 
 # ============================================================
-# ADMIN: UBICACIONES (ANTIGUO WAREHOUSE)
+# ADMIN: UBICACIONES
 # ============================================================
 
 @admin.register(Location)
@@ -206,7 +211,7 @@ class LocationAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
 
 
 # ============================================================
-# ADMIN: MOVIMIENTOS (ANTIGUO WAREHOUSE)
+# ADMIN: MOVIMIENTOS
 # ============================================================
 
 @admin.register(Movement)
@@ -362,6 +367,11 @@ class DeliveryNoteLineInline(UnfoldTabularInline):
         formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
         return formset
 
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.select_related('product')
+
+
 class ReceiptNoteLineInline(UnfoldTabularInline):
     model = ReceiptNoteLine
     extra = 0
@@ -374,6 +384,7 @@ class ReceiptNoteLineInline(UnfoldTabularInline):
         formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
         formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
         return formset
+
 
 # ============================================================
 # ADMIN: NOTAS DE ENTREGA
@@ -426,19 +437,39 @@ class DeliveryNoteAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 obj.company = company
         super().save_model(request, obj, form, change)
 
+
 # ============================================================
-# ADMIN: NOTAS DE RECIBO
+# ADMIN: NOTAS DE RECIBO - CORREGIDO (VERSIÓN FINAL)
 # ============================================================
 
 @admin.action(description='✅ Confirmar notas de recibo seleccionadas')
 def confirm_receipt_notes(modeladmin, request, queryset):
-    from .services import InventoryService
+    """Acción masiva para confirmar notas de recibo"""
+    logger.info("=" * 80)
+    logger.info("🔴 [confirm_receipt_notes] ACCIÓN MASIVA DISPARADA")
+    logger.info(f"   Notas a confirmar: {queryset.count()}")
+    
     for note in queryset:
         try:
+            logger.info(f"   📝 Confirmando nota {note.number}")
             InventoryService.confirm_receipt_note(note.id, request.user)
-            modeladmin.message_user(request, f'✅ Nota {note.number} confirmada exitosamente', messages.SUCCESS)
+            modeladmin.message_user(
+                request, 
+                f'✅ Nota {note.number} confirmada exitosamente', 
+                messages.SUCCESS
+            )
+            logger.info(f"   ✅ Nota {note.number} confirmada exitosamente")
         except Exception as e:
-            modeladmin.message_user(request, f'❌ Error en {note.number}: {str(e)}', messages.ERROR)
+            logger.error(f"   ❌ Error en {note.number}: {str(e)}")
+            import traceback
+            logger.error(f"   Traceback: {traceback.format_exc()}")
+            modeladmin.message_user(
+                request, 
+                f'❌ Error en {note.number}: {str(e)}', 
+                messages.ERROR
+            )
+    
+    logger.info("=" * 80)
 
 @admin.action(description='❌ Cancelar notas de recibo seleccionadas')
 def cancel_receipt_notes(modeladmin, request, queryset):
@@ -452,6 +483,8 @@ def cancel_receipt_notes(modeladmin, request, queryset):
 
 @admin.register(ReceiptNote)
 class ReceiptNoteAdmin(CompanyFilterMixin, UnfoldModelAdmin):
+    """Admin de Notas de Recibo - CON LÓGICA DE CONFIRMACIÓN"""
+    
     list_display = ['number', 'supplier_name', 'supplier', 'purchase_order', 'date', 'status', 'company']
     list_filter = ['status', 'date', 'company']
     search_fields = ['number', 'supplier_name', 'supplier__name', 'purchase_order__number']
@@ -469,10 +502,130 @@ class ReceiptNoteAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     readonly_fields = ['number', 'date', 'purchase_order', 'user', 'created_at', 'updated_at']
     
     def save_model(self, request, obj, form, change):
+        """
+        ✅ CORREGIDO: Cuando se confirma una nota de recibo desde el admin,
+        se ejecuta la lógica de negocio.
+        
+        IMPORTANTE: El servicio confirm_receipt_note espera que la nota esté
+        en estado DRAFT. Por eso, llamamos al servicio ANTES de guardar
+        el objeto, y dejamos que el servicio maneje el cambio de estado.
+        """
+        logger.info("=" * 80)
+        logger.info("🔴 [ReceiptNoteAdmin.save_model] INICIANDO")
+        logger.info(f"   Nota: {obj.number}")
+        logger.info(f"   Estado en formulario: {obj.status}")
+        logger.info(f"   Change: {change}")
+        logger.info(f"   PK: {obj.pk}")
+        
+        # ✅ Asignar usuario y compañía (sin guardar aún)
         if not obj.user:
             obj.user = request.user
+            logger.info("   ✅ Usuario asignado")
+        
         if not obj.company_id:
             company = getattr(request, 'current_company', None)
             if company:
                 obj.company = company
+                logger.info(f"   ✅ Compañía asignada: {company.code}")
+        
+        # ✅ Obtener el estado anterior si existe
+        old_status = None
+        new_status = obj.status
+        
+        if change and obj.pk:
+            try:
+                old_note = ReceiptNote.objects.get(pk=obj.pk)
+                old_status = old_note.status
+                logger.info(f"   Estado anterior en BD: {old_status}")
+            except ReceiptNote.DoesNotExist:
+                logger.warning("   ⚠️ Nota no encontrada en BD")
+        
+        logger.info(f"   Nuevo estado solicitado: {new_status}")
+        
+        # ✅ Si el estado cambió a CONFIRMED, ejecutar la lógica de negocio
+        if old_status != 'CONFIRMED' and new_status == 'CONFIRMED':
+            logger.info(f"   🎯 Nota {obj.number} cambiando a CONFIRMED - Ejecutando lógica de negocio")
+            
+            try:
+                # ✅ IMPORTANTE: El servicio espera que la nota esté en DRAFT
+                # Pero como el formulario ya tiene CONFIRMED, debemos temporalmente
+                # cambiar el estado a DRAFT antes de llamar al servicio
+                obj.status = 'DRAFT'
+                logger.info("   ⚠️ Estado temporalmente cambiado a DRAFT para el servicio")
+                
+                # ✅ Llamar al servicio para confirmar la nota
+                # El servicio cambiará el estado a CONFIRMED y creará los movimientos
+                result = InventoryService.confirm_receipt_note(obj.id, request.user)
+                logger.info(f"   ✅ Nota {obj.number} confirmada exitosamente por el servicio")
+                
+                # ✅ Recargar el objeto para obtener los cambios del servicio
+                obj.refresh_from_db()
+                logger.info(f"   Estado después del servicio: {obj.status}")
+                
+                self.message_user(
+                    request,
+                    f'✅ Nota de recibo {obj.number} confirmada exitosamente',
+                    messages.SUCCESS
+                )
+                
+                # ✅ No llamar a super().save_model() porque el servicio ya guardó
+                return
+                
+            except Exception as e:
+                logger.error(f"   ❌ Error confirmando nota: {e}")
+                import traceback
+                logger.error(f"   Traceback: {traceback.format_exc()}")
+                
+                # ✅ Revertir el estado a DRAFT
+                obj.status = 'DRAFT'
+                self.message_user(
+                    request,
+                    f'❌ Error al confirmar nota {obj.number}: {str(e)}',
+                    messages.ERROR
+                )
+                # Guardar con estado DRAFT para no perder los cambios
+                super().save_model(request, obj, form, change)
+                return
+        
+        # ✅ Si no hay cambio a CONFIRMED, guardar normalmente
+        logger.info("   ℹ️ Guardando nota sin lógica de negocio especial")
         super().save_model(request, obj, form, change)
+        logger.info("   ✅ Nota guardada normalmente")
+        
+        logger.info("🔴 [ReceiptNoteAdmin.save_model] FINALIZADO")
+        logger.info("=" * 80)
+    
+    def save_formset(self, request, form, formset, change):
+        """
+        Guardar las líneas de la nota de recibo.
+        """
+        logger.info("🔴 [ReceiptNoteAdmin.save_formset] INICIANDO")
+        
+        # ✅ Obtener la compañía activa
+        company = getattr(request, 'current_company', None)
+        if not company:
+            company = Company.get_active()
+        
+        logger.info(f"   Compañía para líneas: {company.code if company else 'N/A'}")
+        
+        # ✅ Guardar las instancias del formset
+        instances = formset.save(commit=False)
+        logger.info(f"   Instancias a guardar: {len(instances)}")
+        
+        for instance in instances:
+            if hasattr(instance, 'company') and not instance.company_id:
+                instance.company = company
+                logger.info(f"   ✅ Compañía asignada a línea: {company.code if company else 'N/A'}")
+            instance.save()
+            logger.info(f"   ✅ Línea guardada: {instance}")
+        
+        # ✅ Guardar relaciones ManyToMany
+        formset.save_m2m()
+        
+        # ✅ Eliminar objetos marcados para borrar
+        for obj in formset.deleted_objects:
+            logger.info(f"   🗑️ Eliminando objeto: {obj}")
+            obj.delete()
+        
+        logger.info("🔴 [ReceiptNoteAdmin.save_formset] FINALIZADO")
+        return super().save_formset(request, form, formset, change)

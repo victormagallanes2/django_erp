@@ -44,20 +44,40 @@ class WarehouseService:
                      source_reference='', note='', user=None, unit_price=0, company=None):
         """Registrar entrada de mercancía a una ubicación"""
         
+        logger.info("=" * 80)
+        logger.info("🔴 [create_entry] INICIANDO CREACIÓN DE ENTRADA")
+        logger.info(f"   product_id: {product_id}")
+        logger.info(f"   quantity: {quantity}")
+        logger.info(f"   location_to_id: {location_to_id}")
+        logger.info(f"   source_type: {source_type}")
+        logger.info(f"   source_reference: {source_reference}")
+        
         if company is None:
             company = Company.get_active()
             if not company:
+                logger.error("❌ [create_entry] No hay una compañía activa")
                 raise ValidationError("No hay una compañía activa para este movimiento.")
-            logger.warning(f"⚠️ No se pasó compañía a create_entry, usando fallback: {company.code}")
+            logger.warning(f"⚠️ [create_entry] No se pasó compañía, usando fallback: {company.code}")
         
-        logger.info(f"🔴 CREANDO ENTRADA para compañía {company.code}")
+        try:
+            product = Product.objects.get(id=product_id)
+            logger.info(f"   ✅ Producto encontrado: {product.code} - {product.name}")
+        except Product.DoesNotExist as e:
+            logger.error(f"❌ [create_entry] Producto no encontrado: {e}")
+            raise
         
-        product = Product.objects.get(id=product_id)
-        location_to = Location.objects.get(id=location_to_id)
+        try:
+            location_to = Location.objects.get(id=location_to_id)
+            logger.info(f"   ✅ Ubicación encontrada: {location_to.code} - {location_to.name}")
+        except Location.DoesNotExist as e:
+            logger.error(f"❌ [create_entry] Ubicación no encontrada: {e}")
+            raise
         
         if quantity <= 0:
+            logger.error(f"❌ [create_entry] Cantidad inválida: {quantity}")
             raise ValidationError("La cantidad debe ser mayor a cero")
         
+        logger.info("   📝 Creando movimiento...")
         movement = Movement.objects.create(
             product=product,
             type='ENTRY',
@@ -72,6 +92,14 @@ class WarehouseService:
         )
         
         logger.info(f"   ✅ Movimiento creado: ID {movement.id}")
+        
+        # ✅ NO llamamos a update_stock_from_movement aquí
+        # La señal post_save se encargará de actualizar el inventario
+        # Esto evita la doble actualización
+        logger.info("   ℹ️ La señal post_save actualizará el inventario automáticamente")
+        
+        logger.info("🔴 [create_entry] FINALIZADO EXITOSAMENTE")
+        logger.info("=" * 80)
         return movement
     
     @staticmethod
@@ -80,20 +108,40 @@ class WarehouseService:
                     source_reference='', note='', user=None, unit_price=0, company=None):
         """Registrar salida de mercancía desde una ubicación"""
         
+        logger.info("=" * 80)
+        logger.info("🔴 [create_exit] INICIANDO CREACIÓN DE SALIDA")
+        logger.info(f"   product_id: {product_id}")
+        logger.info(f"   quantity: {quantity}")
+        logger.info(f"   location_from_id: {location_from_id}")
+        logger.info(f"   source_type: {source_type}")
+        logger.info(f"   source_reference: {source_reference}")
+        
         if company is None:
             company = Company.get_active()
             if not company:
+                logger.error("❌ [create_exit] No hay una compañía activa")
                 raise ValidationError("No hay una compañía activa para este movimiento.")
-            logger.warning(f"⚠️ No se pasó compañía a create_exit, usando fallback: {company.code}")
+            logger.warning(f"⚠️ [create_exit] No se pasó compañía, usando fallback: {company.code}")
         
-        logger.info(f"🔴 CREANDO SALIDA para compañía {company.code}")
+        try:
+            product = Product.objects.get(id=product_id)
+            logger.info(f"   ✅ Producto encontrado: {product.code} - {product.name}")
+        except Product.DoesNotExist as e:
+            logger.error(f"❌ [create_exit] Producto no encontrado: {e}")
+            raise
         
-        product = Product.objects.get(id=product_id)
-        location_from = Location.objects.get(id=location_from_id)
+        try:
+            location_from = Location.objects.get(id=location_from_id)
+            logger.info(f"   ✅ Ubicación encontrada: {location_from.code} - {location_from.name}")
+        except Location.DoesNotExist as e:
+            logger.error(f"❌ [create_exit] Ubicación no encontrada: {e}")
+            raise
         
         if quantity <= 0:
+            logger.error(f"❌ [create_exit] Cantidad inválida: {quantity}")
             raise ValidationError("La cantidad debe ser mayor a cero")
         
+        logger.info("   📝 Creando movimiento...")
         movement = Movement.objects.create(
             product=product,
             type='EXIT',
@@ -108,6 +156,13 @@ class WarehouseService:
         )
         
         logger.info(f"   ✅ Movimiento creado: ID {movement.id}")
+        
+        # ✅ NO llamamos a update_stock_from_movement aquí
+        # La señal post_save se encargará de actualizar el inventario
+        logger.info("   ℹ️ La señal post_save actualizará el inventario automáticamente")
+        
+        logger.info("🔴 [create_exit] FINALIZADO EXITOSAMENTE")
+        logger.info("=" * 80)
         return movement
     
     @staticmethod
@@ -147,6 +202,8 @@ class WarehouseService:
         )
         
         logger.info(f"   ✅ Movimiento creado: ID {movement.id}")
+        logger.info("   ℹ️ La señal post_save actualizará el inventario automáticamente")
+        
         return movement
 
 
@@ -189,60 +246,80 @@ class InventoryService:
     @transaction.atomic
     def update_stock_from_movement(movement):
         """Actualizar inventario desde un movimiento físico"""
+        logger.info("=" * 80)
+        logger.info("🔴 [update_stock_from_movement] INICIANDO ACTUALIZACIÓN")
+        logger.info(f"   Movimiento ID: {movement.id}")
+        logger.info(f"   Tipo: {movement.type}")
+        logger.info(f"   Producto: {movement.product.name} (ID: {movement.product.id})")
+        logger.info(f"   Cantidad: {movement.quantity}")
+        
         location = movement.location_to or movement.location_from
         
         if not location:
-            logger.warning(f"⚠️ Movimiento {movement.id} sin ubicación, no se actualiza inventario")
-            return
+            logger.warning(f"⚠️ [update_stock_from_movement] Movimiento {movement.id} sin ubicación, no se actualiza inventario")
+            logger.info("=" * 80)
+            return None
         
-        inventory, created = Inventory.objects.get_or_create(
-            product=movement.product,
-            location=location,
-            company=movement.company,
-            defaults={
-                'quantity': 0,
-                'average_cost': 0,
-                'total_value': 0,
-            }
-        )
+        logger.info(f"   Ubicación: {location.code} (ID: {location.id})")
         
-        logger.info(f"🔴 Actualizando inventario para {movement.product.name}")
-        logger.info(f"   Ubicación: {location.code}")
-        logger.info(f"   Tipo movimiento: {movement.type}")
-        logger.info(f"   Cantidad: {movement.quantity}")
-        logger.info(f"   Inventario existente: {created}")
-        logger.info(f"   Cantidad actual: {inventory.quantity}")
-        logger.info(f"   Compañía: {movement.company.code if movement.company else 'Sin compañía'}")
-        
-        if movement.type == 'ENTRY':
-            inventory.quantity += movement.quantity
-            if movement.unit_price:
-                total_cost_before = (inventory.quantity - movement.quantity) * inventory.average_cost
-                total_cost_new = movement.quantity * movement.unit_price
-                new_total_quantity = inventory.quantity
-                
-                if new_total_quantity > 0:
-                    inventory.average_cost = (total_cost_before + total_cost_new) / new_total_quantity
-                else:
-                    inventory.average_cost = movement.unit_price
-                    
-        elif movement.type == 'EXIT':
-            if inventory.quantity < movement.quantity:
-                raise ValidationError(f"Stock insuficiente para {movement.product.name}. "
-                                     f"Disponible: {inventory.quantity}, Solicitado: {movement.quantity}")
-            inventory.quantity -= movement.quantity
+        try:
+            inventory, created = Inventory.objects.get_or_create(
+                product=movement.product,
+                location=location,
+                company=movement.company,
+                defaults={
+                    'quantity': 0,
+                    'average_cost': 0,
+                    'total_value': 0,
+                }
+            )
             
-        elif movement.type == 'TRANSFER':
-            pass
-        
-        inventory.total_value = inventory.quantity * inventory.average_cost
-        inventory.save()
-        
-        logger.info(f"   ✅ Inventario actualizado: {inventory.quantity} unidades")
-        logger.info(f"   Costo promedio: {inventory.average_cost}")
-        logger.info(f"   Valor total: {inventory.total_value}")
-        
-        return inventory
+            logger.info(f"   {'✅ Creado' if created else '✅ Encontrado'} registro de inventario")
+            logger.info(f"   Cantidad actual: {inventory.quantity}")
+            
+            if movement.type == 'ENTRY':
+                logger.info("   📥 Procesando ENTRADA...")
+                inventory.quantity += movement.quantity
+                if movement.unit_price:
+                    total_cost_before = (inventory.quantity - movement.quantity) * inventory.average_cost
+                    total_cost_new = movement.quantity * movement.unit_price
+                    new_total_quantity = inventory.quantity
+                    
+                    if new_total_quantity > 0:
+                        inventory.average_cost = (total_cost_before + total_cost_new) / new_total_quantity
+                    else:
+                        inventory.average_cost = movement.unit_price
+                logger.info(f"   Nueva cantidad: {inventory.quantity}")
+                    
+            elif movement.type == 'EXIT':
+                logger.info("   📤 Procesando SALIDA...")
+                if inventory.quantity < movement.quantity:
+                    logger.error(f"   ❌ Stock insuficiente: {inventory.quantity} < {movement.quantity}")
+                    raise ValidationError(f"Stock insuficiente para {movement.product.name}. "
+                                         f"Disponible: {inventory.quantity}, Solicitado: {movement.quantity}")
+                inventory.quantity -= movement.quantity
+                logger.info(f"   Nueva cantidad: {inventory.quantity}")
+                
+            elif movement.type == 'TRANSFER':
+                logger.info("   🔄 Procesando TRASLADO...")
+                # Los traslados se manejan en dos pasos
+                pass
+            
+            inventory.total_value = inventory.quantity * inventory.average_cost
+            inventory.save()
+            
+            logger.info(f"   ✅ Inventario guardado exitosamente")
+            logger.info(f"   Cantidad final: {inventory.quantity}")
+            logger.info(f"   Valor total final: {inventory.total_value}")
+            logger.info("🔴 [update_stock_from_movement] FINALIZADO")
+            logger.info("=" * 80)
+            
+            return inventory
+            
+        except Exception as e:
+            logger.error(f"❌ [update_stock_from_movement] Error: {e}")
+            logger.info("=" * 80)
+            raise
     
     @staticmethod
     @transaction.atomic
@@ -272,46 +349,69 @@ class InventoryService:
         
         return count
 
-
     @staticmethod
     @transaction.atomic
     def confirm_delivery_note(note_id, user=None):
         """Confirmar una Nota de Entrega y crear movimientos de salida."""
         from .models import DeliveryNote, Movement
         
-        note = DeliveryNote.objects.get(id=note_id)
+        logger.info("=" * 80)
+        logger.info("🔴 [confirm_delivery_note] INICIANDO CONFIRMACIÓN")
+        logger.info(f"   note_id: {note_id}")
+        
+        try:
+            note = DeliveryNote.objects.get(id=note_id)
+            logger.info(f"   ✅ Nota encontrada: {note.number}")
+            logger.info(f"   Estado actual: {note.status}")
+        except DeliveryNote.DoesNotExist as e:
+            logger.error(f"❌ Nota no encontrada: {e}")
+            raise
         
         if note.status != 'DRAFT':
+            logger.warning(f"⚠️ Nota en estado '{note.get_status_display()}', no se puede confirmar")
             raise ValidationError(f"No se puede confirmar una nota en estado '{note.get_status_display()}'.")
         
         if not note.lines.exists():
+            logger.warning("⚠️ Nota sin líneas")
             raise ValidationError("No se puede confirmar una nota sin líneas.")
         
-        # Crear movimientos de salida para cada línea
-        for line in note.lines.all():
-            # Verificar stock antes de confirmar
+        logger.info(f"   📊 Líneas a procesar: {note.lines.count()}")
+        
+        for idx, line in enumerate(note.lines.all(), 1):
+            logger.info(f"   📝 Procesando línea {idx}:")
+            logger.info(f"      - Producto: {line.product.name}")
+            logger.info(f"      - Cantidad: {line.quantity}")
+            logger.info(f"      - Ubicación: {line.location.code}")
+            
             stock = InventoryService.get_stock_by_location(line.product.id, line.location.id, line.company)
+            logger.info(f"      - Stock disponible: {stock}")
+            
             if stock < line.quantity:
+                logger.error(f"      ❌ Stock insuficiente")
                 raise ValidationError(
                     f"Stock insuficiente para '{line.product.name}' en la ubicación '{line.location.code}'. "
                     f"Disponible: {stock}, Requerido: {line.quantity}"
                 )
             
-            # Crear movimiento de salida
+            logger.info("      🚀 Creando movimiento de salida...")
             WarehouseService.create_exit(
                 product_id=line.product.id,
                 quantity=line.quantity,
                 location_from_id=line.location.id,
-                unit_price=line.product.price,  # Usa el precio del producto como referencia
-                source_type='MANUAL',  # O podrías crear un nuevo tipo 'DELIVERY_NOTE'
+                unit_price=line.product.price,
+                source_type='SALE',
                 source_reference=note.number,
                 note=f"Entrega {note.number} - {note.customer_name or note.customer.name if note.customer else 'Sin cliente'}",
                 user=user or note.user,
                 company=line.company
             )
+            logger.info(f"      ✅ Línea {idx} procesada exitosamente")
         
         note.status = 'CONFIRMED'
         note.save()
+        
+        logger.info(f"✅ Nota {note.number} confirmada exitosamente")
+        logger.info("=" * 80)
         return note
 
     @staticmethod
@@ -324,9 +424,6 @@ class InventoryService:
         if note.status == 'CANCELLED':
             return note
         if note.status == 'CONFIRMED':
-            # Aquí podrías añadir lógica para revertir movimientos si lo deseas
-            # Por ahora, solo evitamos la cancelación si ya está confirmada.
-            # O podrías permitirlo y crear movimientos de entrada para compensar.
             raise ValidationError("No se puede cancelar una nota ya confirmada.")
         
         note.status = 'CANCELLED'
@@ -338,48 +435,75 @@ class InventoryService:
     def confirm_receipt_note(note_id, user=None):
         """
         Confirmar una Nota de Recibo y crear movimientos de entrada.
-
-        ✅ Si la nota está vinculada a una Orden de Compra (note.purchase_order),
-        además se marca esa orden como RECIBIDA y se genera su factura de
-        compra automáticamente, delegando en PurchaseService.finalize_receipt().
-        Este es el punto donde ahora se "recibe" una orden de compra: ya no
-        se hace manualmente desde el dropdown de estado de la orden, sino
-        confirmando la nota de recibo en Borrador que se creó automáticamente
-        al confirmar la orden con el proveedor.
         """
         from .models import ReceiptNote, Movement
         
-        note = ReceiptNote.objects.get(id=note_id)
+        logger.info("=" * 80)
+        logger.info("🔴 [confirm_receipt_note] INICIANDO CONFIRMACIÓN DE NOTA DE RECIBO")
+        logger.info(f"   note_id: {note_id}")
+        
+        try:
+            note = ReceiptNote.objects.get(id=note_id)
+            logger.info(f"   ✅ Nota encontrada: {note.number}")
+            logger.info(f"   Estado actual: {note.status}")
+            logger.info(f"   Orden de compra asociada: {note.purchase_order.number if note.purchase_order else 'Ninguna'}")
+        except ReceiptNote.DoesNotExist as e:
+            logger.error(f"❌ Nota no encontrada: {e}")
+            raise
         
         if note.status != 'DRAFT':
+            logger.warning(f"⚠️ Nota en estado '{note.get_status_display()}', no se puede confirmar")
             raise ValidationError(f"No se puede confirmar una nota en estado '{note.get_status_display()}'.")
         
         if not note.lines.exists():
+            logger.warning("⚠️ Nota sin líneas")
             raise ValidationError("No se puede confirmar una nota sin líneas.")
         
-        # Crear movimientos de entrada para cada línea
-        for line in note.lines.all():
+        logger.info(f"   📊 Líneas a procesar: {note.lines.count()}")
+        
+        for idx, line in enumerate(note.lines.all(), 1):
+            logger.info(f"   📝 Procesando línea {idx}:")
+            logger.info(f"      - Producto: {line.product.name}")
+            logger.info(f"      - Cantidad: {line.quantity}")
+            logger.info(f"      - Ubicación: {line.location.code}")
+            
+            logger.info("      🚀 Creando movimiento de entrada...")
             WarehouseService.create_entry(
                 product_id=line.product.id,
                 quantity=line.quantity,
                 location_to_id=line.location.id,
                 unit_price=line.product.price,
-                source_type='MANUAL',
+                source_type='PURCHASE',
                 source_reference=note.number,
                 note=f"Recibo {note.number} - {note.supplier_name or note.supplier.name if note.supplier else 'Sin proveedor'}",
                 user=user or note.user,
                 company=line.company
             )
+            logger.info(f"      ✅ Línea {idx} procesada exitosamente")
         
         note.status = 'CONFIRMED'
         note.save()
+        logger.info(f"   ✅ Nota {note.number} marcada como CONFIRMADA")
 
-        # ✅ Si la nota viene de una orden de compra, finalizar esa orden
+        # ✅ Finalizar la orden de compra si la nota está vinculada a una
         if note.purchase_order_id:
-            from django_erp.purchasing.services import PurchaseService
-            logger.info(f"🔗 Nota {note.number} vinculada a orden {note.purchase_order.number}, finalizando recepción...")
-            PurchaseService.finalize_receipt(note.purchase_order, user)
-
+            logger.info(f"🔗 Nota {note.number} vinculada a orden {note.purchase_order.number}")
+            logger.info("   🔄 Llamando a PurchaseService.finalize_receipt()...")
+            
+            try:
+                from django_erp.purchasing.services import PurchaseService
+                PurchaseService.finalize_receipt(note.purchase_order, user)
+                logger.info(f"   ✅ PurchaseService.finalize_receipt() completado")
+            except Exception as e:
+                logger.error(f"   ❌ Error al finalizar la orden: {e}")
+                import traceback
+                logger.error(f"   Traceback: {traceback.format_exc()}")
+                raise
+        else:
+            logger.info("ℹ️ Nota no vinculada a una orden de compra, saltando finalización")
+        
+        logger.info("✅ [confirm_receipt_note] CONFIRMACIÓN COMPLETADA EXITOSAMENTE")
+        logger.info("=" * 80)
         return note
 
     @staticmethod
