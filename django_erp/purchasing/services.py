@@ -2,6 +2,7 @@
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.apps import apps
+from django.utils import timezone
 from .models import PurchaseOrder, PurchaseInvoice, PurchaseInvoiceLine
 from decimal import Decimal
 import logging
@@ -12,261 +13,183 @@ logger = logging.getLogger(__name__)
 
 
 class PurchaseService:
-    """Servicios de compras"""
+    """Servicios de compras - Flujo completo"""
     
     @staticmethod
     @transaction.atomic
-    def confirm_order(order, user=None):
-        """Confirmar una orden de compra"""
-        logger.info(f"🔴 Confirmando orden {order.number}")
-        logger.info(f"   Estado actual: {order.status}")
-        logger.info(f"   Compañía: {order.company.code if order.company else 'Sin compañía'}")
-        
-        if not order.lines.exists():
-            logger.error("   ❌ La orden no tiene líneas")
-            raise ValidationError("No se puede confirmar una orden sin líneas")
-        
-        if order.status == 'ORDERED':
-            logger.info("   ℹ️ La orden ya está confirmada")
-            return order
+    def send_order(order, user=None):
+        """Enviar orden al proveedor (BORRADOR → ENVIADO)"""
+        logger.info(f"📤 Enviando orden {order.number} al proveedor")
         
         if order.status != 'DRAFT':
-            logger.error(f"   ❌ La orden no está en borrador. Estado: {order.status}")
-            raise ValidationError(f"Solo se pueden confirmar órdenes en borrador. Estado actual: {order.get_status_display()}")
+            raise ValidationError(
+                f"No se puede enviar una orden en estado '{order.get_status_display()}'."
+            )
         
-        logger.info("   ✅ Cambiando estado a ORDERED...")
-        order.status = 'ORDERED'
+        if not order.lines.exists():
+            raise ValidationError("No se puede enviar una orden sin líneas.")
+        
+        order.status = 'SENT'
+        order.sent_date = timezone.now()
         order.save()
         
-        logger.info(f"   ✅ Orden {order.number} confirmada exitosamente")
+        logger.info(f"✅ Orden {order.number} enviada al proveedor")
+        return order
+    
+    @staticmethod
+    @transaction.atomic
+    def confirm_order_from_supplier(order, user=None):
+        """Confirmar orden por parte del proveedor (ENVIADO → CONFIRMADO)"""
+        logger.info(f"✅ Confirmando orden {order.number} por proveedor")
+        
+        if order.status != 'SENT':
+            raise ValidationError(
+                f"No se puede confirmar una orden que no ha sido enviada. "
+                f"Estado actual: {order.get_status_display()}"
+            )
+        
+        order.status = 'CONFIRMED'
+        order.confirmed_date = timezone.now()
+        order.save()
+        
+        logger.info(f"✅ Orden {order.number} confirmada por proveedor")
         return order
     
     @staticmethod
     @transaction.atomic
     def receive_order(order, user=None):
-        """Recibir una orden de compra - Crea movimientos de entrada en el almacén"""
-        print("=" * 80)
-        print(f"📦 RECIBIENDO ORDEN {order.number}")
-        print(f"   ID de la orden: {order.id}")
-        print(f"   Estado actual: {order.status}")
-        print(f"   Usuario: {user}")
-        print(f"   Compañía de la orden: {order.company.code if order.company else 'Sin compañía'}")
-        print("=" * 80)
+        """
+        Recibir orden de compra (CONFIRMADO → RECIBIDO)
+        Crea movimientos de entrada en el inventario
+        """
+        logger.info(f"📦 Recibiendo orden {order.number}")
         
-        # ✅ Verificar líneas
-        lines_count = order.lines.count()
-        print(f"   📊 Líneas en la orden: {lines_count}")
+        if order.status != 'CONFIRMED':
+            raise ValidationError(
+                f"No se puede recibir una orden que no está confirmada. "
+                f"Estado actual: {order.get_status_display()}"
+            )
         
-        if lines_count == 0:
-            print("   ⚠️ LA ORDEN NO TIENE LÍNEAS")
+        if not order.lines.exists():
             raise ValidationError("No se puede recibir una orden sin líneas")
         
-        # ✅ Mostrar cada línea
-        for idx, line in enumerate(order.lines.all(), 1):
-            print(f"   --- LÍNEA {idx} ---")
-            print(f"      Producto ID: {line.product_id}")
-            print(f"      Producto nombre: {line.product_name}")
-            print(f"      ¿Tiene producto? {line.product is not None}")
-            if line.product:
-                print(f"      ¿Es servicio? {line.product.is_service}")
-                print(f"      Producto activo: {line.product.is_active}")
-            print(f"      Cantidad: {line.quantity}")
-            print(f"      Precio: {line.unit_price}")
-            print(f"      Ubicación ID: {line.location_id}")
-
-        
-        # ✅ IMPORTANTE: Permitir procesar incluso si ya está RECEIVED
-        if order.status == 'RECEIVED':
-            print("   ⚠️ La orden ya está en estado RECEIVED")
-            print("   🔍 Verificando si ya tiene movimientos...")
-            
-            from django_erp.inventory.models import Movement
-            existing_movements = Movement.objects.filter(
-                source_reference=order.number,
-                source_type='PURCHASE'
-            )
-            
-            if existing_movements.exists():
-                print(f"   ℹ️ Ya tiene {existing_movements.count()} movimientos asociados")
-                print("   ✅ No es necesario procesar nuevamente")
-                return order
-            else:
-                print("   ⚠️ La orden está en RECEIVED pero NO tiene movimientos")
-                print("   🔄 Procesando creación de movimientos...")
-                # ✅ Continuar con la creación de movimientos
-        
-        # ✅ Solo permitir recibir si está en ORDERED o RECEIVED (sin movimientos)
-        if order.status not in ['ORDERED', 'RECEIVED']:
-            print(f"   ❌ La orden no está en estado 'Ordenada' o 'Recibida'. Estado: {order.status}")
-            raise ValidationError("Solo se pueden recibir órdenes en estado 'Ordenada' o 'Recibida' (sin movimientos)")
-        
-        # ✅ USAR LA COMPAÑÍA DE LA ORDEN
         company = order.company
         if not company:
             raise ValidationError("No hay una compañía asociada a esta orden.")
         
-        print(f"   ✅ Compañía a usar para movimientos: {company.code} - {company.name}")
+        # Crear Nota de Recibo en el módulo de inventario
+        from django_erp.inventory.models import ReceiptNote, ReceiptNoteLine, Location
         
-
-        try:
-            from django_erp.inventory.services import WarehouseService
-            from django_erp.inventory.models import Location, Movement
-            print("   ✅ Servicios de Warehouse importados correctamente")
-        except ImportError as e:
-            print(f"   ❌ Error importando Warehouse: {e}")
-            raise ValidationError(f"Error importando Warehouse: {e}")
+        # Crear la nota de recibo
+        receipt_note = ReceiptNote.objects.create(
+            supplier=order.supplier,
+            supplier_name=order.supplier.name,
+            notes=f"Recepción automática de orden {order.number}",
+            status='DRAFT',
+            user=user or order.user,
+            company=company,
+        )
         
-        # ✅ Crear movimiento de entrada por cada línea
-        movements_created = 0
-        
-        for idx, line in enumerate(order.lines.all(), 1):
-            print(f"   --- PROCESANDO LÍNEA {idx} ---")
-            
+        # Crear líneas de la nota de recibo
+        for line in order.lines.all():
             if not line.product:
-                print(f"      ⚠️ Línea sin producto, saltando...")
+                logger.warning(f"⚠️ Línea {line.id} sin producto, saltando...")
                 continue
-            
-            print(f"      ✅ Producto: {line.product.name}")
-            print(f"      ID: {line.product.id}")
-            print(f"      ¿Es servicio? {line.product.is_service}")
             
             if line.product.is_service:
-                print(f"      ℹ️ Es un servicio, no se crea movimiento de inventario")
+                logger.info(f"ℹ️ Producto {line.product.name} es servicio, no se recibe en inventario")
                 continue
             
-            print(f"      ✅ Es un producto físico, creando movimiento...")
-            
-            # ✅ OBTENER UBICACIÓN DE LA COMPAÑÍA
-            location_id = None
-            
-            # 1. Intentar usar la ubicación sugerida en la línea
-            if line.location:
-                # Verificar que la ubicación pertenezca a la compañía
-                if line.location.company_id == company.id:
-                    location_id = line.location.id
-                    print(f"      ✅ Usando ubicación de la línea: {line.location.code}")
-                else:
-                    print(f"      ⚠️ Ubicación {line.location.code} no pertenece a {company.code}")
-            
-            # 2. Si no hay ubicación válida, usar la por defecto de la compañía
-            if not location_id:
-                print("      🔍 Buscando ubicación por defecto de la compañía...")
-                
-                # ✅ Buscar ubicación por defecto de esta compañía
-                default_location = Location.objects.filter(
+            # Buscar ubicación sugerida o usar la primera disponible
+            location = line.location
+            if not location:
+                # Buscar una ubicación por defecto para esta compañía
+                location = Location.objects.filter(
                     company=company,
                     is_active=True
                 ).first()
                 
-                # ✅ Si no existe, crearla
-                if not default_location:
-                    default_location = Location.objects.create(
+                if not location:
+                    # Crear ubicación por defecto
+                    location = Location.objects.create(
                         code=f"ALM-{company.code}",
                         name=f"Almacén Principal - {company.name}",
                         description=f"Almacén principal de {company.name}",
                         company=company,
                         is_active=True
                     )
-                    print(f"      ✅ Creada ubicación por defecto: {default_location.code}")
-                
-                if default_location:
-                    location_id = default_location.id
-                    print(f"      ✅ Ubicación por defecto: {default_location.code} - {default_location.name}")
+                    logger.info(f"✅ Creada ubicación por defecto: {location.code}")
             
-            if not location_id:
-                print("      ❌ No hay ubicaciones disponibles")
+            if not location:
                 raise ValidationError(
-                    f"No hay ubicación para el producto {line.product.name} en {company.code}. "
-                    "Crea una ubicación en el módulo de Almacén."
+                    f"No hay ubicación para el producto {line.product.name} en {company.code}"
                 )
             
-            # ✅ Verificar si ya existe un movimiento para esta línea
-            existing_movement = Movement.objects.filter(
-                source_reference=order.number,
-                source_type='PURCHASE',
-                product_id=line.product.id
-            ).first()
-            
-            if existing_movement:
-                print(f"      ⚠️ Ya existe un movimiento para este producto: ID {existing_movement.id}")
-                print(f"      ℹ️ Saltando para evitar duplicados")
-                continue
-            
-            # ✅ Crear el movimiento de entrada
-            try:
-                print(f"      🔄 Creando movimiento de entrada...")
-                print(f"         Producto ID: {line.product.id}")
-                print(f"         Cantidad: {line.quantity}")
-                print(f"         Ubicación destino: {location_id}")
-                print(f"         Precio unitario: {line.unit_price}")
-                print(f"         Source Type: PURCHASE")
-                print(f"         Source Reference: {order.number}")
-                print(f"         Compañía a asignar: {company.code}")
-                
-                movement = WarehouseService.create_entry(
-                    product_id=line.product.id,
-                    quantity=line.quantity,
-                    location_to_id=location_id,
-                    unit_price=Decimal(str(line.unit_price)),
-                    source_type='PURCHASE',
-                    source_reference=order.number,
-                    note=f"Recepción de compra {order.number} - {order.supplier.name}",
-                    user=user or order.user,
-                    company=company  # ← ✅ PASAR LA COMPAÑÍA EXPLÍCITAMENTE
-                )
-                
-                movements_created += 1
-                print(f"      ✅ MOVIMIENTO CREADO: ID {movement.id}")
-                print(f"         Tipo: {movement.type}")
-                print(f"         Producto: {movement.product.name}")
-                print(f"         Cantidad: {movement.quantity}")
-                print(f"         Compañía: {movement.company.code if movement.company else 'Sin compañía'}")
-                print(f"         Ubicación: {movement.location_to.code if movement.location_to else 'Sin ubicación'}")
-                
-            except Exception as e:
-                print(f"      ❌ Error al crear movimiento: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                raise ValidationError(f"Error al crear movimiento para {line.product.name}: {str(e)}")
+            # Crear línea en la nota de recibo
+            ReceiptNoteLine.objects.create(
+                note=receipt_note,
+                product=line.product,
+                location=location,
+                quantity=line.quantity,
+                company=company,
+            )
         
-        # ✅ Verificar que se crearon movimientos
-        if movements_created == 0:
-            print("   ⚠️ NO SE CREARON MOVIMIENTOS")
-            print("   Esto puede ser normal si todos los productos son servicios")
-        else:
-            print(f"   ✅ MOVIMIENTOS CREADOS: {movements_created}")
+        # Confirmar la nota de recibo (esto crea los movimientos de inventario)
+        from django_erp.inventory.services import InventoryService
+        InventoryService.confirm_receipt_note(receipt_note.id, user)
         
-        # ✅ Cambiar estado a RECEIVED (si no lo está ya)
-        if order.status != 'RECEIVED':
-            print("   🔄 Cambiando estado a RECEIVED...")
-            order.status = 'RECEIVED'
-            order.save()
-        else:
-            print("   ℹ️ La orden ya estaba en estado RECEIVED")
+        # Actualizar la orden de compra
+        order.status = 'RECEIVED'
+        order.received_date = timezone.now()
+        order.save()
         
-        print(f"   ✅ Orden {order.number} procesada exitosamente")
-        print("=" * 80)
+        logger.info(f"✅ Orden {order.number} recibida exitosamente")
+        logger.info(f"✅ Nota de recibo {receipt_note.number} creada y confirmada")
+        
+        # Generar factura automáticamente
+        try:
+            invoice = PurchaseInvoiceService.create_invoice_from_purchase_order(
+                order.id, 
+                user or order.user
+            )
+            logger.info(f"✅ Factura {invoice.number} generada automáticamente")
+        except Exception as e:
+            logger.error(f"❌ Error generando factura: {e}")
+            # No detener el proceso si falla la factura
+        
         return order
     
     @staticmethod
     @transaction.atomic
     def cancel_order(order, user=None):
-        """Cancelar una orden de compra"""
+        """Cancelar orden en cualquier estado (excepto RECEIVED)"""
         logger.info(f"❌ Cancelando orden {order.number}")
-        logger.info(f"   Estado actual: {order.status}")
-        
-        if order.status == 'CANCELLED':
-            logger.info("   ℹ️ La orden ya está cancelada")
-            return order
         
         if order.status == 'RECEIVED':
             raise ValidationError("No se puede cancelar una orden ya recibida")
+        
+        if order.status == 'CANCELLED':
+            logger.info("ℹ️ La orden ya está cancelada")
+            return order
         
         order.status = 'CANCELLED'
         order.save()
         
         logger.info(f"✅ Orden {order.number} cancelada")
         return order
+    
+    @staticmethod
+    def can_transition(order, new_status):
+        """Verificar si una transición de estado es válida"""
+        valid_transitions = {
+            'DRAFT': ['SENT', 'CANCELLED'],
+            'SENT': ['CONFIRMED', 'CANCELLED'],
+            'CONFIRMED': ['RECEIVED', 'CANCELLED'],
+            'RECEIVED': [],  # No se puede cambiar desde RECIBIDO
+            'CANCELLED': [],  # No se puede cambiar desde CANCELADO
+        }
+        
+        return new_status in valid_transitions.get(order.status, [])
 
 
 class PurchaseInvoiceService:
@@ -319,7 +242,7 @@ class PurchaseInvoiceService:
             status='DRAFT',
             user=user or purchase_order.user,
             sync_status='SYNCED',
-            company=company,  # ← ✅ ASIGNAR COMPAÑÍA DE LA ORDEN
+            company=company,
         )
         
         # ✅ Copiar líneas CON COMPAÑÍA
@@ -334,7 +257,7 @@ class PurchaseInvoiceService:
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 subtotal=line.subtotal,
-                company=company,  # ← ✅ ASIGNAR COMPAÑÍA DE LA ORDEN
+                company=company,
             )
         
         # ✅ Calcular totales
@@ -351,3 +274,34 @@ class PurchaseInvoiceService:
         logger.info(f'   Compañía: {company.code} - {company.name}')
         
         return invoice
+
+
+class PurchaseOrderService:
+    """Servicio adicional para consultas de órdenes de compra"""
+    
+    @staticmethod
+    def get_order_status_summary(company=None):
+        """
+        Obtener resumen de estados de órdenes de compra
+        """
+        from django.db.models import Count
+        
+        queryset = PurchaseOrder.objects.all()
+        if company:
+            queryset = queryset.filter(company=company)
+        
+        summary = queryset.values('status').annotate(
+            count=Count('id')
+        ).order_by('status')
+        
+        return summary
+    
+    @staticmethod
+    def get_orders_by_status(status, company=None):
+        """
+        Obtener órdenes filtradas por estado
+        """
+        queryset = PurchaseOrder.objects.filter(status=status)
+        if company:
+            queryset = queryset.filter(company=company)
+        return queryset.order_by('-created_at')

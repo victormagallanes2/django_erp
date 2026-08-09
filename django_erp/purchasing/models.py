@@ -54,10 +54,27 @@ class PurchaseOrder(models.Model):
     
     STATUS_CHOICES = [
         ('DRAFT', 'Borrador'),
-        ('ORDERED', 'Ordenada'),
-        ('RECEIVED', 'Recibida'),
-        ('CANCELLED', 'Cancelada'),
+        ('SENT', 'Enviado al Proveedor'),
+        ('CONFIRMED', 'Confirmado por Proveedor'),
+        ('RECEIVED', 'Recibido'),
+        ('CANCELLED', 'Cancelado'),
     ]
+
+    sent_date = models.DateTimeField(
+        null=True, 
+        blank=True,
+        verbose_name="Fecha de Envío"
+    )
+    confirmed_date = models.DateTimeField(
+        null=True, 
+        blank=True,
+        verbose_name="Fecha de Confirmación"
+    )
+    received_date = models.DateTimeField(
+        null=True, 
+        blank=True,
+        verbose_name="Fecha de Recepción"
+    )
     
     number = models.CharField(max_length=50, unique=True, verbose_name="Número")
     supplier = models.ForeignKey(

@@ -2,12 +2,12 @@
 from django.http import JsonResponse
 from django.contrib.admin.views.decorators import staff_member_required
 from django.views.decorators.http import require_GET
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib import messages
 from django_erp.inventory.models import Product
 from django_erp.inventory.models import Inventory
 from django_erp.configuration.models import ExchangeRate, Currency
 from decimal import Decimal
-from django.shortcuts import get_object_or_404, redirect
-from django.contrib import messages
 from .models import PurchaseOrder
 from .services import PurchaseInvoiceService
 
@@ -17,7 +17,6 @@ from .services import PurchaseInvoiceService
 def get_product_price(request):
     """
     Vista para obtener el precio y ubicación de un producto para compras
-    Similar a la de ventas pero para el módulo de compras
     """
     product_id = request.GET.get('product_id')
     
@@ -28,7 +27,7 @@ def get_product_price(request):
         product = Product.objects.get(id=product_id)
         inventory = Inventory.objects.filter(product=product).first()
         
-        # ✅ Obtener el precio (en compras usamos el mismo precio del producto)
+        # ✅ Obtener el precio
         price_usd = Decimal(str(product.price)) if product.price else Decimal('0')
         
         # ✅ Obtener tasa del día
@@ -78,8 +77,14 @@ def generate_invoice_from_purchase_order(request, order_id):
         return redirect('admin:purchasing_purchaseorder_change', order_id)
     
     try:
-        invoice = PurchaseInvoiceService.create_invoice_from_purchase_order(order.id, request.user)
-        messages.success(request, f"✅ Factura de compra {invoice.number} generada exitosamente")
+        invoice = PurchaseInvoiceService.create_invoice_from_purchase_order(
+            order.id, 
+            request.user
+        )
+        messages.success(
+            request, 
+            f"✅ Factura de compra {invoice.number} generada exitosamente"
+        )
         return redirect('admin:purchasing_purchaseinvoice_change', invoice.id)
     except Exception as e:
         messages.error(request, f"❌ Error al generar factura: {str(e)}")
