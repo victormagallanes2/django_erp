@@ -432,3 +432,206 @@ class PhysicalCount(models.Model):
             self.uuid = uuid.uuid4()
         self.difference = self.counted_quantity - self.system_quantity
         super().save(*args, **kwargs)
+
+
+class DeliveryNote(models.Model):
+    """Nota de Entrega - Salida de productos del inventario."""
+    
+    STATUS_CHOICES = [
+        ('DRAFT', 'Borrador'),
+        ('CONFIRMED', 'Confirmado'),
+        ('CANCELLED', 'Cancelado'),
+    ]
+    
+    number = models.CharField(max_length=50, unique=True, verbose_name="Número de Nota")
+    date = models.DateField(auto_now_add=True, verbose_name="Fecha")
+    customer = models.ForeignKey(
+        'sales.Customer',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        verbose_name="Cliente",
+        related_name='delivery_notes'
+    )
+    # Campo de texto libre por si no quieres usar el modelo Customer
+    customer_name = models.CharField(max_length=200, blank=True, verbose_name="Nombre del Cliente")
+    notes = models.TextField(blank=True, verbose_name="Notas adicionales")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT', verbose_name="Estado")
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="Usuario que creó")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='delivery_notes'
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Nota de Entrega"
+        verbose_name_plural = "Notas de Entrega"
+        ordering = ['-date', '-created_at']
+        permissions = [
+            ("can_view_deliverynote", "Puede ver notas de entrega"),
+            ("can_edit_deliverynote", "Puede editar notas de entrega"),
+            ("can_delete_deliverynote", "Puede eliminar notas de entrega"),
+            ("can_confirm_deliverynote", "Puede confirmar notas de entrega"),
+            ("can_cancel_deliverynote", "Puede cancelar notas de entrega"),
+        ]
+
+    def __str__(self):
+        return f"{self.number} - {self.customer_name or self.customer.name if self.customer else 'Sin cliente'}"
+
+    def save(self, *args, **kwargs):
+        if not self.number:
+            from datetime import datetime
+            last_note = DeliveryNote.objects.order_by('-id').first()
+            if last_note and last_note.number:
+                try:
+                    last_num = int(last_note.number.split('-')[-1])
+                    next_num = last_num + 1
+                except (ValueError, IndexError):
+                    next_num = 1
+            else:
+                next_num = 1
+            self.number = f"ENTREGA-{datetime.now().strftime('%Y%m%d')}-{next_num:04d}"
+        super().save(*args, **kwargs)
+
+
+class DeliveryNoteLine(models.Model):
+    """Línea de Nota de Entrega"""
+    
+    note = models.ForeignKey(
+        DeliveryNote,
+        on_delete=models.CASCADE,
+        related_name='lines',
+        verbose_name="Nota de Entrega"
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.PROTECT,
+        verbose_name="Producto",
+        related_name='delivery_lines'
+    )
+    location = models.ForeignKey(
+        Location,
+        on_delete=models.PROTECT,
+        verbose_name="Ubicación de salida",
+        related_name='delivery_lines'
+    )
+    quantity = models.PositiveIntegerField(verbose_name="Cantidad")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        related_name='delivery_note_lines'
+    )
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Línea de Nota de Entrega"
+        verbose_name_plural = "Líneas de Notas de Entrega"
+
+    def __str__(self):
+        return f"{self.note.number} - {self.product.name} x {self.quantity}"
+
+
+class ReceiptNote(models.Model):
+    """Nota de Recibo - Entrada de productos al inventario."""
+    
+    STATUS_CHOICES = [
+        ('DRAFT', 'Borrador'),
+        ('CONFIRMED', 'Confirmado'),
+        ('CANCELLED', 'Cancelado'),
+    ]
+    
+    number = models.CharField(max_length=50, unique=True, verbose_name="Número de Nota")
+    date = models.DateField(auto_now_add=True, verbose_name="Fecha")
+    supplier = models.ForeignKey(
+        'purchasing.Supplier',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        verbose_name="Proveedor",
+        related_name='receipt_notes'
+    )
+    supplier_name = models.CharField(max_length=200, blank=True, verbose_name="Nombre del Proveedor")
+    notes = models.TextField(blank=True, verbose_name="Notas adicionales")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT', verbose_name="Estado")
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="Usuario que creó")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='receipt_notes'
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Nota de Recibo"
+        verbose_name_plural = "Notas de Recibo"
+        ordering = ['-date', '-created_at']
+        permissions = [
+            ("can_view_receiptnote", "Puede ver notas de recibo"),
+            ("can_edit_receiptnote", "Puede editar notas de recibo"),
+            ("can_delete_receiptnote", "Puede eliminar notas de recibo"),
+            ("can_confirm_receiptnote", "Puede confirmar notas de recibo"),
+            ("can_cancel_receiptnote", "Puede cancelar notas de recibo"),
+        ]
+
+    def __str__(self):
+        return f"{self.number} - {self.supplier_name or self.supplier.name if self.supplier else 'Sin proveedor'}"
+
+    def save(self, *args, **kwargs):
+        if not self.number:
+            from datetime import datetime
+            last_note = ReceiptNote.objects.order_by('-id').first()
+            if last_note and last_note.number:
+                try:
+                    last_num = int(last_note.number.split('-')[-1])
+                    next_num = last_num + 1
+                except (ValueError, IndexError):
+                    next_num = 1
+            else:
+                next_num = 1
+            self.number = f"RECIBO-{datetime.now().strftime('%Y%m%d')}-{next_num:04d}"
+        super().save(*args, **kwargs)
+
+
+class ReceiptNoteLine(models.Model):
+    """Línea de Nota de Recibo"""
+    
+    note = models.ForeignKey(
+        ReceiptNote,
+        on_delete=models.CASCADE,
+        related_name='lines',
+        verbose_name="Nota de Recibo"
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.PROTECT,
+        verbose_name="Producto",
+        related_name='receipt_lines'
+    )
+    location = models.ForeignKey(
+        Location,
+        on_delete=models.PROTECT,
+        verbose_name="Ubicación de entrada",
+        related_name='receipt_lines'
+    )
+    quantity = models.PositiveIntegerField(verbose_name="Cantidad")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        related_name='receipt_note_lines'
+    )
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Línea de Nota de Recibo"
+        verbose_name_plural = "Líneas de Notas de Recibo"
+
+    def __str__(self):
+        return f"{self.note.number} - {self.product.name} x {self.quantity}"

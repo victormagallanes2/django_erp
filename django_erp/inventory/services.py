@@ -271,3 +271,112 @@ class InventoryService:
         count.save()
         
         return count
+
+
+    @staticmethod
+    @transaction.atomic
+    def confirm_delivery_note(note_id, user=None):
+        """Confirmar una Nota de Entrega y crear movimientos de salida."""
+        from .models import DeliveryNote, Movement
+        
+        note = DeliveryNote.objects.get(id=note_id)
+        
+        if note.status != 'DRAFT':
+            raise ValidationError(f"No se puede confirmar una nota en estado '{note.get_status_display()}'.")
+        
+        if not note.lines.exists():
+            raise ValidationError("No se puede confirmar una nota sin líneas.")
+        
+        # Crear movimientos de salida para cada línea
+        for line in note.lines.all():
+            # Verificar stock antes de confirmar
+            stock = InventoryService.get_stock_by_location(line.product.id, line.location.id, line.company)
+            if stock < line.quantity:
+                raise ValidationError(
+                    f"Stock insuficiente para '{line.product.name}' en la ubicación '{line.location.code}'. "
+                    f"Disponible: {stock}, Requerido: {line.quantity}"
+                )
+            
+            # Crear movimiento de salida
+            WarehouseService.create_exit(
+                product_id=line.product.id,
+                quantity=line.quantity,
+                location_from_id=line.location.id,
+                unit_price=line.product.price,  # Usa el precio del producto como referencia
+                source_type='MANUAL',  # O podrías crear un nuevo tipo 'DELIVERY_NOTE'
+                source_reference=note.number,
+                note=f"Entrega {note.number} - {note.customer_name or note.customer.name if note.customer else 'Sin cliente'}",
+                user=user or note.user,
+                company=line.company
+            )
+        
+        note.status = 'CONFIRMED'
+        note.save()
+        return note
+
+    @staticmethod
+    @transaction.atomic
+    def cancel_delivery_note(note_id, user=None):
+        """Cancelar una Nota de Entrega (no revierte movimientos por simplicidad)."""
+        from .models import DeliveryNote
+        
+        note = DeliveryNote.objects.get(id=note_id)
+        if note.status == 'CANCELLED':
+            return note
+        if note.status == 'CONFIRMED':
+            # Aquí podrías añadir lógica para revertir movimientos si lo deseas
+            # Por ahora, solo evitamos la cancelación si ya está confirmada.
+            # O podrías permitirlo y crear movimientos de entrada para compensar.
+            raise ValidationError("No se puede cancelar una nota ya confirmada.")
+        
+        note.status = 'CANCELLED'
+        note.save()
+        return note
+
+    @staticmethod
+    @transaction.atomic
+    def confirm_receipt_note(note_id, user=None):
+        """Confirmar una Nota de Recibo y crear movimientos de entrada."""
+        from .models import ReceiptNote, Movement
+        
+        note = ReceiptNote.objects.get(id=note_id)
+        
+        if note.status != 'DRAFT':
+            raise ValidationError(f"No se puede confirmar una nota en estado '{note.get_status_display()}'.")
+        
+        if not note.lines.exists():
+            raise ValidationError("No se puede confirmar una nota sin líneas.")
+        
+        # Crear movimientos de entrada para cada línea
+        for line in note.lines.all():
+            WarehouseService.create_entry(
+                product_id=line.product.id,
+                quantity=line.quantity,
+                location_to_id=line.location.id,
+                unit_price=line.product.price,
+                source_type='MANUAL',
+                source_reference=note.number,
+                note=f"Recibo {note.number} - {note.supplier_name or note.supplier.name if note.supplier else 'Sin proveedor'}",
+                user=user or note.user,
+                company=line.company
+            )
+        
+        note.status = 'CONFIRMED'
+        note.save()
+        return note
+
+    @staticmethod
+    @transaction.atomic
+    def cancel_receipt_note(note_id, user=None):
+        """Cancelar una Nota de Recibo (no revierte movimientos por simplicidad)."""
+        from .models import ReceiptNote
+        
+        note = ReceiptNote.objects.get(id=note_id)
+        if note.status == 'CANCELLED':
+            return note
+        if note.status == 'CONFIRMED':
+            raise ValidationError("No se puede cancelar una nota ya confirmada.")
+        
+        note.status = 'CANCELLED'
+        note.save()
+        return note

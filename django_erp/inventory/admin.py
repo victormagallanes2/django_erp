@@ -11,6 +11,7 @@ from .models import (
 from django_erp.configuration.models import ExchangeRate, Currency
 from django_erp.configuration.mixins import CompanyFilterMixin
 from .services import InventoryService
+from .models import DeliveryNote, DeliveryNoteLine, ReceiptNote, ReceiptNoteLine
 
 
 # ============================================================
@@ -345,4 +346,133 @@ class PhysicalCountAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         if not obj.user:
             obj.user = request.user
         obj.system_quantity = InventoryService.get_stock_by_location(obj.product.id, obj.location.id)
+        super().save_model(request, obj, form, change)
+
+
+class DeliveryNoteLineInline(UnfoldTabularInline):
+    model = DeliveryNoteLine
+    extra = 0
+    fields = ['product', 'location', 'quantity']
+    autocomplete_fields = ['product', 'location']
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        from .models import Product, Location
+        formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
+        formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
+        return formset
+
+class ReceiptNoteLineInline(UnfoldTabularInline):
+    model = ReceiptNoteLine
+    extra = 0
+    fields = ['product', 'location', 'quantity']
+    autocomplete_fields = ['product', 'location']
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        from .models import Product, Location
+        formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
+        formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
+        return formset
+
+# ============================================================
+# ADMIN: NOTAS DE ENTREGA
+# ============================================================
+
+@admin.action(description='✅ Confirmar notas de entrega seleccionadas')
+def confirm_delivery_notes(modeladmin, request, queryset):
+    from .services import InventoryService
+    for note in queryset:
+        try:
+            InventoryService.confirm_delivery_note(note.id, request.user)
+            modeladmin.message_user(request, f'✅ Nota {note.number} confirmada exitosamente', messages.SUCCESS)
+        except Exception as e:
+            modeladmin.message_user(request, f'❌ Error en {note.number}: {str(e)}', messages.ERROR)
+
+@admin.action(description='❌ Cancelar notas de entrega seleccionadas')
+def cancel_delivery_notes(modeladmin, request, queryset):
+    from .services import InventoryService
+    for note in queryset:
+        try:
+            InventoryService.cancel_delivery_note(note.id, request.user)
+            modeladmin.message_user(request, f'✅ Nota {note.number} cancelada', messages.SUCCESS)
+        except Exception as e:
+            modeladmin.message_user(request, f'❌ Error en {note.number}: {str(e)}', messages.ERROR)
+
+@admin.register(DeliveryNote)
+class DeliveryNoteAdmin(CompanyFilterMixin, UnfoldModelAdmin):
+    list_display = ['number', 'customer_name', 'customer', 'date', 'status', 'company']
+    list_filter = ['status', 'date', 'company']
+    search_fields = ['number', 'customer_name', 'customer__name']
+    inlines = [DeliveryNoteLineInline]
+    actions = [confirm_delivery_notes, cancel_delivery_notes]
+    
+    fieldsets = (
+        ('Información', {
+            'fields': ('number', 'customer', 'customer_name')
+        }),
+        ('Detalles', {
+            'fields': ('notes', 'status')
+        }),
+    )
+    readonly_fields = ['number', 'date', 'user', 'created_at', 'updated_at']
+    
+    def save_model(self, request, obj, form, change):
+        if not obj.user:
+            obj.user = request.user
+        if not obj.company_id:
+            company = getattr(request, 'current_company', None)
+            if company:
+                obj.company = company
+        super().save_model(request, obj, form, change)
+
+# ============================================================
+# ADMIN: NOTAS DE RECIBO
+# ============================================================
+
+@admin.action(description='✅ Confirmar notas de recibo seleccionadas')
+def confirm_receipt_notes(modeladmin, request, queryset):
+    from .services import InventoryService
+    for note in queryset:
+        try:
+            InventoryService.confirm_receipt_note(note.id, request.user)
+            modeladmin.message_user(request, f'✅ Nota {note.number} confirmada exitosamente', messages.SUCCESS)
+        except Exception as e:
+            modeladmin.message_user(request, f'❌ Error en {note.number}: {str(e)}', messages.ERROR)
+
+@admin.action(description='❌ Cancelar notas de recibo seleccionadas')
+def cancel_receipt_notes(modeladmin, request, queryset):
+    from .services import InventoryService
+    for note in queryset:
+        try:
+            InventoryService.cancel_receipt_note(note.id, request.user)
+            modeladmin.message_user(request, f'✅ Nota {note.number} cancelada', messages.SUCCESS)
+        except Exception as e:
+            modeladmin.message_user(request, f'❌ Error en {note.number}: {str(e)}', messages.ERROR)
+
+@admin.register(ReceiptNote)
+class ReceiptNoteAdmin(CompanyFilterMixin, UnfoldModelAdmin):
+    list_display = ['number', 'supplier_name', 'supplier', 'date', 'status', 'company']
+    list_filter = ['status', 'date', 'company']
+    search_fields = ['number', 'supplier_name', 'supplier__name']
+    inlines = [ReceiptNoteLineInline]
+    actions = [confirm_receipt_notes, cancel_receipt_notes]
+    
+    fieldsets = (
+        ('Información', {
+            'fields': ('number', 'supplier', 'supplier_name')
+        }),
+        ('Detalles', {
+            'fields': ('notes', 'status')
+        }),
+    )
+    readonly_fields = ['number', 'date', 'user', 'created_at', 'updated_at']
+    
+    def save_model(self, request, obj, form, change):
+        if not obj.user:
+            obj.user = request.user
+        if not obj.company_id:
+            company = getattr(request, 'current_company', None)
+            if company:
+                obj.company = company
         super().save_model(request, obj, form, change)

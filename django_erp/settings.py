@@ -174,11 +174,18 @@ def get_menu_items(request):
                 "link": "/admin/inventory/product/", 
             })
         
-        if user.has_perm('inventory.view_movement'):
+        if user.has_perm('inventory.view_deliverynote'):
             inventory_items.append({
-                "title": "Movimientos",
-                "icon": "swap_horiz",
-                "link": "/admin/inventory/movement/", 
+                "title": "Notas de Entrega",
+                "icon": "fact_check",  # O "move_down" o cualquier icono de Material Symbols
+                "link": "/admin/inventory/deliverynote/",
+            })
+        
+        if user.has_perm('inventory.view_receiptnote'):
+            inventory_items.append({
+                "title": "Notas de Recibo",
+                "icon": "move_up",  # O "inbox"
+                "link": "/admin/inventory/receiptnote/",
             })
         
         if user.has_perm('inventory.view_location'):
