@@ -47,10 +47,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django_erp.users',
     'django_erp.configuration',
-    'django_erp.warehouse',
     'django_erp.inventory',
     'django_erp.sales',
-    'django_erp.invoicing',
     'django_erp.purchasing',
 ]
 
@@ -166,63 +164,51 @@ def get_menu_items(request):
     
     # ✅ Dashboard (siempre visible)
     
-    # ✅ Almacén
-    if user.has_perm('warehouse.view_product') or user.has_perm('warehouse.view_movement'):
-        warehouse_items = []
+    if user.has_perm('inventory.view_product') or user.has_perm('inventory.view_movement') or user.has_perm('inventory.view_inventory'):
+        inventory_items = []
         
-        if user.has_perm('warehouse.view_product'):
-            warehouse_items.append({
+        if user.has_perm('inventory.view_product'):
+            inventory_items.append({
                 "title": "Productos",
                 "icon": "inventory_2",
-                "link": "/admin/warehouse/product/",
+                "link": "/admin/inventory/product/", 
             })
         
-        if user.has_perm('warehouse.view_movement'):
-            warehouse_items.append({
+        if user.has_perm('inventory.view_movement'):
+            inventory_items.append({
                 "title": "Movimientos",
                 "icon": "swap_horiz",
-                "link": "/admin/warehouse/movement/",
+                "link": "/admin/inventory/movement/", 
             })
         
-        if user.has_perm('warehouse.view_location'):
-            warehouse_items.append({
+        if user.has_perm('inventory.view_location'):
+            inventory_items.append({
                 "title": "Ubicaciones",
                 "icon": "location_on",
-                "link": "/admin/warehouse/location/",
+                "link": "/admin/inventory/location/",  
             })
         
-        if warehouse_items:
+        if user.has_perm('inventory.view_inventory'):
+            inventory_items.append({
+                "title": "Inventarios",
+                "icon": "storage",
+                "link": "/admin/inventory/inventory/",
+            })
+        
+        if user.has_perm('inventory.view_physicalcount'):
+            inventory_items.append({
+                "title": "Conteos Físicos",
+                "icon": "fact_check",
+                "link": "/admin/inventory/physicalcount/",
+            })
+        
+        if inventory_items:
             navigation.append({
-                "title": "Almacén",
+                "title": "Inventario",
                 "separator": True,
                 "collapsible": True,
-                "items": warehouse_items,
+                "items": inventory_items,
             })
-    
-    # ✅ Inventario
-    if user.has_perm('inventory.view_inventory'):
-        navigation.append({
-            "title": "Inventario",
-            "separator": True,
-            "collapsible": True,
-            "items": [
-                {
-                    "title": "Inventarios",
-                    "icon": "storage",
-                    "link": "/admin/inventory/inventory/",
-                },
-                {
-                    "title": "Conteos Físicos",
-                    "icon": "fact_check",
-                    "link": "/admin/inventory/physicalcount/",
-                },
-                {
-                    "title": "Métodos de Valoración",
-                    "icon": "calculate",
-                    "link": "/admin/inventory/valuationmethod/",
-                },
-            ]
-        })
 
     # ✅ Compras
     if user.has_perm('purchasing.view_supplier') or user.has_perm('purchasing.view_purchaseorder'):
@@ -237,7 +223,7 @@ def get_menu_items(request):
         
         if user.has_perm('purchasing.view_purchaseorder'):
             purchasing_items.append({
-                "title": "Órdenes de Compra",
+                "title": "Compra",
                 "icon": "shopping_cart",
                 "link": "/admin/purchasing/purchaseorder/",
             })
@@ -270,23 +256,16 @@ def get_menu_items(request):
         
         if user.has_perm('sales.view_saleorder'):
             sales_items.append({
-                "title": "Órdenes de Venta",
+                "title": "Ventas",
                 "icon": "receipt_long",
                 "link": "/admin/sales/saleorder/",
             })
         
         if user.has_perm('sales.view_cashregister'):
             sales_items.append({
-                "title": "Cierres de caja",
+                "title": "Cajas",
                 "icon": "payments",
                 "link": "/admin/sales/cashregister/",
-            })
-        
-        if user.has_perm('sales.view_cashtransaction'):
-            sales_items.append({
-                "title": "Transacciones de Caja",
-                "icon": "receipt_long",
-                "link": "/admin/sales/cashtransaction/",
             })
 
         if user.has_perm('sales.can_view_reports'):
@@ -303,21 +282,6 @@ def get_menu_items(request):
                 "collapsible": True,
                 "items": sales_items,
             })
-    
-    # ✅ Facturación
-    if user.has_perm('invoicing.view_invoice'):
-        navigation.append({
-            "title": "Facturación",
-            "separator": True,
-            "collapsible": True,
-            "items": [
-                {
-                    "title": "Facturas",
-                    "icon": "receipt",
-                    "link": "/admin/invoicing/invoice/",
-                },
-            ]
-        })
     
     # ✅ Configuración (solo administradores)
     if user.is_superuser:

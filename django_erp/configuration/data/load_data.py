@@ -17,7 +17,7 @@ django.setup()
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth import get_user_model
 from django_erp.configuration.models import Company, Currency, ExchangeRate, PaymentMethod
-from django_erp.warehouse.models import Location, Product
+from django_erp.inventory.models import Location, Product
 from django_erp.purchasing.models import Supplier
 from django_erp.sales.models import Customer
 

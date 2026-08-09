@@ -36,29 +36,10 @@ class SaleService:
                 if line.product.is_service:
                     print(f"📝 Servicio confirmado: {line.product.name}")
                     continue
-                
-                # ✅ Si es producto físico, verificar stock
-                if apps.is_installed('django_erp.inventory'):
-                    from django_erp.inventory.services import InventoryService
-                    
-                    # ✅ CORREGIDO: Pasar la compañía para obtener el inventario correcto
-                    stock = InventoryService.get_stock_by_location(
-                        line.product.id,
-                        line.location.id if line.location else None,
-                        company=company  # ← ✅ PASAR LA COMPAÑÍA
-                    )
-                    
-                    print(f"   📦 Producto: {line.product.name}, Stock: {stock}, Solicitado: {line.quantity}")
-                    
-                    if stock < line.quantity:
-                        raise ValidationError(
-                            f"❌ Stock insuficiente para {line.product.name}. "
-                            f"Disponible: {stock}, Solicitado: {line.quantity}"
-                        )
-                
+
                 # ✅ Crear movimiento de salida para productos físicos
                 if apps.is_installed('django_erp.warehouse'):
-                    from django_erp.warehouse.services import WarehouseService
+                    from django_erp.inventory.services import WarehouseService
                     
                     # ✅ Asegurar que la ubicación tenga compañía
                     location_id = line.location.id if line.location else None

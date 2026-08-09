@@ -1,15 +1,19 @@
 # inventory/signals.py
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from django.apps import apps
+from .models import Movement
+from .services import InventoryService
+import logging
 
-# ✅ No importamos Movement directamente
-# ✅ Usamos get_model para resolver dinámicamente
+logger = logging.getLogger(__name__)
 
 
-@receiver(post_save, sender='warehouse.Movement')
+@receiver(post_save, sender=Movement)
 def movement_created(sender, instance, created, **kwargs):
     """Cuando se crea un movimiento físico, actualizar el inventario contable"""
     if created:
-        from .services import InventoryService
-        InventoryService.update_stock_from_movement(instance)
+        try:
+            logger.info(f"🔄 Actualizando inventario desde movimiento {instance.id}")
+            InventoryService.update_stock_from_movement(instance)
+        except Exception as e:
+            logger.error(f"❌ Error actualizando inventario desde movimiento {instance.id}: {e}")

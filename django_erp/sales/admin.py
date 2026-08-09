@@ -88,7 +88,7 @@ class SaleLineInline(UnfoldTabularInline):
     
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
-        from django_erp.warehouse.models import Product, Location
+        from django_erp.inventory.models import Product, Location
         formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
         formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
         formset.form.base_fields['unit_price'].initial = 0
@@ -386,7 +386,7 @@ def reconfirm_order_action(modeladmin, request, queryset):
                 if line.product and not line.product.is_service:
                     print(f"   Reduciendo stock de {line.product.name} x {line.quantity}")
                     try:
-                        from django_erp.warehouse.services import WarehouseService
+                        from django_erp.inventory.services import WarehouseService
                         WarehouseService.create_exit(
                             product_id=line.product.id,
                             quantity=line.quantity,
@@ -642,7 +642,7 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         if new_status == 'CONFIRMED':
             print(f"🔴 PROCESANDO CONFIRMACIÓN para {obj.number}")
             
-            from django_erp.warehouse.models import Movement
+            from django_erp.inventory.models import Movement
             has_movement = Movement.objects.filter(
                 source_reference=obj.number,
                 source_type='SALE'

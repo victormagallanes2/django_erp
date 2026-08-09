@@ -214,22 +214,25 @@ class SaleLine(models.Model):
     
     # ✅ Producto como ForeignKey condicional
     product = models.ForeignKey(
-        'warehouse.Product',
+        'inventory.Product',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         verbose_name="Producto",
-        help_text="Seleccionar si es un producto físico"
+        help_text="Seleccionar si es un producto físico",
+        related_name='sale_line_products'
+
     )
     
     # ✅ Ubicación como ForeignKey condicional
     location = models.ForeignKey(
-        'warehouse.Location',
+        'inventory.Location',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         verbose_name="Ubicación",
-        help_text="Ubicación del producto en el almacén (si aplica)"
+        help_text="Ubicación del producto en el almacén (si aplica)",
+        related_name='sale_line_locations'
     )
     
     # ✅ Para servicios (cuando no hay producto)

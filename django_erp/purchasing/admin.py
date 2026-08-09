@@ -53,7 +53,7 @@ class PurchaseLineInline(UnfoldTabularInline):
 
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
-        from django_erp.warehouse.models import Product, Location
+        from django_erp.inventory.models import Product, Location
         formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
         formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
         formset.form.base_fields['unit_price'].initial = Decimal('0.00')

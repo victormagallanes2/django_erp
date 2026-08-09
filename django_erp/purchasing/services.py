@@ -73,20 +73,14 @@ class PurchaseService:
             print(f"      Cantidad: {line.quantity}")
             print(f"      Precio: {line.unit_price}")
             print(f"      Ubicación ID: {line.location_id}")
-        
-        # ✅ Verificar módulo Warehouse
-        if not apps.is_installed('django_erp.warehouse'):
-            print("   ❌ Módulo Warehouse NO está instalado")
-            raise ValidationError("El módulo Warehouse no está instalado")
-        else:
-            print("   ✅ Módulo Warehouse está instalado")
+
         
         # ✅ IMPORTANTE: Permitir procesar incluso si ya está RECEIVED
         if order.status == 'RECEIVED':
             print("   ⚠️ La orden ya está en estado RECEIVED")
             print("   🔍 Verificando si ya tiene movimientos...")
             
-            from django_erp.warehouse.models import Movement
+            from django_erp.inventory.models import Movement
             existing_movements = Movement.objects.filter(
                 source_reference=order.number,
                 source_type='PURCHASE'
@@ -113,10 +107,10 @@ class PurchaseService:
         
         print(f"   ✅ Compañía a usar para movimientos: {company.code} - {company.name}")
         
-        # ✅ Importar servicios de warehouse
+
         try:
-            from django_erp.warehouse.services import WarehouseService
-            from django_erp.warehouse.models import Location, Movement
+            from django_erp.inventory.services import WarehouseService
+            from django_erp.inventory.models import Location, Movement
             print("   ✅ Servicios de Warehouse importados correctamente")
         except ImportError as e:
             print(f"   ❌ Error importando Warehouse: {e}")

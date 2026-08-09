@@ -224,21 +224,23 @@ class PurchaseLine(models.Model):
     
     # Producto (opcional)
     product = models.ForeignKey(
-        'warehouse.Product',
+        'inventory.Product',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        verbose_name="Producto"
+        verbose_name="Producto",
+        related_name='purchase_line_products'
     )
     
     # Ubicación sugerida para el producto al recibirlo
     location = models.ForeignKey(
-        'warehouse.Location',
+        'inventory.Location',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         verbose_name="Ubicación",
-        help_text="Ubicación sugerida para el producto en el almacén"
+        help_text="Ubicación sugerida para el producto en el almacén",
+        related_name='purchase_line_locations'
     )
     
     # ✅ Campos para producto/servicio - Igual que invoicing
@@ -747,7 +749,7 @@ class PurchaseInvoiceLine(models.Model):
     
     # Producto (opcional)
     product = models.ForeignKey(
-        'warehouse.Product',
+        'inventory.Product',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

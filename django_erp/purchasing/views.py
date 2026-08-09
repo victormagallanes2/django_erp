@@ -2,7 +2,7 @@
 from django.http import JsonResponse
 from django.contrib.admin.views.decorators import staff_member_required
 from django.views.decorators.http import require_GET
-from django_erp.warehouse.models import Product
+from django_erp.inventory.models import Product
 from django_erp.inventory.models import Inventory
 from django_erp.configuration.models import ExchangeRate, Currency
 from decimal import Decimal
