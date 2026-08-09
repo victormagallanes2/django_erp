@@ -39,7 +39,16 @@ class PurchaseService:
     @staticmethod
     @transaction.atomic
     def confirm_order_from_supplier(order, user=None):
-        """Confirmar orden por parte del proveedor (ENVIADO → CONFIRMADO)"""
+        """
+        Confirmar orden por parte del proveedor (ENVIADO → CONFIRMADO).
+
+        ✅ Además crea automáticamente una Nota de Recibo en Borrador en el
+        módulo de Inventario, vinculada a esta orden. Esa nota queda
+        pendiente de confirmación manual (desde Inventario → Notas de
+        Recibo) cuando la mercancía llegue físicamente. Confirmar esa nota
+        es lo que marca la orden como RECIBIDA (ver
+        InventoryService.confirm_receipt_note / PurchaseService.finalize_receipt).
+        """
         logger.info(f"✅ Confirmando orden {order.number} por proveedor")
         
         if order.status != 'SENT':
@@ -53,16 +62,114 @@ class PurchaseService:
         order.save()
         
         logger.info(f"✅ Orden {order.number} confirmada por proveedor")
+
+        # ✅ Crear la nota de recibo en Borrador, lista para cuando llegue la mercancía
+        try:
+            receipt_note = PurchaseService._create_draft_receipt_note(order, user)
+            if receipt_note:
+                logger.info(f"📝 Nota de recibo {receipt_note.number} creada en Borrador para {order.number}")
+        except Exception as e:
+            # No se detiene la confirmación de la orden si falla la nota;
+            # se puede crear manualmente después si hace falta.
+            logger.error(f"❌ Error creando nota de recibo en borrador para {order.number}: {e}")
+
         return order
+
+    @staticmethod
+    def _create_draft_receipt_note(order, user=None):
+        """
+        Crear (si no existe ya una activa) una Nota de Recibo en Borrador
+        para la orden, con una línea por cada producto físico de la orden.
+        """
+        from django_erp.inventory.models import ReceiptNote, ReceiptNoteLine, Location
+
+        # ✅ Si ya existe una nota Borrador o Confirmada para esta orden, no duplicar
+        existing = order.receipt_notes.filter(status__in=['DRAFT', 'CONFIRMED']).order_by('-id').first()
+        if existing:
+            return existing
+
+        if not order.lines.exists():
+            logger.warning(f"⚠️ Orden {order.number} sin líneas, no se crea nota de recibo todavía")
+            return None
+
+        company = order.company
+        if not company:
+            raise ValidationError("No hay una compañía asociada a esta orden.")
+
+        receipt_note = ReceiptNote.objects.create(
+            purchase_order=order,
+            supplier=order.supplier,
+            supplier_name=order.supplier.name,
+            notes=f"Recepción de orden {order.number}",
+            status='DRAFT',
+            user=user or order.user,
+            company=company,
+        )
+
+        for line in order.lines.all():
+            if not line.product:
+                logger.warning(f"⚠️ Línea {line.id} sin producto, saltando...")
+                continue
+
+            if line.product.is_service:
+                logger.info(f"ℹ️ Producto {line.product.name} es servicio, no se recibe en inventario")
+                continue
+
+            location = line.location
+            if not location:
+                location = Location.objects.filter(
+                    company=company,
+                    is_active=True
+                ).first()
+
+                if not location:
+                    location = Location.objects.create(
+                        code=f"ALM-{company.code}",
+                        name=f"Almacén Principal - {company.name}",
+                        description=f"Almacén principal de {company.name}",
+                        company=company,
+                        is_active=True
+                    )
+                    logger.info(f"✅ Creada ubicación por defecto: {location.code}")
+
+            if not location:
+                raise ValidationError(
+                    f"No hay ubicación para el producto {line.product.name} en {company.code}"
+                )
+
+            ReceiptNoteLine.objects.create(
+                note=receipt_note,
+                product=line.product,
+                location=location,
+                quantity=line.quantity,
+                company=company,
+            )
+
+        return receipt_note
     
     @staticmethod
     @transaction.atomic
     def receive_order(order, user=None):
         """
-        Recibir orden de compra (CONFIRMADO → RECIBIDO)
-        Crea movimientos de entrada en el inventario
+        Recibir orden de compra (CONFIRMADO → RECIBIDO).
+
+        ✅ Punto de compatibilidad: en el flujo normal, esto ya NO se elige
+        manualmente desde el dropdown de estado de la orden. Sucede
+        automáticamente cuando se confirma, en Inventario, la Nota de
+        Recibo en Borrador vinculada a la orden (ver
+        InventoryService.confirm_receipt_note).
+
+        Esta función queda disponible para invocarla directamente (por
+        ejemplo desde una acción manual o para órdenes antiguas que no
+        tengan todavía su nota de recibo vinculada): busca la nota en
+        Borrador de la orden y la confirma; si no existe, la crea y
+        confirma en el mismo paso.
         """
         logger.info(f"📦 Recibiendo orden {order.number}")
+
+        if order.status == 'RECEIVED':
+            logger.info(f"ℹ️ La orden {order.number} ya está recibida")
+            return order
         
         if order.status != 'CONFIRMED':
             raise ValidationError(
@@ -72,91 +179,59 @@ class PurchaseService:
         
         if not order.lines.exists():
             raise ValidationError("No se puede recibir una orden sin líneas")
-        
-        company = order.company
-        if not company:
-            raise ValidationError("No hay una compañía asociada a esta orden.")
-        
-        # Crear Nota de Recibo en el módulo de inventario
-        from django_erp.inventory.models import ReceiptNote, ReceiptNoteLine, Location
-        
-        # Crear la nota de recibo
-        receipt_note = ReceiptNote.objects.create(
-            supplier=order.supplier,
-            supplier_name=order.supplier.name,
-            notes=f"Recepción automática de orden {order.number}",
-            status='DRAFT',
-            user=user or order.user,
-            company=company,
-        )
-        
-        # Crear líneas de la nota de recibo
-        for line in order.lines.all():
-            if not line.product:
-                logger.warning(f"⚠️ Línea {line.id} sin producto, saltando...")
-                continue
-            
-            if line.product.is_service:
-                logger.info(f"ℹ️ Producto {line.product.name} es servicio, no se recibe en inventario")
-                continue
-            
-            # Buscar ubicación sugerida o usar la primera disponible
-            location = line.location
-            if not location:
-                # Buscar una ubicación por defecto para esta compañía
-                location = Location.objects.filter(
-                    company=company,
-                    is_active=True
-                ).first()
-                
-                if not location:
-                    # Crear ubicación por defecto
-                    location = Location.objects.create(
-                        code=f"ALM-{company.code}",
-                        name=f"Almacén Principal - {company.name}",
-                        description=f"Almacén principal de {company.name}",
-                        company=company,
-                        is_active=True
-                    )
-                    logger.info(f"✅ Creada ubicación por defecto: {location.code}")
-            
-            if not location:
-                raise ValidationError(
-                    f"No hay ubicación para el producto {line.product.name} en {company.code}"
-                )
-            
-            # Crear línea en la nota de recibo
-            ReceiptNoteLine.objects.create(
-                note=receipt_note,
-                product=line.product,
-                location=location,
-                quantity=line.quantity,
-                company=company,
-            )
-        
-        # Confirmar la nota de recibo (esto crea los movimientos de inventario)
+
         from django_erp.inventory.services import InventoryService
+
+        receipt_note = order.receipt_notes.filter(status='DRAFT').order_by('-id').first()
+        if not receipt_note:
+            receipt_note = PurchaseService._create_draft_receipt_note(order, user)
+
+        if not receipt_note:
+            raise ValidationError("No se pudo crear/obtener la nota de recibo para esta orden.")
+
+        # ✅ Confirmar la nota dispara, vía InventoryService, la llamada a
+        # PurchaseService.finalize_receipt() que marca la orden RECEIVED
+        # y genera la factura.
         InventoryService.confirm_receipt_note(receipt_note.id, user)
-        
-        # Actualizar la orden de compra
+
+        order.refresh_from_db()
+        logger.info(f"✅ Orden {order.number} recibida exitosamente")
+        return order
+
+    @staticmethod
+    @transaction.atomic
+    def finalize_receipt(order, user=None):
+        """
+        Marca la orden como RECIBIDA y genera su factura de compra.
+
+        ✅ Se invoca automáticamente desde
+        InventoryService.confirm_receipt_note() en el momento en que se
+        confirma, en Inventario, la Nota de Recibo vinculada a esta orden.
+        No crea movimientos de inventario (eso ya lo hizo
+        InventoryService antes de llamar aquí); solo actualiza el estado
+        de la orden y genera la factura de compra.
+        """
+        if order.status == 'RECEIVED':
+            logger.info(f"ℹ️ La orden {order.number} ya estaba marcada como recibida")
+            return order
+
         order.status = 'RECEIVED'
         order.received_date = timezone.now()
         order.save()
-        
-        logger.info(f"✅ Orden {order.number} recibida exitosamente")
-        logger.info(f"✅ Nota de recibo {receipt_note.number} creada y confirmada")
-        
+
+        logger.info(f"✅ Orden {order.number} marcada como RECIBIDA")
+
         # Generar factura automáticamente
         try:
             invoice = PurchaseInvoiceService.create_invoice_from_purchase_order(
-                order.id, 
+                order.id,
                 user or order.user
             )
             logger.info(f"✅ Factura {invoice.number} generada automáticamente")
         except Exception as e:
             logger.error(f"❌ Error generando factura: {e}")
             # No detener el proceso si falla la factura
-        
+
         return order
     
     @staticmethod
@@ -179,8 +254,20 @@ class PurchaseService:
         return order
     
     @staticmethod
-    def can_transition(order, new_status):
-        """Verificar si una transición de estado es válida"""
+    def can_transition(order, new_status, current_status=None):
+        """
+        Verificar si una transición de estado es válida.
+
+        ✅ FIX: se agregó el parámetro opcional `current_status`.
+        Cuando se llama desde ModelAdmin.save_model(), el `order`/`obj`
+        recibido ya tiene el status NUEVO asignado (Django ya volcó los
+        cleaned_data sobre la instancia en form._post_clean(), antes de
+        llegar a save_model()). Si no se pasa `current_status`
+        explícitamente, `order.status` ya sería igual a `new_status`,
+        y la transición SIEMPRE fallaría (ej: "SENT" -> "SENT" nunca es
+        una transición válida). Por eso ahora se permite indicar el
+        estado anterior de forma explícita.
+        """
         valid_transitions = {
             'DRAFT': ['SENT', 'CANCELLED'],
             'SENT': ['CONFIRMED', 'CANCELLED'],
@@ -188,8 +275,9 @@ class PurchaseService:
             'RECEIVED': [],  # No se puede cambiar desde RECIBIDO
             'CANCELLED': [],  # No se puede cambiar desde CANCELADO
         }
-        
-        return new_status in valid_transitions.get(order.status, [])
+
+        status = current_status if current_status is not None else order.status
+        return new_status in valid_transitions.get(status, [])
 
 
 class PurchaseInvoiceService:

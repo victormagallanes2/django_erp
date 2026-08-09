@@ -336,7 +336,17 @@ class InventoryService:
     @staticmethod
     @transaction.atomic
     def confirm_receipt_note(note_id, user=None):
-        """Confirmar una Nota de Recibo y crear movimientos de entrada."""
+        """
+        Confirmar una Nota de Recibo y crear movimientos de entrada.
+
+        ✅ Si la nota está vinculada a una Orden de Compra (note.purchase_order),
+        además se marca esa orden como RECIBIDA y se genera su factura de
+        compra automáticamente, delegando en PurchaseService.finalize_receipt().
+        Este es el punto donde ahora se "recibe" una orden de compra: ya no
+        se hace manualmente desde el dropdown de estado de la orden, sino
+        confirmando la nota de recibo en Borrador que se creó automáticamente
+        al confirmar la orden con el proveedor.
+        """
         from .models import ReceiptNote, Movement
         
         note = ReceiptNote.objects.get(id=note_id)
@@ -363,6 +373,13 @@ class InventoryService:
         
         note.status = 'CONFIRMED'
         note.save()
+
+        # ✅ Si la nota viene de una orden de compra, finalizar esa orden
+        if note.purchase_order_id:
+            from django_erp.purchasing.services import PurchaseService
+            logger.info(f"🔗 Nota {note.number} vinculada a orden {note.purchase_order.number}, finalizando recepción...")
+            PurchaseService.finalize_receipt(note.purchase_order, user)
+
         return note
 
     @staticmethod

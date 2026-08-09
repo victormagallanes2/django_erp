@@ -547,6 +547,15 @@ class ReceiptNote(models.Model):
     
     number = models.CharField(max_length=50, unique=True, verbose_name="Número de Nota")
     date = models.DateField(auto_now_add=True, verbose_name="Fecha")
+    purchase_order = models.ForeignKey(
+        'purchasing.PurchaseOrder',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='receipt_notes',
+        verbose_name="Orden de Compra",
+        help_text="Orden de compra que originó esta nota (si aplica)."
+    )
     supplier = models.ForeignKey(
         'purchasing.Supplier',
         on_delete=models.PROTECT,

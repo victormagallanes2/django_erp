@@ -261,9 +261,14 @@ class PurchaseOrderForm(forms.ModelForm):
             elif current_status == 'CONFIRMED':
                 self.fields['status'].choices = [
                     ('CONFIRMED', '✅ Confirmado por Proveedor'),
-                    ('RECEIVED', '📦 Recibir Mercancía'),
                     ('CANCELLED', '❌ Cancelar'),
                 ]
+                self.fields['status'].help_text = (
+                    "La recepción ya no se elige aquí manualmente: al confirmar "
+                    "esta orden se creó una Nota de Recibo en Borrador en "
+                    "Inventario. Confírmala allí cuando llegue la mercancía "
+                    "y la orden pasará a 'Recibido' automáticamente."
+                )
             elif current_status == 'RECEIVED':
                 self.fields['status'].choices = [
                     ('RECEIVED', '📦 Recibido'),
@@ -479,16 +484,35 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 obj.save(update_fields=['subtotal', 'tax', 'total'])
             return
 
+        # ✅ Si es una orden NUEVA (no existe fila previa en BD), no hay
+        # una "transición" real que validar/procesar vía PurchaseService
+        # (no existe un estado anterior contra el cual comparar). Se
+        # guarda directamente con el estado elegido en el formulario.
+        if not change or old_status is None:
+            if not obj.user:
+                obj.user = request.user
+            super().save_model(request, obj, form, change)
+            if obj.pk:
+                obj.calculate_totals()
+                obj.save(update_fields=['subtotal', 'tax', 'total'])
+            return
+
         # ✅ Asegurar que el usuario esté asignado
         if not obj.user:
             obj.user = request.user
 
         # ✅ IMPORTANTE: Verificar si la transición es válida ANTES de guardar
+        # ✅ FIX: se pasa old_status explícitamente porque en este punto
+        # obj.status YA fue sobreescrito por Django con el nuevo valor
+        # (form._post_clean() ya volcó cleaned_data sobre la instancia).
+        # Sin esto, can_transition comparaba new_status contra sí mismo
+        # y la validación fallaba siempre, bloqueando cualquier cambio
+        # de estado.
         from .services import PurchaseService
-        if not PurchaseService.can_transition(obj, new_status):
+        if not PurchaseService.can_transition(obj, new_status, current_status=old_status):
             self.message_user(
                 request,
-                f'❌ No se puede cambiar de "{obj.get_status_display()}" a "{dict(PurchaseOrder.STATUS_CHOICES).get(new_status, new_status)}"',
+                f'❌ No se puede cambiar de "{dict(PurchaseOrder.STATUS_CHOICES).get(old_status, old_status)}" a "{dict(PurchaseOrder.STATUS_CHOICES).get(new_status, new_status)}"',
                 messages.ERROR
             )
             # Revertir al estado anterior
@@ -496,7 +520,17 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             super().save_model(request, obj, form, change)
             return
 
-        # ✅ Guardar la orden primero (con el nuevo estado)
+        # ✅ FIX: Guardar la orden con el ESTADO ANTERIOR (old_status),
+        # NO con el nuevo. Antes se guardaba ya con obj.status=new_status,
+        # así que cuando PurchaseService.send_order() / confirm_order_
+        # from_supplier() / receive_order() / cancel_order() revisaban
+        # order.status para validar su precondición (p. ej. "solo se
+        # puede enviar una orden en Borrador"), la orden YA figuraba en
+        # el estado nuevo en la BD y la precondición siempre fallaba.
+        # Ahora el nuevo estado (y sus efectos secundarios: fechas, nota
+        # de recibo, factura, movimientos de inventario, etc.) lo aplica
+        # PurchaseService dentro de _process_status_change().
+        obj.status = old_status
         super().save_model(request, obj, form, change)
 
         # ✅ Recalcular totales
@@ -504,10 +538,9 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             obj.calculate_totals()
             obj.save(update_fields=['subtotal', 'tax', 'total'])
 
-        # ✅ PROCESAR CAMBIO DE ESTADO SOLO SI HAY CAMBIO
-        if old_status != new_status:
-            logger.info(f"🔄 Procesando cambio de estado: {old_status} → {new_status}")
-            self._process_status_change(request, obj, old_status, new_status)
+        # ✅ PROCESAR CAMBIO DE ESTADO (aplica el nuevo estado vía servicio)
+        logger.info(f"🔄 Procesando cambio de estado: {old_status} → {new_status}")
+        self._process_status_change(request, obj, old_status, new_status)
 
     def _process_status_change(self, request, obj, old_status, new_status):
         """Procesar cambios de estado con el nuevo flujo."""
@@ -535,7 +568,9 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 PurchaseService.confirm_order_from_supplier(obj, request.user)
                 self.message_user(
                     request,
-                    f'✅ Orden {obj.number} confirmada por el proveedor',
+                    f'✅ Orden {obj.number} confirmada por el proveedor. '
+                    f'Se creó una Nota de Recibo en Borrador en Inventario; '
+                    f'confírmala allí cuando llegue la mercancía.',
                     messages.SUCCESS
                 )
 
@@ -545,7 +580,7 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 self.message_user(
                     request,
                     f'✅ Orden {obj.number} recibida exitosamente. '
-                    f'Se creó nota de recibo y factura de compra automáticamente.',
+                    f'Se confirmó su nota de recibo automáticamente.',
                     messages.SUCCESS
                 )
 

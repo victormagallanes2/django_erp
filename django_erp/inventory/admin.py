@@ -452,21 +452,21 @@ def cancel_receipt_notes(modeladmin, request, queryset):
 
 @admin.register(ReceiptNote)
 class ReceiptNoteAdmin(CompanyFilterMixin, UnfoldModelAdmin):
-    list_display = ['number', 'supplier_name', 'supplier', 'date', 'status', 'company']
+    list_display = ['number', 'supplier_name', 'supplier', 'purchase_order', 'date', 'status', 'company']
     list_filter = ['status', 'date', 'company']
-    search_fields = ['number', 'supplier_name', 'supplier__name']
+    search_fields = ['number', 'supplier_name', 'supplier__name', 'purchase_order__number']
     inlines = [ReceiptNoteLineInline]
     actions = [confirm_receipt_notes, cancel_receipt_notes]
     
     fieldsets = (
         ('Información', {
-            'fields': ('number', 'supplier', 'supplier_name')
+            'fields': ('number', 'purchase_order', 'supplier', 'supplier_name')
         }),
         ('Detalles', {
             'fields': ('notes', 'status')
         }),
     )
-    readonly_fields = ['number', 'date', 'user', 'created_at', 'updated_at']
+    readonly_fields = ['number', 'date', 'purchase_order', 'user', 'created_at', 'updated_at']
     
     def save_model(self, request, obj, form, change):
         if not obj.user:
