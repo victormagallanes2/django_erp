@@ -445,6 +445,14 @@ class DeliveryNote(models.Model):
     
     number = models.CharField(max_length=50, unique=True, verbose_name="Número de Nota")
     date = models.DateField(auto_now_add=True, verbose_name="Fecha")
+    
+    # ✅ NUEVO: Fecha de confirmación
+    confirmed_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Confirmación"
+    )
+    
     customer = models.ForeignKey(
         'sales.Customer',
         on_delete=models.PROTECT,
@@ -453,7 +461,6 @@ class DeliveryNote(models.Model):
         verbose_name="Cliente",
         related_name='delivery_notes'
     )
-    # Campo de texto libre por si no quieres usar el modelo Customer
     customer_name = models.CharField(max_length=200, blank=True, verbose_name="Nombre del Cliente")
     notes = models.TextField(blank=True, verbose_name="Notas adicionales")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT', verbose_name="Estado")
@@ -644,3 +651,5 @@ class ReceiptNoteLine(models.Model):
 
     def __str__(self):
         return f"{self.note.number} - {self.product.name} x {self.quantity}"
+
+

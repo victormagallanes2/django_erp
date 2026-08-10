@@ -55,7 +55,7 @@ class Customer(models.Model):
 class SaleOrder(models.Model):
     """Orden de venta"""
 
-    # ✅ NUEVO: UUID
+    # UUID
     uuid = models.UUIDField(
         default=uuid.uuid4,
         editable=False,
@@ -64,7 +64,7 @@ class SaleOrder(models.Model):
         verbose_name="ID Universal"
     )
     
-    # ✅ NUEVO: Estado de sincronización
+    # Estado de sincronización
     SYNC_STATUS_CHOICES = [
         ('PENDING', 'Pendiente de sincronizar'),
         ('SYNCING', 'Sincronizando...'),
@@ -79,7 +79,6 @@ class SaleOrder(models.Model):
         verbose_name="Estado de sincronización"
     )
     
-    # ✅ NUEVO: Device ID
     device_id = models.CharField(
         max_length=100,
         blank=True,
@@ -87,10 +86,21 @@ class SaleOrder(models.Model):
         verbose_name="Dispositivo de creación"
     )
     
-    # ✅ NUEVO: Fecha de creación local
     created_at_local = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Creado localmente"
+    )
+
+    # ✅ NUEVO: Campos de fechas para seguimiento
+    confirmed_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Confirmación"
+    )
+    delivered_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Entrega"
     )
 
     STATUS_CHOICES = [
@@ -145,8 +155,6 @@ class SaleOrder(models.Model):
             ("can_view_reports", "Puede ver reportes de ventas"),
         ]
 
-
-
     def __str__(self):
         return f"{self.number} - {self.customer.name}"
 
@@ -155,12 +163,10 @@ class SaleOrder(models.Model):
         from decimal import Decimal, ROUND_HALF_UP
         from django_erp.configuration.models import Company
         
-        # ✅ Asegurar que subtotal sea Decimal
         subtotal = Decimal('0.00')
         for line in self.lines.all():
             subtotal += Decimal(str(line.subtotal))
         
-        # ✅ Obtener IVA de la empresa
         company = Company.get_active()
         if company:
             tax_rate = Decimal(str(company.tax_rate))
@@ -170,7 +176,6 @@ class SaleOrder(models.Model):
         tax = subtotal * (tax_rate / Decimal('100'))
         total = subtotal + tax
         
-        # ✅ Redondear a 2 decimales
         self.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         self.tax = tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         self.total = total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
@@ -178,25 +183,19 @@ class SaleOrder(models.Model):
         return self.subtotal, self.tax, self.total
 
     def save(self, *args, **kwargs):
-        """Guardar la orden"""
-        # ✅ Generar UUID si no tiene
         if not self.uuid:
             self.uuid = uuid.uuid4()
         
-        # ✅ Guardar primero para tener ID
         super().save(*args, **kwargs)
         
-        # ✅ Calcular totales SOLO si tiene líneas
         if self.pk and self.lines.exists():
             self.calculate_totals()
-            # ✅ Guardar solo los campos de totales (evita recursión)
             super().save(update_fields=['subtotal', 'tax', 'total'])
 
 
 class SaleLine(models.Model):
     """Línea de venta - Producto opcional"""
 
-    # ✅ NUEVO: UUID
     uuid = models.UUIDField(
         default=uuid.uuid4,
         editable=False,
@@ -212,7 +211,6 @@ class SaleLine(models.Model):
         verbose_name="Orden"
     )
     
-    # ✅ Producto como ForeignKey condicional
     product = models.ForeignKey(
         'inventory.Product',
         on_delete=models.SET_NULL,
@@ -221,10 +219,8 @@ class SaleLine(models.Model):
         verbose_name="Producto",
         help_text="Seleccionar si es un producto físico",
         related_name='sale_line_products'
-
     )
     
-    # ✅ Ubicación como ForeignKey condicional
     location = models.ForeignKey(
         'inventory.Location',
         on_delete=models.SET_NULL,
@@ -235,7 +231,6 @@ class SaleLine(models.Model):
         related_name='sale_line_locations'
     )
     
-    # ✅ Para servicios (cuando no hay producto)
     product_name = models.CharField(
         max_length=200,
         blank=True,
@@ -250,7 +245,6 @@ class SaleLine(models.Model):
         help_text="Código de ubicación (si aplica)"
     )
     
-    # ✅ Descripción para servicios
     description = models.CharField(
         max_length=200,
         blank=True,
@@ -282,14 +276,12 @@ class SaleLine(models.Model):
         verbose_name = "Línea de Venta"
         verbose_name_plural = "Líneas de Venta"
 
-
     def __str__(self):
         if self.product:
             return f"{self.order.number} - {self.product.name}"
         return f"{self.order.number} - {self.product_name or 'Servicio'}"
 
     def save(self, *args, **kwargs):
-        # ✅ Validación para evitar None
         if self.quantity is None:
             self.quantity = 0
         if self.unit_price is None:
@@ -301,7 +293,6 @@ class SaleLine(models.Model):
             self.product_name = self.product.name
         if not self.location_code and self.location:
             self.location_code = self.location.code
-        # ✅ NUEVO: Generar UUID si no tiene
         if not self.uuid:
             self.uuid = uuid.uuid4()
         super().save(*args, **kwargs)
@@ -310,7 +301,6 @@ class SaleLine(models.Model):
 class CashRegister(models.Model):
     """Registro de caja - Integrado en Sales"""
 
-    # ✅ NUEVO: UUID
     uuid = models.UUIDField(
         default=uuid.uuid4,
         editable=False,
@@ -319,7 +309,6 @@ class CashRegister(models.Model):
         verbose_name="ID Universal"
     )
     
-    # ✅ NUEVO: Estado de sincronización
     SYNC_STATUS_CHOICES = [
         ('PENDING', 'Pendiente de sincronizar'),
         ('SYNCING', 'Sincronizando...'),
@@ -456,22 +445,18 @@ class CashRegister(models.Model):
         """Calcular totales de la caja"""
         from django.db.models import Sum
         
-        # ✅ Calcular ventas
         total_sales = self.transactions.filter(
             type='SALE'
         ).aggregate(total=Sum('amount'))['total'] or 0
         
-        # ✅ Calcular gastos
         total_expenses = self.transactions.filter(
             type='EXPENSE'
         ).aggregate(total=Sum('amount'))['total'] or 0
         
-        # ✅ Calcular retiros
         total_withdrawals = self.transactions.filter(
             type='WITHDRAWAL'
         ).aggregate(total=Sum('amount'))['total'] or 0
         
-        # ✅ Actualizar campos
         self.total_sales = total_sales
         self.total_expenses = total_expenses
         self.total_withdrawals = total_withdrawals
@@ -482,7 +467,6 @@ class CashRegister(models.Model):
             self.total_withdrawals
         )
         
-        # ✅ Guardar sin recursión
         super().save(update_fields=[
             'total_sales', 'total_expenses', 
             'total_withdrawals', 'expected_total'
@@ -491,13 +475,11 @@ class CashRegister(models.Model):
         return self.expected_total
 
     def close(self, counted_total, breakdown=None, note=''):
-        """Cerrar caja"""
         if self.status != 'OPEN':
             raise ValidationError("Solo se puede cerrar una caja abierta")
         
         from django.utils import timezone
         
-        # ✅ Recalcular antes de cerrar
         self.calculate_totals()
         
         self.counted_total = counted_total
@@ -513,31 +495,15 @@ class CashRegister(models.Model):
         return self.difference
 
     def save(self, *args, **kwargs):
-        """
-        💾 Guardar la caja con:
-        1. 🔢 Generación automática de número correlativo (CAJA-YYYYMMDD-XXXX)
-        2. 🔒 Validación de caja única por usuario
-        """
-        
-        # ============================================================
-        # 🔢 1. GENERAR NÚMERO AUTOMÁTICO SI NO EXISTE
-        # ============================================================
-        
         if not self.number:
             from datetime import datetime
-            
-            # 📅 Obtener fecha actual en formato YYYYMMDD
             date_str = datetime.now().strftime('%Y%m%d')
-            
-            # 🔍 Buscar la última caja del día actual
             last = CashRegister.objects.filter(
                 number__startswith=f'CAJA-{date_str}'
             ).order_by('number').last()
             
-            # 🔢 Calcular el siguiente número correlativo
             if last:
                 try:
-                    # Extraer el número final (ej: CAJA-20260709-0001 -> 0001)
                     last_num = int(last.number.split('-')[-1])
                     next_num = last_num + 1
                 except (ValueError, IndexError):
@@ -545,18 +511,9 @@ class CashRegister(models.Model):
             else:
                 next_num = 1
             
-            # 📝 Generar el número completo con 4 dígitos
             self.number = f'CAJA-{date_str}-{next_num:04d}'
-            
-            print(f"🔢 Número de caja generado: {self.number}")  # 👈 Para depuración
-        
-        # ============================================================
-        # 🔒 2. VALIDAR QUE NO HAYA OTRA CAJA ABIERTA
-        # ============================================================
         
         if self.status == 'OPEN':
-            # ✅ Verificar si ya hay una caja abierta para este usuario
-            # ⚠️ Excluir la instancia actual si ya existe (para el caso de edición)
             existing_open = CashRegister.objects.filter(
                 user=self.user,
                 status='OPEN'
@@ -568,14 +525,12 @@ class CashRegister(models.Model):
                     "Debe cerrarla antes de abrir una nueva."
                 )
         
-        # ✅ Guardar la caja
         super().save(*args, **kwargs)
 
 
 class CashTransaction(models.Model):
     """Transacción de caja"""
     
-    # ✅ NUEVO: UUID
     uuid = models.UUIDField(
         default=uuid.uuid4,
         editable=False,
@@ -584,7 +539,6 @@ class CashTransaction(models.Model):
         verbose_name="ID Universal"
     )
     
-    # ✅ NUEVO: Estado de sincronización
     SYNC_STATUS_CHOICES = [
         ('PENDING', 'Pendiente de sincronizar'),
         ('SYNCING', 'Sincronizando...'),
@@ -600,7 +554,6 @@ class CashTransaction(models.Model):
         verbose_name="Estado de sincronización"
     )
     
-    # ✅ NUEVO: Device ID
     device_id = models.CharField(
         max_length=100,
         blank=True,
@@ -608,7 +561,6 @@ class CashTransaction(models.Model):
         verbose_name="Dispositivo de creación"
     )
     
-    # ✅ NUEVO: Fecha de creación local
     created_at_local = models.DateTimeField(
         auto_now_add=True,
         db_index=True,
@@ -690,14 +642,12 @@ class Payment(models.Model):
         verbose_name="Orden de Venta"
     )
     
-    # ✅ Método de pago (reutilizado)
     method = models.ForeignKey(
         'configuration.PaymentMethod',
         on_delete=models.PROTECT,
         verbose_name="Método de Pago"
     )
 
-    # ✅ Moneda en la que paga el cliente
     currency = models.ForeignKey(
         'configuration.Currency',
         on_delete=models.PROTECT,
@@ -706,14 +656,12 @@ class Payment(models.Model):
         verbose_name="Moneda"
     )
 
-    # ✅ Monto que pagó el cliente
     amount = models.DecimalField(
         max_digits=20,
         decimal_places=2,
         verbose_name="Monto"
     )
 
-    # ✅ Monto convertido a USD (automático)
     amount_usd = models.DecimalField(
         max_digits=20,
         decimal_places=2,
@@ -722,14 +670,12 @@ class Payment(models.Model):
         verbose_name="Monto en USD"
     )
 
-    # ✅ Referencia (número de transacción, cheque, etc.)
     reference = models.CharField(
         max_length=100,
         blank=True,
         verbose_name="Referencia"
     )
     
-    # ✅ NUEVO: Banco del cliente (solo texto, NO es FK)
     customer_bank = models.CharField(
         max_length=200,
         blank=True,
@@ -791,7 +737,6 @@ class Payment(models.Model):
             usd = Currency.objects.get(code='USD')
             self.currency = usd
         
-        # ✅ Convertir a USD
         if self.currency.code == 'USD':
             self.amount_usd = self.amount
         else:
@@ -805,3 +750,314 @@ class Payment(models.Model):
         
         super().save(*args, **kwargs)
 
+
+class SaleInvoice(models.Model):
+    """Factura de Venta"""
+    
+    # UUID
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="ID Universal"
+    )
+    
+    SYNC_STATUS_CHOICES = [
+        ('PENDING', 'Pendiente de sincronizar'),
+        ('SYNCING', 'Sincronizando...'),
+        ('SYNCED', 'Sincronizada'),
+        ('FAILED', 'Error en sincronización'),
+    ]
+    
+    sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        default='PENDING',
+        db_index=True,
+        verbose_name="Estado de sincronización"
+    )
+    
+    device_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="Dispositivo de creación"
+    )
+    
+    created_at_local = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        verbose_name="Creado localmente"
+    )
+    
+    synced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Sincronizado el"
+    )
+    
+    sync_attempts = models.IntegerField(
+        default=0,
+        verbose_name="Intentos de sincronización"
+    )
+    
+    sync_error = models.TextField(
+        blank=True,
+        verbose_name="Error de sincronización"
+    )
+    
+    # Estados de factura
+    STATUS_CHOICES = [
+        ('DRAFT', 'Borrador'),
+        ('ISSUED', 'Emitida'),
+        ('PAID', 'Pagada'),
+        ('CANCELLED', 'Anulada'),
+    ]
+    
+    # Número de factura
+    number = models.CharField(max_length=50, unique=True, verbose_name="Número de Factura")
+    
+    # Relación con la orden de venta
+    sale_order = models.ForeignKey(
+        'sales.SaleOrder',
+        on_delete=models.CASCADE,
+        related_name='invoices',
+        verbose_name="Orden de Venta"
+    )
+    
+    # Cliente
+    customer = models.ForeignKey(
+        'sales.Customer',
+        on_delete=models.PROTECT,
+        verbose_name="Cliente"
+    )
+    
+    # Datos del cliente (copia)
+    customer_name = models.CharField(
+        max_length=200,
+        verbose_name="Nombre del Cliente"
+    )
+    customer_tax_id = models.CharField(
+        max_length=20,
+        verbose_name="RIF / Cédula del Cliente"
+    )
+    customer_address = models.TextField(
+        blank=True,
+        verbose_name="Dirección del Cliente"
+    )
+    
+    # Fechas
+    date_issued = models.DateField(auto_now_add=True, verbose_name="Fecha de Emisión")
+    date_due = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Vencimiento"
+    )
+    
+    # Estado
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='DRAFT',
+        verbose_name="Estado"
+    )
+    
+    # Totales
+    subtotal = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0, 
+        verbose_name="Subtotal"
+    )
+    tax_rate = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        default=16.00, 
+        verbose_name="Tasa IVA (%)"
+    )
+    tax = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0, 
+        verbose_name="IVA"
+    )
+    total = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0, 
+        verbose_name="Total"
+    )
+    
+    # Observaciones
+    note = models.TextField(blank=True, verbose_name="Nota")
+    user = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        verbose_name="Usuario"
+    )
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='sale_invoices'
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Factura de Venta"
+        verbose_name_plural = "Facturas de Venta"
+        ordering = ['-date_issued', '-created_at']
+        permissions = [
+            ("can_view_saleinvoice", "Puede ver facturas de venta"),
+            ("can_edit_saleinvoice", "Puede editar facturas de venta"),
+            ("can_delete_saleinvoice", "Puede eliminar facturas de venta"),
+            ("can_issue_saleinvoice", "Puede emitir facturas de venta"),
+            ("can_pay_saleinvoice", "Puede pagar facturas de venta"),
+            ("can_cancel_saleinvoice", "Puede anular facturas de venta"),
+        ]
+
+    def __str__(self):
+        return f"{self.number} - {self.customer_name}"
+
+    def calculate_totals(self):
+        """Calcular totales usando el IVA de la empresa"""
+        from decimal import Decimal, ROUND_HALF_UP
+        from django_erp.configuration.models import Company
+        
+        subtotal = sum(line.subtotal for line in self.lines.all())
+        
+        company = Company.get_active()
+        if company:
+            tax_rate = Decimal(str(company.tax_rate))
+        else:
+            tax_rate = Decimal('16.00')
+        
+        tax = subtotal * (tax_rate / Decimal('100'))
+        total = subtotal + tax
+        
+        self.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        self.tax = tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        self.total = total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        
+        return self.subtotal, self.tax, self.total
+
+    def save(self, *args, **kwargs):
+        if not self.uuid:
+            self.uuid = uuid.uuid4()
+        
+        if self.sale_order and self.sale_order.customer:
+            self.customer = self.sale_order.customer
+            self.customer_name = self.sale_order.customer.name
+            self.customer_tax_id = self.sale_order.customer.tax_id
+            self.customer_address = self.sale_order.customer.address
+        
+        super().save(*args, **kwargs)
+        
+        if self.pk and self.lines.exists():
+            self.calculate_totals()
+            super().save(update_fields=['subtotal', 'tax', 'total'])
+
+
+class SaleInvoiceLine(models.Model):
+    """Línea de Factura de Venta"""
+    
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="ID Universal"
+    )
+    
+    invoice = models.ForeignKey(
+        SaleInvoice,
+        on_delete=models.CASCADE,
+        related_name='lines',
+        verbose_name="Factura de Venta"
+    )
+    
+    # Relación con la línea de venta original
+    sale_line = models.ForeignKey(
+        'sales.SaleLine',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Línea de Venta Original"
+    )
+    
+    # Producto (opcional)
+    product = models.ForeignKey(
+        'inventory.Product',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Producto"
+    )
+    
+    # Datos del producto (copia)
+    product_code = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name="Código de Producto"
+    )
+    product_name = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Nombre del Producto/Servicio"
+    )
+    description = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Descripción"
+    )
+    
+    # Cantidad y precios
+    quantity = models.IntegerField(verbose_name="Cantidad")
+    unit_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        verbose_name="Precio unitario"
+    )
+    subtotal = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        editable=False,
+        verbose_name="Subtotal"
+    )
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        verbose_name="Compañía/Sucursal",
+        related_name='sale_invoice_lines'
+    )
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Línea de Factura de Venta"
+        verbose_name_plural = "Líneas de Factura de Venta"
+
+    def __str__(self):
+        return f"{self.invoice.number} - {self.product_name or self.product_code or 'Sin producto'}"
+
+    def save(self, *args, **kwargs):
+        if self.sale_line:
+            if self.sale_line.product:
+                self.product = self.sale_line.product
+                self.product_code = self.sale_line.product.code
+                self.product_name = self.sale_line.product.name
+            else:
+                self.product_name = self.sale_line.product_name
+                self.product_code = self.sale_line.product_code
+            self.quantity = self.sale_line.quantity
+            self.unit_price = self.sale_line.unit_price
+            self.description = self.sale_line.description or self.product_name
+        
+        if not self.uuid:
+            self.uuid = uuid.uuid4()
+        
+        self.subtotal = self.quantity * self.unit_price
+        super().save(*args, **kwargs)

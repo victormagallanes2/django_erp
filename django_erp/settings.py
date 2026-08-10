@@ -213,6 +213,7 @@ def get_menu_items(request):
                 "icon": "fact_check",
                 "link": "/admin/inventory/physicalcount/",
             })
+
         
         if inventory_items:
             navigation.append({
@@ -279,13 +280,19 @@ def get_menu_items(request):
                 "icon": "payments",
                 "link": "/admin/sales/cashregister/",
             })
-
+        if user.has_perm('sales.view_saleorder'):
+            sales_items.append({
+                "title": "Facturas",
+                "icon": "fact_check",
+                "link": "/admin/sales/saleinvoice/",
+            })
         if user.has_perm('sales.can_view_reports'):
             sales_items.append({
                 "title": "Reporte de Ventas",
                 "icon": "assessment", # Icono de Material Symbols
                 "link": "/admin/sales/saleorder/sales-report/", # URL que definimos en get_urls
             })
+
         
         if sales_items:
             navigation.append({

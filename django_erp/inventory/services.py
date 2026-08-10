@@ -1,4 +1,4 @@
-# inventory/services.py
+# inventory/services.py - VERSIÓN COMPLETA CON MEJORAS PARA NOTAS DE ENTREGA
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from .models import Inventory, ValuationMethod, PhysicalCount, Product, Location, Movement
@@ -92,10 +92,6 @@ class WarehouseService:
         )
         
         logger.info(f"   ✅ Movimiento creado: ID {movement.id}")
-        
-        # ✅ NO llamamos a update_stock_from_movement aquí
-        # La señal post_save se encargará de actualizar el inventario
-        # Esto evita la doble actualización
         logger.info("   ℹ️ La señal post_save actualizará el inventario automáticamente")
         
         logger.info("🔴 [create_entry] FINALIZADO EXITOSAMENTE")
@@ -156,9 +152,6 @@ class WarehouseService:
         )
         
         logger.info(f"   ✅ Movimiento creado: ID {movement.id}")
-        
-        # ✅ NO llamamos a update_stock_from_movement aquí
-        # La señal post_save se encargará de actualizar el inventario
         logger.info("   ℹ️ La señal post_save actualizará el inventario automáticamente")
         
         logger.info("🔴 [create_exit] FINALIZADO EXITOSAMENTE")
@@ -352,8 +345,16 @@ class InventoryService:
     @staticmethod
     @transaction.atomic
     def confirm_delivery_note(note_id, user=None):
-        """Confirmar una Nota de Entrega y crear movimientos de salida."""
+        """
+        ✅ Confirmar una Nota de Entrega.
+        - Crea movimientos de salida (resta stock)
+        - Marca la nota como CONFIRMADA
+        - Actualiza la orden de venta a DELIVERED
+        - Genera la factura de venta
+        """
         from .models import DeliveryNote, Movement
+        from django_erp.sales.models import SaleOrder
+        from django_erp.sales.services import SaleService
         
         logger.info("=" * 80)
         logger.info("🔴 [confirm_delivery_note] INICIANDO CONFIRMACIÓN")
@@ -377,12 +378,14 @@ class InventoryService:
         
         logger.info(f"   📊 Líneas a procesar: {note.lines.count()}")
         
+        # ✅ Procesar cada línea y crear movimientos de salida
         for idx, line in enumerate(note.lines.all(), 1):
             logger.info(f"   📝 Procesando línea {idx}:")
             logger.info(f"      - Producto: {line.product.name}")
             logger.info(f"      - Cantidad: {line.quantity}")
             logger.info(f"      - Ubicación: {line.location.code}")
             
+            # Verificar stock disponible
             stock = InventoryService.get_stock_by_location(line.product.id, line.location.id, line.company)
             logger.info(f"      - Stock disponible: {stock}")
             
@@ -407,10 +410,52 @@ class InventoryService:
             )
             logger.info(f"      ✅ Línea {idx} procesada exitosamente")
         
+        # ✅ Marcar nota como CONFIRMADA
         note.status = 'CONFIRMED'
         note.save()
+        logger.info(f"   ✅ Nota {note.number} marcada como CONFIRMADA")
         
-        logger.info(f"✅ Nota {note.number} confirmada exitosamente")
+        # ✅ Buscar la orden de venta asociada y marcarla como DELIVERED
+        # Buscar por número de nota en la referencia o por cliente
+        sale_order = None
+        
+        # Intentar encontrar la orden por la referencia en las líneas
+        if note.lines.exists():
+            first_line = note.lines.first()
+            # Buscar movimientos con source_reference = note.number
+            from .models import Movement
+            movement = Movement.objects.filter(
+                source_reference=note.number,
+                source_type='SALE'
+            ).first()
+            if movement:
+                # Buscar la orden por el número de referencia
+                sale_order = SaleOrder.objects.filter(
+                    number=movement.source_reference,
+                    company=note.company
+                ).first()
+        
+        # Si no se encontró, buscar por cliente y fecha
+        if not sale_order and note.customer:
+            sale_order = SaleOrder.objects.filter(
+                customer=note.customer,
+                company=note.company,
+                status='CONFIRMED'
+            ).order_by('-date').first()
+        
+        if sale_order:
+            logger.info(f"   🔗 Orden de venta encontrada: {sale_order.number}")
+            try:
+                # ✅ Marcar la orden como entregada (esto genera la factura)
+                SaleService.deliver_order(sale_order, user)
+                logger.info(f"   ✅ Orden {sale_order.number} marcada como DELIVERED")
+            except Exception as e:
+                logger.error(f"   ❌ Error al marcar la orden como entregada: {e}")
+                # No bloqueamos la confirmación de la nota
+        else:
+            logger.warning("   ⚠️ No se encontró una orden de venta asociada a esta nota")
+        
+        logger.info("✅ [confirm_delivery_note] CONFIRMACIÓN COMPLETADA EXITOSAMENTE")
         logger.info("=" * 80)
         return note
 
@@ -485,7 +530,6 @@ class InventoryService:
         note.save()
         logger.info(f"   ✅ Nota {note.number} marcada como CONFIRMADA")
 
-        # ✅ Finalizar la orden de compra si la nota está vinculada a una
         if note.purchase_order_id:
             logger.info(f"🔗 Nota {note.number} vinculada a orden {note.purchase_order.number}")
             logger.info("   🔄 Llamando a PurchaseService.finalize_receipt()...")

@@ -1,94 +1,68 @@
-# sales/signals.py
-from django.db.models.signals import post_save
-from django.dispatch import Signal, receiver
-from .models import SaleOrder, CashTransaction, CashRegister
+# sales/signals.py - CON SEÑALES PARA CREAR NOTAS DE ENTREGA Y SEÑAL order_confirmed
+from django.db.models.signals import post_save, pre_save
+from django.dispatch import receiver, Signal
+from django.core.exceptions import ValidationError
+from .models import SaleOrder
+from .services import SaleService
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Señal que se emite cuando una orden se confirma
+# ✅ SEÑAL PARA CUANDO UNA ORDEN ES CONFIRMADA
 order_confirmed = Signal()
 
 
-@receiver(post_save, sender=SaleOrder)
-def detect_order_status_change(sender, instance, created, **kwargs):
+@receiver(pre_save, sender=SaleOrder)
+def check_status_transition(sender, instance, **kwargs):
     """
-    Detecta cuando una orden cambia de DRAFT a CONFIRMED
-    ✅ Usa una bandera para evitar duplicados
+    ✅ Validar transiciones de estado antes de guardar.
     """
-    # ✅ Si es una orden nueva, no hacer nada
-    if created:
-        return
-    
-    # ✅ ✅ ✅ BANDERA: Si ya se emitió la señal, no repetir
-    if hasattr(instance, '_order_confirmed_signal_sent'):
+    if not instance.pk:
         return
     
     try:
-        # ✅ Obtener el estado anterior
-        old_instance = SaleOrder.objects.get(pk=instance.pk)
-        
-        # ✅ Si pasó de DRAFT a CONFIRMED
-        if old_instance.status == 'DRAFT' and instance.status == 'CONFIRMED':
-            print(f"🔴 Orden {instance.number} confirmada (post_save)")
-            
-            # ✅ ✅ ✅ MARCAR como enviada
-            instance._order_confirmed_signal_sent = True
-            
-            # ✅ Emitir señal
-            order_confirmed.send(sender=SaleOrder, order=instance)
-            print(f"   ✅ Señal emitida")
-            
+        old = SaleOrder.objects.get(pk=instance.pk)
+        if old.status != instance.status:
+            if not SaleService.can_transition(instance, instance.status, old.status):
+                raise ValidationError(
+                    f"No se puede cambiar de '{old.get_status_display()}' a "
+                    f"'{instance.get_status_display()}'"
+                )
     except SaleOrder.DoesNotExist:
         pass
 
 
-@receiver(order_confirmed)
-def register_sale_in_cash(sender, order, **kwargs):
-    """Cuando se confirma una venta, registrarla en la caja abierta"""
-    print(f"🔴 SIGNAL: register_sale_in_cash called for {order.number}")
-    
-    try:
-        user = getattr(order, '_status_changed_by', order.user)
-        print(f"   Usuario: {user}")
-        
-        register = CashRegister.objects.filter(
-            user=user,
-            status='OPEN'
-        ).first()
-        
-        if not register:
-            print(f"   ❌ No hay caja abierta para {user.username}")
-            logger.warning(f"⚠️ No hay caja abierta para {user.username}")
-            return
-        
-        print(f"   ✅ Caja encontrada: {register.number}")
-        
-        existing = CashTransaction.objects.filter(
-            reference=order.number,
-            type='SALE'
-        ).exists()
-        
-        if existing:
-            print(f"   ⚠️ Transacción ya existe para {order.number}")
-            return
-        
-        transaction = CashTransaction.objects.create(
-            register=register,
-            type='SALE',
-            amount=order.total,
-            description=f"Venta {order.number} - {order.customer.name}",
-            reference=order.number,
-            user=user
-        )
-        print(f"   ✅ Transacción creada: {transaction.id}")
-        
-        register.calculate_totals()
-        print(f"   ✅ Totales recalculados")
-        logger.info(f"✅ Venta {order.number} registrada en caja {register.number}")
-        
-    except Exception as e:
-        print(f"   ❌ ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        logger.error(f"❌ Error al registrar venta en caja: {e}")
+@receiver(post_save, sender=SaleOrder)
+def create_delivery_note_on_confirm(sender, instance, created, **kwargs):
+    """
+    ✅ Cuando una venta se confirma, crear una Nota de Entrega en Borrador.
+    """
+    # Solo ejecutar si el estado cambió a CONFIRMED
+    if instance.pk:
+        try:
+            old = SaleOrder.objects.get(pk=instance.pk)
+            # Si el estado cambió a CONFIRMED y antes no lo estaba
+            if old.status != 'CONFIRMED' and instance.status == 'CONFIRMED':
+                logger.info("=" * 80)
+                logger.info(f"🔴 [create_delivery_note_on_confirm] Orden {instance.number} confirmada")
+                logger.info("   🔄 Creando nota de entrega...")
+                
+                # Llamar al servicio para crear la nota de entrega
+                # Pero solo si no se ha creado ya (evitar duplicados)
+                from django_erp.inventory.models import DeliveryNote
+                existing = DeliveryNote.objects.filter(
+                    customer=instance.customer,
+                    customer_name=instance.customer.name,
+                    notes__icontains=f"Venta {instance.number}",
+                    company=instance.company,
+                    status='DRAFT'
+                ).first()
+                
+                if not existing:
+                    SaleService.confirm_order(instance, instance.user)
+                    logger.info(f"   ✅ Nota de entrega creada para orden {instance.number}")
+                else:
+                    logger.info(f"   ℹ️ Nota de entrega ya existe para orden {instance.number}")
+                logger.info("=" * 80)
+        except SaleOrder.DoesNotExist:
+            pass

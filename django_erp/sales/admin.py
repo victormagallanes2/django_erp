@@ -1,4 +1,4 @@
-# sales/admin.py - VERSIÓN COMPLETA CON CAJA
+# sales/admin.py - VERSIÓN COMPLETA CON IMPORTACIÓN CORRECTA
 from django.contrib import admin
 from django import forms
 from django.utils.html import format_html
@@ -14,13 +14,14 @@ from .helpers import get_open_register
 from decimal import Decimal, ROUND_HALF_UP
 from django.utils import timezone
 from django_erp.configuration.models import ExchangeRate, Company
-from .models import Payment
+from .models import Payment, SaleInvoiceLine, SaleInvoice
 from django_erp.configuration.models import PaymentMethod
 from django.urls import path
 from django.views.generic import TemplateView
 from unfold.views import UnfoldModelAdminViewMixin
 from .services import SaleReportService
 from django_erp.configuration.mixins import CompanyFilterMixin
+from .signals import order_confirmed
 
 
 @admin.register(Customer)
@@ -432,12 +433,10 @@ class SalesReportView(UnfoldModelAdminViewMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         
-        # ✅ OBTENER LA COMPAÑÍA ACTIVA DEL REQUEST
         company = getattr(self.request, 'current_company', None)
         if not company:
             company = Company.get_active()
         
-        # ✅ PASAR LA COMPAÑÍA A LOS SERVICIOS
         grand_totals = SaleReportService.get_grand_totals(company=company)
         labels, totals = SaleReportService.get_totals_by_period(
             period_type='day', 
@@ -449,7 +448,6 @@ class SalesReportView(UnfoldModelAdminViewMixin, TemplateView):
         context['chart_labels'] = labels
         context['chart_totals'] = totals
         
-        # ✅ AGREGAR LA COMPAÑÍA AL CONTEXTO PARA MOSTRAR EN EL TEMPLATE
         context['company_name'] = company.name if company else "Todas"
         context['company_code'] = company.code if company else ""
         
@@ -466,7 +464,6 @@ class CashRegisterForm(forms.ModelForm):
         self._request = kwargs.pop('request', None)
         super().__init__(*args, **kwargs)
         
-        # ✅ Si es una nueva caja, asignar compañía
         if self._request and not self.instance.pk:
             company = getattr(self._request, 'current_company', None)
             if company:
@@ -484,7 +481,6 @@ class CashRegisterForm(forms.ModelForm):
     def save(self, commit=True):
         instance = super().save(commit=False)
         
-        # ✅ Red de seguridad: asignar compañía si no tiene
         if not instance.company_id:
             if self._request:
                 company = getattr(self._request, 'current_company', None)
@@ -590,7 +586,7 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
 
     def save_formset(self, request, form, formset, change):
         from .services import SaleService
-        from .signals import order_confirmed
+        from .signals import order_confirmed  # ✅ IMPORTACIÓN CORRECTA
         from decimal import Decimal
         
         company = form.instance.company
@@ -762,7 +758,7 @@ class CashTransactionInline(UnfoldTabularInline):
 
 @admin.register(CashRegister)
 class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
-    form = CashRegisterForm  # ✅ Usar formulario personalizado
+    form = CashRegisterForm
     
     inlines = [CashTransactionInline]
     
@@ -814,7 +810,6 @@ class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         return qs.filter(user=request.user)
 
     def get_form(self, request, obj=None, **kwargs):
-        """✅ Pasar el request al formulario"""
         form_class = super().get_form(request, obj, **kwargs)
         
         def form_with_request(*args, **kwargs):
@@ -824,8 +819,6 @@ class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         return form_with_request
 
     def save_model(self, request, obj, form, change):
-        """✅ Guardar la caja con compañía asignada"""
-        # ✅ Red de seguridad: asignar compañía si no tiene
         if not obj.company_id:
             company = getattr(request, 'current_company', None)
             if company:
@@ -927,3 +920,86 @@ class CashTransactionAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             return "Sin tasa"
         except:
             return "Error"
+
+
+class SaleInvoiceLineInline(UnfoldTabularInline):
+    """Inline de líneas de factura de venta"""
+    model = SaleInvoiceLine
+    extra = 0
+    fields = ['product', 'quantity', 'unit_price', 'subtotal']
+    readonly_fields = ['subtotal']
+    autocomplete_fields = ['product']
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        from django_erp.inventory.models import Product
+        
+        company = getattr(request, 'current_company', None)
+        if company:
+            formset.form.base_fields['product'].queryset = Product.objects.filter(
+                company=company,
+                is_active=True
+            )
+        else:
+            formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
+        return formset
+
+
+@admin.register(SaleInvoice)
+class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
+    """Admin de facturas de venta"""
+    
+    list_display = [
+        'number',
+        'company_display',
+        'customer',
+        'date_issued',
+        'total',
+        'status',
+        'created_at'
+    ]
+    list_filter = ['status', 'date_issued', 'company']
+    search_fields = ['number', 'customer__name', 'customer_tax_id', 'company__name']
+    
+    inlines = [SaleInvoiceLineInline]
+    autocomplete_fields = ['customer', 'sale_order']
+    
+    fieldsets = (
+        ('Información', {
+            'fields': ('number', 'sale_order', 'customer', 'status')
+        }),
+        ('Datos del Cliente', {
+            'fields': ('customer_name', 'customer_tax_id', 'customer_address')
+        }),
+        ('Fechas', {
+            'fields': ('date_issued', 'date_due')
+        }),
+        ('Totales', {
+            'fields': ('subtotal', 'tax', 'total')
+        }),
+        ('Información Adicional', {
+            'fields': ('note',)
+        }),
+    )
+    
+    readonly_fields = ['date_issued', 'subtotal', 'tax', 'total', 'user', 'created_at', 'updated_at']
+    
+    class Media:
+        js = ('admin/js/sale_invoice_admin.js',)
+    
+    @admin.display(description='Compañía', ordering='company__name')
+    def company_display(self, obj):
+        if obj.company:
+            return format_html(
+                '<span style="font-weight: 500;">{} - {}</span>',
+                obj.company.code,
+                obj.company.name
+            )
+        return "Sin compañía"
+    
+    def save_model(self, request, obj, form, change):
+        if not obj.user:
+            obj.user = request.user
+        super().save_model(request, obj, form, change)
+        obj.calculate_totals()
+        obj.save(update_fields=['subtotal', 'tax', 'total'])
