@@ -236,7 +236,7 @@ def get_menu_items(request):
         
         if user.has_perm('purchasing.view_purchaseorder'):
             purchasing_items.append({
-                "title": "Compra",
+                "title": "Ordenes de Compras",
                 "icon": "shopping_cart",
                 "link": "/admin/purchasing/purchaseorder/",
             })
@@ -269,7 +269,7 @@ def get_menu_items(request):
         
         if user.has_perm('sales.view_saleorder'):
             sales_items.append({
-                "title": "Ventas",
+                "title": "Ordenes de Ventas",
                 "icon": "receipt_long",
                 "link": "/admin/sales/saleorder/",
             })
@@ -282,7 +282,7 @@ def get_menu_items(request):
             })
         if user.has_perm('sales.view_saleorder'):
             sales_items.append({
-                "title": "Facturas",
+                "title": "Facturas de Ventas",
                 "icon": "fact_check",
                 "link": "/admin/sales/saleinvoice/",
             })
