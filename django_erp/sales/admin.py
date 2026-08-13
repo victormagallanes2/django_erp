@@ -202,8 +202,14 @@ class SaleInvoiceLineForm(forms.ModelForm):
         fields = ['product', 'quantity', 'unit_price']
     
     def __init__(self, *args, **kwargs):
-        self._request = kwargs.pop('request', None)
         super().__init__(*args, **kwargs)
+        # Hacer el campo unit_price de solo lectura
+        if 'unit_price' in self.fields:
+            self.fields['unit_price'].widget.attrs.update({
+                'readonly': 'readonly',
+                'style': 'background-color: #f0f0f0; cursor: not-allowed;'
+            })
+
     
     def save(self, commit=True):
         instance = super().save(commit=False)
