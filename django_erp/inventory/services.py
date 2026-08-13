@@ -1,7 +1,7 @@
 # inventory/services.py - VERSIÓN COMPLETA CON MEJORAS PARA NOTAS DE ENTREGA
 from django.db import transaction
 from django.core.exceptions import ValidationError
-from .models import Inventory, ValuationMethod, PhysicalCount, Product, Location, Movement
+from .models import Inventory, PhysicalCount, Product, Location, Movement
 from django_erp.configuration.models import Company
 import logging
 
@@ -262,7 +262,6 @@ class InventoryService:
                 company=movement.company,
                 defaults={
                     'quantity': 0,
-                    'average_cost': 0,
                     'total_value': 0,
                 }
             )
@@ -273,15 +272,8 @@ class InventoryService:
             if movement.type == 'ENTRY':
                 logger.info("   📥 Procesando ENTRADA...")
                 inventory.quantity += movement.quantity
-                if movement.unit_price:
-                    total_cost_before = (inventory.quantity - movement.quantity) * inventory.average_cost
-                    total_cost_new = movement.quantity * movement.unit_price
-                    new_total_quantity = inventory.quantity
-                    
-                    if new_total_quantity > 0:
-                        inventory.average_cost = (total_cost_before + total_cost_new) / new_total_quantity
-                    else:
-                        inventory.average_cost = movement.unit_price
+                # ✅ Actualizar valor total con el precio del movimiento
+                inventory.total_value = inventory.quantity * movement.unit_price
                 logger.info(f"   Nueva cantidad: {inventory.quantity}")
                     
             elif movement.type == 'EXIT':
@@ -291,14 +283,20 @@ class InventoryService:
                     raise ValidationError(f"Stock insuficiente para {movement.product.name}. "
                                          f"Disponible: {inventory.quantity}, Solicitado: {movement.quantity}")
                 inventory.quantity -= movement.quantity
+                # ✅ Recalcular valor total con el precio promedio ponderado
+                if inventory.quantity > 0:
+                    # Mantener el valor total proporcional a la cantidad restante
+                    inventory.total_value = inventory.quantity * (inventory.total_value / (inventory.quantity + movement.quantity))
+                else:
+                    inventory.total_value = 0
                 logger.info(f"   Nueva cantidad: {inventory.quantity}")
                 
             elif movement.type == 'TRANSFER':
                 logger.info("   🔄 Procesando TRASLADO...")
                 # Los traslados se manejan en dos pasos
+                # No modificar el inventario aquí, se maneja con dos movimientos separados
                 pass
             
-            inventory.total_value = inventory.quantity * inventory.average_cost
             inventory.save()
             
             logger.info(f"   ✅ Inventario guardado exitosamente")
@@ -329,12 +327,11 @@ class InventoryService:
             company=count.company,
             defaults={
                 'quantity': 0,
-                'average_cost': 0,
                 'total_value': 0,
             }
         )
         inventory.quantity = count.counted_quantity
-        inventory.total_value = inventory.quantity * inventory.average_cost
+        inventory.total_value = inventory.quantity
         inventory.save()
         
         count.status = 'CONFIRMED'

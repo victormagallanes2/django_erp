@@ -6,7 +6,7 @@ from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from unfold.admin import TabularInline as UnfoldTabularInline
 from .models import (
     Product, Location, Movement,
-    Inventory, ValuationMethod, PhysicalCount
+    Inventory, PhysicalCount
 )
 from django_erp.configuration.models import ExchangeRate, Currency, Company
 from django_erp.configuration.mixins import CompanyFilterMixin
@@ -299,8 +299,8 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         'location',
         'company_display',
         'quantity',
-        'total_value_usd_display',
-        'total_value_bs_display',
+        # 'total_value_usd_display',
+        # 'total_value_bs_display',
         'updated_at'
     ]
     list_filter = ['company', 'location']
@@ -333,11 +333,6 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             return "Error"
 
 
-@admin.register(ValuationMethod)
-class ValuationMethodAdmin(CompanyFilterMixin, UnfoldModelAdmin):
-    list_display = ['product', 'company', 'method', 'standard_cost']
-    list_filter = ['company', 'method']
-    search_fields = ['product__name', 'company__name']
 
 
 @admin.register(PhysicalCount)

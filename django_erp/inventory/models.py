@@ -277,7 +277,6 @@ class Inventory(models.Model):
     )
     
     quantity = models.IntegerField(default=0, verbose_name="Cantidad")
-    average_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Costo promedio")
     total_value = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Valor total")
     company = models.ForeignKey(
         Company,
@@ -301,42 +300,6 @@ class Inventory(models.Model):
         return f"{self.product.name} - {self.location.code}: {self.quantity}"
 
 
-class ValuationMethod(models.Model):
-    """Método de valoración de inventario"""
-    
-    METHOD_CHOICES = [
-        ('FIFO', 'FIFO (First In First Out)'),
-        ('LIFO', 'LIFO (Last In First Out)'),
-        ('AVERAGE', 'Costo Promedio'),
-        ('STANDARD', 'Costo Estándar'),
-    ]
-    
-    product = models.OneToOneField(
-        Product,
-        on_delete=models.CASCADE,
-        related_name='valuation_method',
-        verbose_name="Producto"
-    )
-    method = models.CharField(max_length=10, choices=METHOD_CHOICES, default='AVERAGE', verbose_name="Método")
-    standard_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Costo estándar")
-    company = models.ForeignKey(
-        Company,
-        on_delete=models.CASCADE,
-        verbose_name="Compañía/Sucursal",
-        related_name='valuationmethod'
-    )
-    history = HistoricalRecords()
-    
-    class Meta:
-        verbose_name = "Método de Valoración"
-        verbose_name_plural = "Métodos de Valoración"
-        permissions = [
-            ("can_view_valuationmethod", "Puede ver métodos de valoración"),
-            ("can_edit_valuationmethod", "Puede editar métodos de valoración"),
-        ]
-    
-    def __str__(self):
-        return f"{self.product.name} - {self.get_method_display()}"
 
 
 class PhysicalCount(models.Model):
