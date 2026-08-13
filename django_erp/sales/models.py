@@ -639,7 +639,20 @@ class Payment(models.Model):
         'sales.SaleOrder',
         on_delete=models.CASCADE,
         related_name='payments',
-        verbose_name="Orden de Venta"
+        verbose_name="Orden de Venta",
+        null=True,  # ✅ Permitir null
+        blank=True,  # ✅ Permitir blank en formularios
+        help_text="Orden de venta a la que pertenece este pago (opcional)."
+    )
+
+    sale_invoice = models.ForeignKey(
+        'sales.SaleInvoice',
+        on_delete=models.CASCADE,
+        related_name='payments',
+        verbose_name="Factura de Venta",
+        null=True,
+        blank=True,  # Para compatibilidad con pagos existentes
+        help_text="Factura a la que pertenece este pago."
     )
     
     method = models.ForeignKey(
@@ -720,7 +733,16 @@ class Payment(models.Model):
         ordering = ['-payment_date']
 
     def __str__(self):
-        return f"{self.sale_order.number} - {self.method.name} - {self.amount}"
+        """Representación del pago"""
+        # ✅ Si tiene orden de venta
+        if self.sale_order:
+            return f"{self.sale_order.number} - {self.method.name} - {self.amount}"
+        # ✅ Si tiene factura
+        elif self.sale_invoice:
+            return f"{self.sale_invoice.number} - {self.method.name} - {self.amount}"
+        # ✅ Si no tiene referencia
+        else:
+            return f"Pago #{self.id} - {self.method.name} - {self.amount}"
 
     def save(self, *args, **kwargs):
         from django_erp.configuration.models import Currency, ExchangeRate
@@ -821,9 +843,11 @@ class SaleInvoice(models.Model):
     # Relación con la orden de venta
     sale_order = models.ForeignKey(
         'sales.SaleOrder',
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,  # ✅ Cambiar a SET_NULL
         related_name='invoices',
-        verbose_name="Orden de Venta"
+        verbose_name="Orden de Venta",
+        null=True,
+        blank=True  # ✅ Permitir null
     )
     
     # Cliente
@@ -921,7 +945,7 @@ class SaleInvoice(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.number} - {self.customer_name}"
+        return f"{self.number} - {self.customer_name if self.customer_name else self.customer.name if self.customer else 'Sin cliente'}"
 
     def calculate_totals(self):
         """Calcular totales usando el IVA de la empresa"""

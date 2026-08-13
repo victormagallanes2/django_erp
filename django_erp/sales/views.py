@@ -14,7 +14,7 @@ from django.shortcuts import render
 @staff_member_required
 @require_GET
 def get_product_price(request):
-    """Vista para obtener el precio y ubicación de un producto"""
+    """Vista para obtener el precio y stock de un producto"""
     product_id = request.GET.get('product_id')
     
     if not product_id:
@@ -22,22 +22,32 @@ def get_product_price(request):
     
     try:
         product = Product.objects.get(id=product_id)
-        inventory = Inventory.objects.filter(product=product).first()
         
-        # ✅ Convertir a Decimal
+        # ✅ Obtener el stock total del producto
+        company = getattr(request, 'current_company', None)
+        if not company:
+            from django_erp.configuration.models import Company
+            company = Company.get_active()
+        
+        # Calcular stock total sumando todas las ubicaciones
+        stock_total = 0
+        inventories = Inventory.objects.filter(product=product, company=company)
+        for inv in inventories:
+            stock_total += inv.quantity
+        
+        # ✅ Obtener el precio en USD
         price_usd = Decimal(str(product.price)) if product.price else Decimal('0')
         
         # ✅ Obtener tasa del día
         rate = ExchangeRate.get_today_rate('USD', 'BS')
-        print(f"💰 Tasa obtenida: {rate}")  # Log para depuración
         
-        # ✅ Multiplicar Decimal con Decimal
+        # ✅ Calcular precio en Bs.
         if rate:
             price_bs = price_usd * rate
         else:
             price_bs = price_usd
         
-        # ✅ Convertir a float para JSON
+        # ✅ Preparar respuesta
         response_data = {
             'unit_price': float(price_usd),
             'price_usd_display': f"$ {float(price_usd):.2f}",
@@ -46,15 +56,22 @@ def get_product_price(request):
             'rate': float(rate) if rate else 0,
             'product_name': product.name,
             'product_code': product.code,
+            'stock': stock_total,  # ✅ Cantidad disponible en stock
+            'stock_display': f"{stock_total} {product.get_unit_display()}" if stock_total > 0 else "Sin stock",
         }
         
-        if inventory and inventory.location:
-            response_data['location_id'] = inventory.location.id
-            response_data['location_code'] = inventory.location.code
+        # ✅ Agregar ubicación si existe (para la primera ubicación)
+        first_inventory = inventories.first()
+        if first_inventory and first_inventory.location:
+            response_data['location_id'] = first_inventory.location.id
+            response_data['location_code'] = first_inventory.location.code
         
         return JsonResponse(response_data)
+        
     except Product.DoesNotExist:
         return JsonResponse({'error': 'Product not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 

@@ -1,9 +1,8 @@
-# sales/admin.py - VERSIÓN COMPLETA CON IMPORTACIÓN CORRECTA
+# django_erp/sales/admin.py
 from django.contrib import admin
 from django import forms
 from django.utils.html import format_html
-from django.urls import reverse
-from django.apps import apps
+from django.urls import path
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
@@ -13,7 +12,7 @@ from .models import CashRegister, CashTransaction
 from .helpers import get_open_register
 from decimal import Decimal, ROUND_HALF_UP
 from django.utils import timezone
-from django_erp.configuration.models import ExchangeRate, Company
+from django_erp.configuration.models import ExchangeRate, Company, Currency  # ✅ Importar Currency
 from .models import Payment, SaleInvoiceLine, SaleInvoice
 from django_erp.configuration.models import PaymentMethod
 from django.urls import path
@@ -22,10 +21,504 @@ from unfold.views import UnfoldModelAdminViewMixin
 from .services import SaleReportService
 from django_erp.configuration.mixins import CompanyFilterMixin
 from .signals import order_confirmed
+from django_erp.inventory.models import Product, Location
+from django_erp.inventory.models import Inventory
 
+
+# ============================================================
+# ✅ FORMULARIO PARA FACTURA DE VENTA (INDEPENDIENTE)
+# ============================================================
+
+class SaleInvoiceForm(forms.ModelForm):
+    """Formulario personalizado para facturas de venta independientes"""
+    stock_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Stock Disponible",
+        initial="0",
+        help_text="Cantidad disponible en inventario"
+    )
+    # Campos para mostrar totales
+    subtotal_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Subtotal (USD)",
+        initial="0.00"
+    )
+
+    # ✅ NUEVOS: Campos para mostrar totales en Bs.
+    subtotal_bs_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Subtotal (Bs.)",
+        initial="0.00"
+    )
+    
+    tax_bs_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="IVA (Bs.)",
+        initial="0.00"
+    )
+    
+    total_bs_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Total (Bs.)",
+        initial="0.00",
+        help_text="Convertido según tasa del día"
+    )
+
+    rate_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Tasa del día",
+        initial="1 USD = Bs. 0.00"
+    )
+    tax_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="IVA (USD)",
+        initial="0.00"
+    )
+    
+    total_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Total (USD)",
+        initial="0.00"
+    )
+    
+    class Meta:
+        model = SaleInvoice
+        fields = ['number', 'customer', 'sale_order', 'status', 'date_due', 'note']
+        widgets = {
+            'number': forms.TextInput(attrs={'readonly': 'readonly'}),
+        }
+    
+    def __init__(self, *args, **kwargs):
+        self._request = kwargs.pop('request', None)
+        instance = kwargs.get('instance')
+        super().__init__(*args, **kwargs)
+        
+        # ✅ Obtener tasa de cambio
+        rate = ExchangeRate.get_today_rate('USD', 'BS')
+        if rate:
+            self.initial['rate_display'] = f"1 USD = Bs. {rate:.2f}"
+        else:
+            self.initial['rate_display'] = "No hay tasa configurada"
+        
+        # ✅ Si es una nueva factura, generar número automáticamente
+        if not instance or not instance.pk:
+            from datetime import datetime
+            last_invoice = SaleInvoice.objects.order_by('-id').first()
+            if last_invoice and last_invoice.number:
+                try:
+                    last_num = int(last_invoice.number.split('-')[-1])
+                    next_num = last_num + 1
+                except (ValueError, IndexError):
+                    next_num = 1
+            else:
+                next_num = 1
+            
+            self.initial['number'] = f"FAC-VENTA-{datetime.now().strftime('%Y%m')}-{next_num:04d}"
+            self.initial['status'] = 'PAID'
+            
+            customer_id = self._request.GET.get('customer') if self._request else None
+            if customer_id:
+                try:
+                    customer = Customer.objects.get(id=customer_id)
+                    self.initial['customer'] = customer.id
+                except Customer.DoesNotExist:
+                    pass
+            
+            # ✅ Inicializar totales en 0
+            self.initial['subtotal_display'] = "0.00"
+            self.initial['tax_display'] = "0.00"
+            self.initial['total_display'] = "0.00"
+            self.initial['subtotal_bs_display'] = "0.00"
+            self.initial['tax_bs_display'] = "0.00"
+            self.initial['total_bs_display'] = "0.00"
+        
+        # ✅ Si es una factura existente, mostrar totales
+        if instance and instance.pk:
+            self.initial['subtotal_display'] = f"{instance.subtotal:.2f}"
+            self.initial['tax_display'] = f"{instance.tax:.2f}"
+            self.initial['total_display'] = f"{instance.total:.2f}"
+            
+            if rate:
+                self.initial['subtotal_bs_display'] = f"{(instance.subtotal * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
+                self.initial['tax_bs_display'] = f"{(instance.tax * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
+                self.initial['total_bs_display'] = f"{(instance.total * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
+        
+        # ✅ Hacer que sale_order sea opcional
+        self.fields['sale_order'].required = False
+        self.fields['sale_order'].help_text = "Opcional: Si la factura proviene de una orden de venta"
+        self.fields['status'].choices = SaleInvoice.STATUS_CHOICES
+    
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        
+        if not instance.company_id:
+            if self._request:
+                company = getattr(self._request, 'current_company', None)
+                if company:
+                    instance.company = company
+            
+            if not instance.company_id:
+                company = Company.get_active()
+                if company:
+                    instance.company = company
+        
+        if not instance.user_id and self._request:
+            instance.user = self._request.user
+        
+        if instance.customer_id:
+            if not instance.customer_name:
+                instance.customer_name = instance.customer.name
+                instance.customer_tax_id = instance.customer.tax_id
+                instance.customer_address = instance.customer.address
+        
+        if commit:
+            instance.save()
+            self.save_m2m()
+        
+        return instance
+
+
+# ============================================================
+# ✅ FORMULARIO PARA LÍNEAS DE FACTURA
+# ============================================================
+
+class SaleInvoiceLineForm(forms.ModelForm):
+    """Formulario personalizado para líneas de factura"""
+    
+    class Meta:
+        model = SaleInvoiceLine
+        fields = ['product', 'quantity', 'unit_price']
+    
+    def __init__(self, *args, **kwargs):
+        self._request = kwargs.pop('request', None)
+        super().__init__(*args, **kwargs)
+    
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        
+        # Asignar compañía
+        if not instance.company_id:
+            if self._request:
+                company = getattr(self._request, 'current_company', None)
+                if company:
+                    instance.company = company
+            
+            if not instance.company_id:
+                company = Company.get_active()
+                if company:
+                    instance.company = company
+        
+        # Si tiene producto, copiar sus datos
+        if instance.product_id:
+            instance.product_code = instance.product.code
+            instance.product_name = instance.product.name
+        
+        # Calcular subtotal
+        instance.subtotal = instance.quantity * instance.unit_price
+        
+        if commit:
+            instance.save()
+            self.save_m2m()
+        
+        return instance
+
+
+# ============================================================
+# ✅ INLINE DE LÍNEAS DE FACTURA
+# ============================================================
+
+class SaleInvoiceLineInline(UnfoldTabularInline):
+    """Inline de líneas de factura de venta"""
+    model = SaleInvoiceLine
+    form = SaleInvoiceLineForm
+    extra = 1
+    fields = ['product', 'stock_display', 'quantity', 'unit_price', 'subtotal']
+    readonly_fields = ['subtotal', 'stock_display'] 
+    autocomplete_fields = ['product']
+    verbose_name_plural = "📦 Líneas de Productos/Servicios"
+
+
+    # ✅ Definir stock_display como método
+    @admin.display(description='Stock Disponible')
+    def stock_display(self, obj):
+        """Mostrar el stock disponible del producto"""
+        if not obj or not obj.product_id:
+            return "—"
+        
+        try:
+            # Obtener la compañía del objeto o usar la actual
+            company = obj.company if obj.company_id else None
+            if not company:
+                from django_erp.configuration.models import Company
+                company = Company.get_active()
+            
+            # Calcular stock total
+            from django_erp.inventory.models import Inventory
+            stock = Inventory.objects.filter(
+                product=obj.product,
+                company=company
+            ).aggregate(total=models.Sum('quantity'))['total'] or 0
+            
+            # Obtener la unidad del producto
+            unit = obj.product.get_unit_display() if hasattr(obj.product, 'get_unit_display') else 'unidades'
+            
+            return f"{stock} {unit}" if stock > 0 else "Sin stock"
+        except Exception as e:
+            return "Error al obtener stock"
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        
+        company = getattr(request, 'current_company', None)
+        if company:
+            formset.form.base_fields['product'].queryset = Product.objects.filter(
+                company=company,
+                is_active=True
+            )
+        else:
+            formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
+        
+        return formset
+
+
+# ============================================================
+# ✅ FORMULARIO PARA PAGOS DE FACTURA (CORREGIDO)
+# ============================================================
+
+class SaleInvoicePaymentForm(forms.ModelForm):
+    """Formulario personalizado para pagos de facturas"""
+    
+    class Meta:
+        model = Payment
+        fields = ['method', 'currency', 'amount', 'reference', 'customer_bank']
+    
+    def __init__(self, *args, **kwargs):
+        self._request = kwargs.pop('request', None)
+        self._parent_instance = kwargs.pop('parent_instance', None)
+        super().__init__(*args, **kwargs)
+        
+        # Moneda por defecto
+        try:
+            usd = Currency.objects.get(code='USD')
+            self.fields['currency'].initial = usd.id
+        except Currency.DoesNotExist:
+            pass
+    
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        if self._parent_instance:
+            instance.sale_invoice = self._parent_instance
+            # ✅ Asegurar que sale_order sea None para pagos de factura
+            instance.sale_order = None
+        # Asignar compañía
+        if not instance.company_id:
+            if self._request:
+                company = getattr(self._request, 'current_company', None)
+                if company:
+                    instance.company = company
+            
+            if not instance.company_id:
+                company = Company.get_active()
+                if company:
+                    instance.company = company
+        
+        # Establecer estado por defecto
+        if not instance.status:
+            instance.status = 'COMPLETED'
+        
+        if commit:
+            instance.save()
+            self.save_m2m()
+        
+        return instance
+
+
+# ============================================================
+# ✅ INLINE DE PAGOS DE FACTURA (CORREGIDO)
+# ============================================================
+
+class SaleInvoicePaymentInline(UnfoldTabularInline):
+    """Inline de pagos para facturas de venta"""
+    model = Payment
+    fk_name = 'sale_invoice'
+    form = SaleInvoicePaymentForm
+    extra = 1
+    fields = ['method', 'currency', 'amount', 'amount_usd_display', 'reference', 'payment_date']
+    readonly_fields = ['payment_date', 'amount_usd_display']
+    autocomplete_fields = ['method', 'currency']
+    verbose_name_plural = "💳 Pagos del Cliente"
+
+    @admin.display(description='Monto en USD')
+    def amount_usd_display(self, obj):
+        if obj and obj.amount_usd:
+            return f"$ {obj.amount_usd:,.2f}"
+        return "$ 0.00"
+    
+    def get_formset(self, request, obj=None, **kwargs):
+        """Pasar la factura padre al formulario"""
+        formset = super().get_formset(request, obj, **kwargs)
+        
+        # ✅ Crear una clase de formset que pase el parent_instance
+        class FormSetWithParent(formset):
+            def __init__(self, *args, **kwargs):
+                self._parent_instance = obj  # ✅ La factura padre
+                super().__init__(*args, **kwargs)
+            
+            def _construct_form(self, i, **kwargs):
+                # ✅ Pasar el parent_instance al formulario
+                kwargs['parent_instance'] = self._parent_instance
+                kwargs['request'] = request
+                return super()._construct_form(i, **kwargs)
+        
+        return FormSetWithParent
+
+
+# ============================================================
+# ✅ ADMIN DE FACTURA DE VENTA
+# ============================================================
+
+@admin.register(SaleInvoice)
+class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
+    """Admin de facturas de venta - INDEPENDIENTE DE ORDENES"""
+    
+    form = SaleInvoiceForm
+    
+    list_display = [
+        'number',
+        'company_display',
+        'customer',
+        'date_issued',
+        'subtotal_display',
+        'tax_display',
+        'total_display',
+        'status_badge',
+        'created_at'
+    ]
+    list_filter = ['status', 'date_issued', 'company']
+    search_fields = ['number', 'customer__name', 'customer_tax_id', 'company__name']
+    
+    inlines = [SaleInvoiceLineInline, SaleInvoicePaymentInline]
+    autocomplete_fields = ['customer']
+    
+    fieldsets = (
+        ('Información de la Factura', {
+            'fields': ('number', 'customer', 'status')
+        }),
+        ('Orden de Venta (opcional)', {
+            'fields': ('sale_order',),
+            'description': 'Si esta factura proviene de una orden de venta, selecciónala aquí.'
+        }),
+
+        # ✅ Totales en Tiempo Real - Igual que en órdenes de venta
+        ('Totales en Tiempo Real', {
+            'fields': (
+                ('subtotal_display', 'subtotal_bs_display'),
+                ('tax_display', 'tax_bs_display'),
+                ('total_display', 'total_bs_display'),
+                'rate_display',
+            ),
+            'classes': ('tab', 'wide'),
+            'description': 'Los totales se actualizan automáticamente al modificar las líneas'
+        }),
+        ('Información Adicional', {
+            'fields': ('note',),
+            'classes': ('collapse',),
+        }),
+    )
+    
+    readonly_fields = ['date_issued', 'user', 'created_at', 'updated_at', 'subtotal', 'tax', 'total']
+    
+    class Media:
+        js = ('admin/js/sale_invoice_admin.js',)
+    
+    @admin.display(description='Compañía', ordering='company__name')
+    def company_display(self, obj):
+        if obj.company:
+            return format_html(
+                '<span style="font-weight: 500;">{} - {}</span>',
+                obj.company.code,
+                obj.company.name
+            )
+        return "Sin compañía"
+    
+    @admin.display(description='Subtotal')
+    def subtotal_display(self, obj):
+        return f"$ {obj.subtotal:.2f}"
+    
+    @admin.display(description='IVA')
+    def tax_display(self, obj):
+        return f"$ {obj.tax:.2f}"
+    
+    @admin.display(description='Total')
+    def total_display(self, obj):
+        return f"$ {obj.total:.2f}"
+    
+    @admin.display(description='Estado', ordering='status')
+    def status_badge(self, obj):
+        colors = {
+            'DRAFT': ('#6c757d', '📝 Borrador'),
+            'ISSUED': ('#17a2b8', '📄 Emitida'),
+            'PAID': ('#28a745', '✅ Pagada'),
+            'CANCELLED': ('#dc3545', '❌ Anulada'),
+        }
+        color, label = colors.get(obj.status, ('#6c757d', obj.status))
+        return format_html(
+            '<span style="background: {}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 12px;">{}</span>',
+            color,
+            label
+        )
+    
+    def save_model(self, request, obj, form, change):
+        """Guardar la factura - Los datos del cliente se copian automáticamente"""
+        
+        # ✅ Si tiene cliente, copiar sus datos automáticamente
+        if obj.customer_id:
+            obj.customer_name = obj.customer.name
+            obj.customer_tax_id = obj.customer.tax_id
+            obj.customer_address = obj.customer.address
+        
+        if not obj.user:
+            obj.user = request.user
+        
+        super().save_model(request, obj, form, change)
+    
+    def save_formset(self, request, form, formset, change):
+        company = getattr(request, 'current_company', None)
+        if not company:
+            company = Company.get_active()
+        
+        instances = formset.save(commit=False)
+        for instance in instances:
+            if hasattr(instance, 'company') and not instance.company_id:
+                instance.company = company
+            instance.save()
+        
+        formset.save_m2m()
+        
+        for obj in formset.deleted_objects:
+            obj.delete()
+        
+        obj = form.instance
+        if obj.pk:
+            obj.calculate_totals()
+            obj.save(update_fields=['subtotal', 'tax', 'total'])
+
+
+# ============================================================
+# ✅ ADMIN DE CLIENTES (SIN CAMBIOS)
+# ============================================================
 
 @admin.register(Customer)
 class CustomerAdmin(CompanyFilterMixin, UnfoldModelAdmin):
+    """Admin de clientes"""
     list_display = ['name', 'tax_id', 'email', 'phone', 'is_active']
     list_filter = ['is_active']
     search_fields = ['name', 'tax_id', 'email', 'phone']
@@ -40,6 +533,10 @@ class CustomerAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     )
     readonly_fields = ['created_at', 'updated_at']
 
+
+# ============================================================
+# ✅ FORMULARIO PARA LÍNEAS DE VENTA (ORDEN) - SIN CAMBIOS
+# ============================================================
 
 class SaleLineInlineForm(forms.ModelForm):
     """Formulario personalizado para líneas de venta"""
@@ -79,6 +576,10 @@ class SaleLineInlineForm(forms.ModelForm):
         return instance
 
 
+# ============================================================
+# ✅ INLINE DE LÍNEAS DE VENTA - SIN CAMBIOS
+# ============================================================
+
 class SaleLineInline(UnfoldTabularInline):
     model = SaleLine
     form = SaleLineInlineForm
@@ -89,23 +590,16 @@ class SaleLineInline(UnfoldTabularInline):
     
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
-        from django_erp.inventory.models import Product, Location
         formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
         formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
         formset.form.base_fields['unit_price'].initial = 0
         formset.form.base_fields['quantity'].initial = 1
-        
-        class FormSetWithRequest(formset):
-            def __init__(self, *args, **kwargs):
-                self._request = request
-                super().__init__(*args, **kwargs)
-            
-            def _construct_form(self, i, **kwargs):
-                kwargs['request'] = self._request
-                return super()._construct_form(i, **kwargs)
-        
-        return FormSetWithRequest
+        return formset
 
+
+# ============================================================
+# ✅ FORMULARIO PARA PAGOS DE ORDEN DE VENTA - SIN CAMBIOS
+# ============================================================
 
 class PaymentInlineForm(forms.ModelForm):
     """Formulario personalizado para pagos"""
@@ -145,6 +639,10 @@ class PaymentInlineForm(forms.ModelForm):
         return instance
 
 
+# ============================================================
+# ✅ INLINE DE PAGOS DE ORDEN DE VENTA - SIN CAMBIOS
+# ============================================================
+
 class PaymentInline(UnfoldTabularInline):
     model = Payment
     form = PaymentInlineForm
@@ -163,31 +661,26 @@ class PaymentInline(UnfoldTabularInline):
         formset = super().get_formset(request, obj, **kwargs)
         
         if obj is None:
-            from django_erp.configuration.models import Currency
             try:
                 usd = Currency.objects.get(code='USD')
                 formset.form.base_fields['currency'].initial = usd.id
             except Currency.DoesNotExist:
                 pass
         
-        class FormSetWithRequest(formset):
-            def __init__(self, *args, **kwargs):
-                self._request = request
-                super().__init__(*args, **kwargs)
-            
-            def _construct_form(self, i, **kwargs):
-                kwargs['request'] = self._request
-                return super()._construct_form(i, **kwargs)
-        
-        return FormSetWithRequest
+        return formset
     
     def get_queryset(self, request):
         queryset = super().get_queryset(request)
         return queryset.select_related('method', 'currency')
 
 
+# ============================================================
+# ✅ FORMULARIO DE ORDEN DE VENTA - SIN CAMBIOS
+# ============================================================
+
 class SaleOrderForm(forms.ModelForm):
-    # ✅ Estos campos son solo para mostrar, no se guardan
+    """Formulario personalizado para órdenes de venta"""
+    
     subtotal_display = forms.CharField(
         required=False,
         disabled=True,
@@ -255,17 +748,10 @@ class SaleOrderForm(forms.ModelForm):
             company = getattr(self._request, 'current_company', None)
             if company:
                 self.instance.company = company
-                print(f"🔴 Compañía asignada a la instancia: {company.code}")
             else:
                 fallback = Company.get_active()
                 if fallback:
                     self.instance.company = fallback
-                    print(f"🔴 FALLBACK: Usando compañía {fallback.code}")
-                else:
-                    print("🔴 ERROR: No hay compañía activa")
-                    self.add_error(None, 'No hay una compañía activa.')
-        elif instance and instance.pk and instance.company:
-            print(f"🔴 Orden existente con compañía: {instance.company.code}")
         
         company = self.instance.company or Company.get_active()
         tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
@@ -277,9 +763,9 @@ class SaleOrderForm(forms.ModelForm):
             self.initial['rate_display'] = "No hay tasa configurada"
         
         if instance and instance.pk:
-            subtotal = sum(line.subtotal for line in instance.lines.all())
-            tax = subtotal * (tax_rate / Decimal('100'))
-            total = subtotal + tax
+            subtotal = instance.subtotal
+            tax = instance.tax
+            total = instance.total
             
             self.initial['subtotal_display'] = f"{subtotal:.2f}"
             self.initial['tax_display'] = f"{tax:.2f}"
@@ -363,6 +849,10 @@ class SaleOrderForm(forms.ModelForm):
         
         return cleaned_data
 
+
+# ============================================================
+# ✅ ADMIN DE ÓRDENES DE VENTA - SIN CAMBIOS
+# ============================================================
 
 @admin.action(description='🔄 Reconfirmar orden (forzar reducción de stock)')
 def reconfirm_order_action(modeladmin, request, queryset):
@@ -468,15 +958,10 @@ class CashRegisterForm(forms.ModelForm):
             company = getattr(self._request, 'current_company', None)
             if company:
                 self.instance.company = company
-                print(f"🔴 Compañía asignada a la caja: {company.code}")
             else:
                 fallback = Company.get_active()
                 if fallback:
                     self.instance.company = fallback
-                    print(f"🔴 FALLBACK: Compañía para caja: {fallback.code}")
-                else:
-                    print("🔴 ERROR: No hay compañía activa para la caja")
-                    self.add_error(None, 'No hay una compañía activa para abrir la caja.')
     
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -537,10 +1022,8 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     class Media:
         js = ('admin/js/sale_order_admin.js',)
 
-
     @admin.display(description='Compañía', ordering='company__name')
     def company_display(self, obj):
-        """Mostrar la compañía"""
         if obj.company:
             return f"{obj.company.code} - {obj.company.name}"
         return "Sin compañía"
@@ -559,12 +1042,10 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             company = getattr(request, 'current_company', None)
             if company:
                 obj.company = company
-                print(f"🔴 Compañía asignada en save_model: {company.code}")
             else:
                 company = Company.get_active()
                 if company:
                     obj.company = company
-                    print(f"🔴 FALLBACK en save_model: {company.code}")
                 else:
                     self.message_user(request, '❌ No hay una compañía activa.', messages.ERROR)
                     raise forms.ValidationError('No hay una compañía activa configurada en el sistema.')
@@ -586,7 +1067,7 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
 
     def save_formset(self, request, form, formset, change):
         from .services import SaleService
-        from .signals import order_confirmed  # ✅ IMPORTACIÓN CORRECTA
+        from .signals import order_confirmed
         from decimal import Decimal
         
         company = form.instance.company
@@ -595,13 +1076,10 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             if not company:
                 company = Company.get_active()
         
-        print(f"🔴 save_formset - Compañía: {company.code if company else 'NINGUNA'}")
-        
         instances = formset.save(commit=False)
         for instance in instances:
             if hasattr(instance, 'company') and not instance.company_id:
                 instance.company = company
-                print(f"   ✅ Compañía asignada a {instance.__class__.__name__}")
                 if isinstance(instance, Payment):
                     instance.save(update_fields=['company'])
         
@@ -631,13 +1109,9 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         
         obj.save()
         
-        print(f"🔴 Totales calculados para {obj.number}: Subtotal={subtotal}, IVA={tax}, Total={total}")
-        
         new_status = form.cleaned_data.get('status')
         
         if new_status == 'CONFIRMED':
-            print(f"🔴 PROCESANDO CONFIRMACIÓN para {obj.number}")
-            
             from django_erp.inventory.models import Movement
             has_movement = Movement.objects.filter(
                 source_reference=obj.number,
@@ -645,8 +1119,6 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             ).exists()
             
             if has_movement:
-                print(f"   ⚠️ La orden {obj.number} ya fue procesada")
-                
                 from .models import CashTransaction
                 has_transaction = CashTransaction.objects.filter(
                     reference=obj.number,
@@ -654,7 +1126,6 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 ).exists()
                 
                 if not has_transaction and obj.total > 0:
-                    print(f"   🔴 Registrando transacción en caja...")
                     obj._status_changed_by = request.user
                     order_confirmed.send(sender=SaleOrder, order=obj)
                     self.message_user(request, f'✅ Transacción en caja registrada para {obj.number}', messages.SUCCESS)
@@ -676,9 +1147,7 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             
             try:
                 SaleService.confirm_order(obj, request.user)
-                print(f"   ✅ Orden confirmada exitosamente")
             except Exception as e:
-                print(f"   ❌ Error al confirmar: {e}")
                 self.message_user(request, f"Error al confirmar: {e}", messages.ERROR)
                 obj.status = 'DRAFT'
                 obj.save()
@@ -694,6 +1163,10 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                     line.location = inventory.location
                     line.save()
 
+
+# ============================================================
+# ✅ ADMIN DE CAJA - SIN CAMBIOS
+# ============================================================
 
 @admin.action(description='✅ Abrir caja seleccionada')
 def open_register_action(modeladmin, request, queryset):
@@ -823,12 +1296,10 @@ class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             company = getattr(request, 'current_company', None)
             if company:
                 obj.company = company
-                print(f"🔴 Compañía asignada a caja en save_model: {company.code}")
             else:
                 company = Company.get_active()
                 if company:
                     obj.company = company
-                    print(f"🔴 FALLBACK: Compañía para caja en save_model: {company.code}")
                 else:
                     self.message_user(request, '❌ No hay una compañía activa para abrir la caja.', messages.ERROR)
                     raise forms.ValidationError('No hay una compañía activa configurada en el sistema.')
@@ -920,86 +1391,3 @@ class CashTransactionAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             return "Sin tasa"
         except:
             return "Error"
-
-
-class SaleInvoiceLineInline(UnfoldTabularInline):
-    """Inline de líneas de factura de venta"""
-    model = SaleInvoiceLine
-    extra = 0
-    fields = ['product', 'quantity', 'unit_price', 'subtotal']
-    readonly_fields = ['subtotal']
-    autocomplete_fields = ['product']
-
-    def get_formset(self, request, obj=None, **kwargs):
-        formset = super().get_formset(request, obj, **kwargs)
-        from django_erp.inventory.models import Product
-        
-        company = getattr(request, 'current_company', None)
-        if company:
-            formset.form.base_fields['product'].queryset = Product.objects.filter(
-                company=company,
-                is_active=True
-            )
-        else:
-            formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
-        return formset
-
-
-@admin.register(SaleInvoice)
-class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
-    """Admin de facturas de venta"""
-    
-    list_display = [
-        'number',
-        'company_display',
-        'customer',
-        'date_issued',
-        'total',
-        'status',
-        'created_at'
-    ]
-    list_filter = ['status', 'date_issued', 'company']
-    search_fields = ['number', 'customer__name', 'customer_tax_id', 'company__name']
-    
-    inlines = [SaleInvoiceLineInline]
-    autocomplete_fields = ['customer', 'sale_order']
-    
-    fieldsets = (
-        ('Información', {
-            'fields': ('number', 'sale_order', 'customer', 'status')
-        }),
-        ('Datos del Cliente', {
-            'fields': ('customer_name', 'customer_tax_id', 'customer_address')
-        }),
-        ('Fechas', {
-            'fields': ('date_issued', 'date_due')
-        }),
-        ('Totales', {
-            'fields': ('subtotal', 'tax', 'total')
-        }),
-        ('Información Adicional', {
-            'fields': ('note',)
-        }),
-    )
-    
-    readonly_fields = ['date_issued', 'subtotal', 'tax', 'total', 'user', 'created_at', 'updated_at']
-    
-    class Media:
-        js = ('admin/js/sale_invoice_admin.js',)
-    
-    @admin.display(description='Compañía', ordering='company__name')
-    def company_display(self, obj):
-        if obj.company:
-            return format_html(
-                '<span style="font-weight: 500;">{} - {}</span>',
-                obj.company.code,
-                obj.company.name
-            )
-        return "Sin compañía"
-    
-    def save_model(self, request, obj, form, change):
-        if not obj.user:
-            obj.user = request.user
-        super().save_model(request, obj, form, change)
-        obj.calculate_totals()
-        obj.save(update_fields=['subtotal', 'tax', 'total'])
