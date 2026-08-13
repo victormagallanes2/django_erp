@@ -23,6 +23,10 @@ from django_erp.configuration.mixins import CompanyFilterMixin
 from .signals import order_confirmed
 from django_erp.inventory.models import Product, Location
 from django_erp.inventory.models import Inventory
+from django.db import transaction
+from django_erp.inventory.services import WarehouseService, InventoryService
+import logging
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -475,11 +479,25 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             color,
             label
         )
-    
+    def get_form(self, request, obj=None, **kwargs):
+        """Limpiar banderas de sesión al abrir una nueva factura"""
+        if obj is None:
+            # Limpiar banderas de sesión para nueva factura
+            for key in list(request.session.keys()):
+                if key.startswith('invoice_'):
+                    del request.session[key]
+        return super().get_form(request, obj, **kwargs)
+
     def save_model(self, request, obj, form, change):
-        """Guardar la factura - Los datos del cliente se copian automáticamente"""
+        """
+        Guardar la factura (SOLO la factura, sin procesar inventario)
+        """
+        # ✅ Asignar compañía
+        company = self._get_active_company(request)
+        if company and hasattr(obj, 'company'):
+            obj.company = company
         
-        # ✅ Si tiene cliente, copiar sus datos automáticamente
+        # ✅ Si tiene cliente, copiar sus datos
         if obj.customer_id:
             obj.customer_name = obj.customer.name
             obj.customer_tax_id = obj.customer.tax_id
@@ -488,28 +506,260 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         if not obj.user:
             obj.user = request.user
         
-        super().save_model(request, obj, form, change)
-    
+        # ✅ Guardar la factura
+        super(CompanyFilterMixin, self).save_model(request, obj, form, change)
+
+    def _reduce_inventory(self, request, invoice):
+        """
+        Reducir el inventario para cada línea de la factura.
+        Retorna la lista de movimientos creados.
+        """
+        from django_erp.inventory.models import Inventory, Location
+        
+        logger.info("=" * 80)
+        logger.info("🔴 [_reduce_inventory] INICIANDO")
+        logger.info(f"   Factura: {invoice.number}")
+        
+        company = invoice.company or getattr(request, 'current_company', None)
+        if not company:
+            company = Company.get_active()
+        
+        if not company:
+            logger.error("   ❌ No hay compañía activa")
+            raise ValidationError("No hay una compañía activa para reducir inventario.")
+        
+        logger.info(f"   Compañía: {company.code}")
+        
+        if not invoice.lines.exists():
+            logger.warning("   ⚠️ La factura no tiene líneas")
+            return []
+        
+        logger.info(f"   Líneas a procesar: {invoice.lines.count()}")
+        
+        movements_created = []
+        
+        for idx, line in enumerate(invoice.lines.all(), 1):
+            logger.info(f"   📝 Procesando línea {idx}:")
+            logger.info(f"      - Producto ID: {line.product_id}")
+            logger.info(f"      - Producto: {line.product_name or 'Sin nombre'}")
+            logger.info(f"      - Cantidad: {line.quantity}")
+            logger.info(f"      - Precio: {line.unit_price}")
+            
+            if not line.product:
+                logger.warning(f"      ⚠️ Línea sin producto, saltando...")
+                continue
+            
+            if line.product.is_service:
+                logger.info(f"      ℹ️ {line.product.name} es un servicio, no se reduce inventario")
+                continue
+            
+            # ✅ Buscar ubicación para el producto
+            location = None
+            
+            # 1. Buscar en el inventario (primer registro con stock)
+            inventory_records = Inventory.objects.filter(
+                product=line.product,
+                company=company
+            ).order_by('-quantity')
+            
+            for inv in inventory_records:
+                if inv.quantity > 0 and inv.location:
+                    location = inv.location
+                    logger.info(f"      ✅ Ubicación con stock: {location.code} (stock: {inv.quantity})")
+                    break
+            
+            # 2. Si no tiene inventario con stock, buscar cualquier ubicación activa
+            if not location:
+                location = Location.objects.filter(
+                    company=company,
+                    is_active=True
+                ).first()
+                if location:
+                    logger.info(f"      ✅ Usando ubicación por defecto: {location.code}")
+            
+            if not location:
+                logger.error(f"      ❌ No hay ubicación para el producto {line.product.name}")
+                raise ValidationError(
+                    f"No hay ubicación para el producto {line.product.name}. "
+                    f"Configura una ubicación en Inventario > Ubicaciones."
+                )
+            
+            # ✅ Verificar stock disponible
+            stock = InventoryService.get_stock_by_location(
+                line.product.id, 
+                location.id, 
+                company
+            )
+            logger.info(f"      - Stock disponible en {location.code}: {stock}")
+            
+            if stock < line.quantity:
+                logger.error(f"      ❌ Stock insuficiente: {stock} < {line.quantity}")
+                raise ValidationError(
+                    f"Stock insuficiente para '{line.product.name}'. "
+                    f"Disponible: {stock}, Requerido: {line.quantity}"
+                )
+            
+            # ✅ Crear movimiento de salida
+            logger.info("      🚀 Creando movimiento de salida...")
+            movement = WarehouseService.create_exit(
+                product_id=line.product.id,
+                quantity=line.quantity,
+                location_from_id=location.id,
+                unit_price=line.unit_price,
+                source_type='SALE',
+                source_reference=invoice.number,
+                note=f"Factura {invoice.number} - {invoice.customer_name or 'Sin cliente'}",
+                user=request.user,
+                company=company
+            )
+            movements_created.append(movement)
+            logger.info(f"      ✅ Movimiento {movement.id} creado")
+        
+        logger.info(f"   ✅ {len(movements_created)} movimientos creados")
+        logger.info("🔴 [_reduce_inventory] FINALIZADO")
+        logger.info("=" * 80)
+        
+        return movements_created
+
+
     def save_formset(self, request, form, formset, change):
+        """
+        Guardar líneas y pagos de la factura.
+        Después de guardar, procesar reducción de inventario si está pagada.
+        SOLO UNA VEZ (usando bandera en sesión)
+        """
+        logger.info("=" * 80)
+        logger.info("🔴 [SaleInvoiceAdmin.save_formset] INICIANDO")
+        
+        # ✅ USAR BANDERA EN SESIÓN PARA EVITAR DUPLICADOS
+        session_key = f'invoice_reduced_{form.instance.pk or "new"}'
+        
+        # Si ya se procesó esta factura en esta sesión, saltar
+        if request.session.get(session_key):
+            logger.info(f"   ℹ️ Factura ya procesada en esta sesión, saltando...")
+            logger.info("🔴 [SaleInvoiceAdmin.save_formset] FINALIZADO (duplicado)")
+            logger.info("=" * 80)
+            return super().save_formset(request, form, formset, change)
+        
         company = getattr(request, 'current_company', None)
         if not company:
             company = Company.get_active()
         
+        logger.info(f"   Compañía para inlines: {company.code if company else 'N/A'}")
+        
+        # ✅ Obtener el estado actual de la factura ANTES de guardar los inlines
+        invoice = form.instance
+        old_status = None
+        if change and invoice.pk:
+            try:
+                old_invoice = SaleInvoice.objects.get(pk=invoice.pk)
+                old_status = old_invoice.status
+                logger.info(f"   Estado anterior de la factura: {old_status}")
+            except SaleInvoice.DoesNotExist:
+                pass
+        
+        new_status = invoice.status
+        logger.info(f"   Nuevo estado de la factura: {new_status}")
+        
+        # ✅ Guardar los inlines (líneas y pagos)
         instances = formset.save(commit=False)
+        logger.info(f"   Instancias a guardar: {len(instances)}")
+        
         for instance in instances:
             if hasattr(instance, 'company') and not instance.company_id:
                 instance.company = company
+                logger.info(f"   ✅ Compañía asignada a {instance.__class__.__name__}")
+            
+            # ✅ Si es una línea de factura, copiar datos del producto
+            if hasattr(instance, 'product') and instance.product:
+                instance.product_code = instance.product.code
+                instance.product_name = instance.product.name
+            
             instance.save()
         
         formset.save_m2m()
         
         for obj in formset.deleted_objects:
+            logger.info(f"   🗑️ Eliminando objeto: {obj}")
             obj.delete()
         
-        obj = form.instance
-        if obj.pk:
-            obj.calculate_totals()
-            obj.save(update_fields=['subtotal', 'tax', 'total'])
+        # ✅ Recalcular totales después de guardar líneas
+        if invoice.pk and hasattr(invoice, 'lines') and invoice.lines.exists():
+            invoice.calculate_totals()
+            invoice.save(update_fields=['subtotal', 'tax', 'total'])
+            logger.info(f"   ✅ Totales recalculados: Subtotal={invoice.subtotal}, IVA={invoice.tax}, Total={invoice.total}")
+        
+        # ✅ PROCESAR REDUCCIÓN DE INVENTARIO SOLO UNA VEZ
+        # Verificar si cambió a PAID o es nueva con PAID
+        is_new_paid = new_status == 'PAID' and (old_status is None or old_status != 'PAID')
+        
+        if is_new_paid:
+            logger.info(f"   🎯 Factura {invoice.number} cambió a PAID - Verificando inventario...")
+            
+            # ✅ Verificar si ya se redujo el inventario (evitar duplicados en BD)
+            from django_erp.inventory.models import Movement
+            already_reduced = Movement.objects.filter(
+                source_reference=invoice.number,
+                source_type='SALE'
+            ).exists()
+            
+            if already_reduced:
+                logger.info(f"   ℹ️ El inventario ya fue reducido para {invoice.number}")
+                # ✅ NO mostrar mensaje si ya está reducido (solo en el primer guardado)
+            else:
+                # ✅ Verificar que tenga líneas
+                if not invoice.lines.exists():
+                    logger.warning(f"   ⚠️ La factura no tiene líneas, no se reduce inventario")
+                    # ✅ Mostrar un solo mensaje de advertencia
+                    if not request.session.get(f'invoice_warned_{invoice.pk}'):
+                        self.message_user(
+                            request,
+                            f'⚠️ La factura no tiene líneas, no se puede reducir inventario',
+                            messages.WARNING
+                        )
+                        request.session[f'invoice_warned_{invoice.pk}'] = True
+                else:
+                    logger.info(f"   📊 Líneas a procesar: {invoice.lines.count()}")
+                    try:
+                        movements = self._reduce_inventory(request, invoice)
+                        if movements:
+                            logger.info(f"   ✅ {len(movements)} movimientos creados")
+                            # ✅ Mostrar UN SOLO mensaje de éxito
+                            if not request.session.get(f'invoice_success_{invoice.pk}'):
+                                self.message_user(
+                                    request,
+                                    f'✅ Inventario reducido para la factura {invoice.number} ({len(movements)} movimientos)',
+                                    messages.SUCCESS
+                                )
+                                request.session[f'invoice_success_{invoice.pk}'] = True
+                    except Exception as e:
+                        logger.error(f"   ❌ Error al reducir inventario: {e}")
+                        import traceback
+                        logger.error(f"   Traceback: {traceback.format_exc()}")
+                        # ✅ Mostrar UN SOLO mensaje de error
+                        if not request.session.get(f'invoice_error_{invoice.pk}'):
+                            self.message_user(
+                                request,
+                                f'❌ Error al reducir inventario: {str(e)}',
+                                messages.ERROR
+                            )
+                            request.session[f'invoice_error_{invoice.pk}'] = True
+                        # ✅ Revertir el estado a ISSUED si no se pudo reducir
+                        invoice.status = 'ISSUED'
+                        invoice.save(update_fields=['status'])
+                        logger.info("   ↩️ Estado revertido a ISSUED")
+                        raise
+        else:
+            logger.info(f"   ℹ️ No se requiere reducción de inventario (status: {new_status}, old: {old_status})")
+        
+        # ✅ Marcar como procesado en esta sesión
+        request.session[session_key] = True
+        
+        logger.info("🔴 [SaleInvoiceAdmin.save_formset] FINALIZADO")
+        logger.info("=" * 80)
+        
+        # ✅ Llamar al save_formset del padre
+        return super().save_formset(request, form, formset, change)
 
 
 # ============================================================
