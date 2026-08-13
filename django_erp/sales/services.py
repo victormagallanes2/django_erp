@@ -155,8 +155,9 @@ class SaleService:
         ✅ Entregar una orden (llamado desde la confirmación de la nota de entrega).
         - Marca la orden como DELIVERED
         - Genera la factura de venta
+        - Asocia los pagos existentes a la factura
         """
-        from .models import SaleInvoice, SaleInvoiceLine
+        from .models import SaleInvoice, SaleInvoiceLine, Payment
         
         logger.info("=" * 80)
         logger.info(f"🔴 [deliver_order] Entregando orden {order.number}")
@@ -218,7 +219,7 @@ class SaleService:
                 customer_tax_id=order.customer.tax_id,
                 customer_address=order.customer.address,
                 date_due=datetime.now().date() + timedelta(days=30),
-                status='ISSUED',  # Emitida automáticamente
+                status='ISSUED',
                 tax_rate=tax_rate,
                 user=user or order.user,
                 sync_status='SYNCED',
@@ -233,8 +234,8 @@ class SaleService:
                     invoice=invoice,
                     sale_line=sale_line,
                     product=sale_line.product,
-                    product_code=sale_line.product_code if sale_line.product else '',
-                    product_name=sale_line.product_name or (sale_line.product.name if sale_line.product else ''),
+                    product_code=sale_line.product.code if sale_line.product else '',
+                    product_name=sale_line.product.name if sale_line.product else sale_line.product_name or '',
                     description=sale_line.description,
                     quantity=sale_line.quantity,
                     unit_price=sale_line.unit_price,
@@ -250,8 +251,74 @@ class SaleService:
             invoice.save()
             logger.info(f"   ✅ Totales calculados: Subtotal={invoice.subtotal}, IVA={invoice.tax}, Total={invoice.total}")
             
+            # ============================================================
+            # 💰 ASOCIAR PAGOS EXISTENTES A LA FACTURA
+            # ============================================================
+            payments_updated = 0
+            # Buscar pagos asociados a la orden de venta
+            payments = Payment.objects.filter(
+                sale_order=order,
+                status='COMPLETED'
+            ).exclude(sale_invoice__isnull=False)
+            
+            logger.info(f"   💰 Pagos encontrados para asociar: {payments.count()}")
+            
+            for payment in payments:
+                payment.sale_invoice = invoice
+                payment.save()
+                payments_updated += 1
+                logger.info(f"   ✅ Pago {payment.id} asociado a factura {invoice.number}")
+            
+            # ✅ También buscar pagos que puedan estar en la caja
+            from .models import CashTransaction
+            cash_transactions = CashTransaction.objects.filter(
+                reference=order.number,
+                type='SALE'
+            ).exclude(register__status='CLOSED')
+            
+            logger.info(f"   🏦 Transacciones de caja encontradas: {cash_transactions.count()}")
+            
+            for transaction in cash_transactions:
+                # Si no existe un pago para esta transacción, crearlo
+                if not Payment.objects.filter(
+                    sale_order=order,
+                    amount=transaction.amount,
+                    reference__icontains=order.number
+                ).exists():
+                    # Obtener el método de pago por defecto
+                    from django_erp.configuration.models import PaymentMethod, Currency
+                    default_method = PaymentMethod.objects.filter(
+                        company=order.company,
+                        is_active=True
+                    ).first()
+                    
+                    if default_method:
+                        payment = Payment.objects.create(
+                            sale_order=order,
+                            sale_invoice=invoice,
+                            method=default_method,
+                            currency=Currency.objects.get(code='USD'),
+                            amount=transaction.amount,
+                            amount_usd=transaction.amount,
+                            reference=f"Pago automático - {order.number}",
+                            status='COMPLETED',
+                            user=user or order.user,
+                            company=order.company,
+                        )
+                        payments_updated += 1
+                        logger.info(f"   ✅ Pago creado desde transacción: {payment.id}")
+            
+            logger.info(f"   💰 Total pagos asociados: {payments_updated}")
+            
+            if payments_updated == 0:
+                logger.warning("   ⚠️ No se encontraron pagos para asociar a la factura")
+            
             # ✅ Agregar factura a la orden
-            order.invoices.add(invoice)  # Si el campo existe, o simplemente referenciar
+            if hasattr(order, 'invoices') and order.invoices is not None:
+                order.invoices.add(invoice)
+            order.save()
+            
+            logger.info(f"   ✅ Factura asociada a la orden {order.number}")
             
         except Exception as e:
             logger.error(f"   ❌ Error al generar factura: {e}")
