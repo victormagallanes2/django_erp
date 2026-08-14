@@ -202,6 +202,7 @@ class SaleInvoiceLineForm(forms.ModelForm):
         fields = ['product', 'quantity', 'unit_price']
     
     def __init__(self, *args, **kwargs):
+        self._request = kwargs.pop('request', None)
         super().__init__(*args, **kwargs)
         # Hacer el campo unit_price de solo lectura
         if 'unit_price' in self.fields:
@@ -286,6 +287,11 @@ class SaleInvoiceLineInline(UnfoldTabularInline):
 
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
+        class FormSetWithRequest(formset):
+            def _construct_form(self, i, **kwargs):
+                # ✅ Pasar el request al formulario
+                kwargs['request'] = request
+                return super()._construct_form(i, **kwargs)
         
         company = getattr(request, 'current_company', None)
         if company:
@@ -308,22 +314,42 @@ class SaleInvoicePaymentForm(forms.ModelForm):
     
     class Meta:
         model = Payment
-        fields = ['method', 'currency', 'amount', 'reference', 'customer_bank']
+        fields = ['method', 'amount', 'reference', 'customer_bank']
     
     def __init__(self, *args, **kwargs):
         self._request = kwargs.pop('request', None)
         self._parent_instance = kwargs.pop('parent_instance', None)
         super().__init__(*args, **kwargs)
         
-        # Moneda por defecto
-        try:
-            usd = Currency.objects.get(code='USD')
-            self.fields['currency'].initial = usd.id
-        except Currency.DoesNotExist:
-            pass
+        if 'currency' in self.fields:
+            self.fields['currency'].widget = forms.HiddenInput()
+    
+    def clean(self):
+        """Validar que el método de pago tenga moneda por defecto"""
+        cleaned_data = super().clean()
+        method = cleaned_data.get('method')
+        
+        if method and not method.default_currency:
+            raise ValidationError(
+                f'El método de pago "{method.name}" no tiene una moneda por defecto configurada. '
+                'Por favor, configura la moneda predeterminada en el método de pago.'
+            )
+        
+        return cleaned_data
     
     def save(self, commit=True):
         instance = super().save(commit=False)
+        # ✅ Asignar la moneda del método de pago ANTES de guardar
+        if instance.method and instance.method.default_currency:
+            instance.currency = instance.method.default_currency
+        else:
+            # ✅ Fallback: intentar obtener USD
+            try:
+                from django_erp.configuration.models import Currency
+                usd = Currency.objects.get(code='USD')
+                instance.currency = usd
+            except Currency.DoesNotExist:
+                raise ValidationError("No se encontró la moneda USD como respaldo.")
         if self._parent_instance:
             instance.sale_invoice = self._parent_instance
             # ✅ Asegurar que sale_order sea None para pagos de factura
@@ -361,16 +387,16 @@ class SaleInvoicePaymentInline(UnfoldTabularInline):
     fk_name = 'sale_invoice'
     form = SaleInvoicePaymentForm
     extra = 1
-    fields = ['method', 'currency', 'amount', 'amount_usd_display', 'reference', 'payment_date']
-    readonly_fields = ['payment_date', 'amount_usd_display']
-    autocomplete_fields = ['method', 'currency']
+    fields = ['method', 'amount', 'reference']
+    #readonly_fields = ['payment_date', 'amount_usd_display']
+    autocomplete_fields = ['method']
     verbose_name_plural = "💳 Pagos del Cliente"
 
-    @admin.display(description='Monto en USD')
-    def amount_usd_display(self, obj):
-        if obj and obj.amount_usd:
-            return f"$ {obj.amount_usd:,.2f}"
-        return "$ 0.00"
+    # @admin.display(description='Monto en USD')
+    # def amount_usd_display(self, obj):
+    #     if obj and obj.amount_usd:
+    #         return f"$ {obj.amount_usd:,.2f}"
+    #     return "$ 0.00"
     
     def get_formset(self, request, obj=None, **kwargs):
         """Pasar la factura padre al formulario"""
