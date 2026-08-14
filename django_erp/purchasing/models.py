@@ -7,6 +7,8 @@ from decimal import Decimal
 from decimal import Decimal, ROUND_HALF_UP
 from django_erp.configuration.models import Company, Currency, ExchangeRate
 import uuid
+import logging
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -470,7 +472,16 @@ class PurchasePayment(models.Model):
         ordering = ['-payment_date']
 
     def __str__(self):
-        return f"{self.purchase_order.number} - {self.method.name} - {self.amount}"
+        """Representación del pago"""
+        # ✅ Si tiene orden de compra
+        if self.purchase_order:
+            return f"{self.purchase_order.number} - {self.method.name} - {self.amount}"
+        # ✅ Si tiene factura
+        elif self.purchase_invoice:
+            return f"{self.purchase_invoice.number} - {self.method.name} - {self.amount}"
+        # ✅ Si no tiene referencia (caso extremo)
+        else:
+            return f"Pago #{self.id} - {self.method.name} - {self.amount}"
 
     def clean(self):
         """✅ Validar que si el método requiere cuenta, se seleccione una"""
@@ -480,12 +491,27 @@ class PurchasePayment(models.Model):
             })
 
     def save(self, *args, **kwargs):
-        from django_erp.configuration.models import ExchangeRate
+        from django_erp.configuration.models import ExchangeRate, Currency
+        from decimal import Decimal, ROUND_HALF_UP
 
         # ✅ RED DE SEGURIDAD: heredar la compañía de la orden de compra
         # padre si no viene asignada explícitamente.
-        if not self.company_id and self.purchase_order_id:
-            self.company_id = self.purchase_order.company_id
+        if not self.company_id:
+            # Prioridad 1: Desde la factura
+            if self.purchase_invoice and self.purchase_invoice.company:
+                self.company = self.purchase_invoice.company
+                logger.info(f"   ✅ Compañía asignada desde factura al pago: {self.company.code}")
+            # Prioridad 2: Desde la orden de compra
+            elif self.purchase_order and self.purchase_order.company:
+                self.company = self.purchase_order.company
+                logger.info(f"   ✅ Compañía asignada desde orden al pago: {self.company.code}")
+            # Prioridad 3: Compañía activa
+            else:
+                from django_erp.configuration.models import Company
+                company = Company.get_active()
+                if company:
+                    self.company = company
+                    logger.info(f"   ✅ Compañía activa asignada al pago: {company.code}")
 
         self.clean()
         
@@ -499,7 +525,6 @@ class PurchasePayment(models.Model):
             self.amount_usd = self.amount
         else:
             # ✅ Obtener la moneda base (USD)
-            from django_erp.configuration.models import Currency
             try:
                 usd = Currency.objects.get(code='USD')
                 # ✅ Si la moneda del pago es la base, no hay conversión
@@ -717,24 +742,32 @@ class PurchaseInvoice(models.Model):
         return self.subtotal, self.tax, self.total
 
     def save(self, *args, **kwargs):
+        # ✅ Asignar UUID si no existe
         if not self.uuid:
             self.uuid = uuid.uuid4()
 
-        # ✅ RED DE SEGURIDAD: heredar la compañía de la orden de compra
-        # asociada si no viene asignada explícitamente.
-        if not self.company_id and self.purchase_order_id:
-            self.company_id = self.purchase_order.company_id
-        
+        # ✅ RED DE SEGURIDAD: Asignar la compañía activa si no tiene una.
+        if not self.company_id:
+            from django_erp.configuration.models import Company
+            company = Company.get_active()
+            if company:
+                self.company = company
+            # Si aún no hay compañía, se lanzará un error de integridad más abajo.
+
+        # ✅ Si la factura está asociada a una orden de compra, copiar datos del proveedor.
         if self.purchase_order and self.purchase_order.supplier:
             self.supplier = self.purchase_order.supplier
             self.supplier_name = self.purchase_order.supplier.name
             self.supplier_rif = self.purchase_order.supplier.tax_id
             self.supplier_address = self.purchase_order.supplier.address
-        
+
+        # ✅ Guardar la instancia para obtener un ID si es nuevo.
         super().save(*args, **kwargs)
         
-        if self.pk and self.lines.exists():
+        # ✅ Recalcular totales si es una factura existente con líneas.
+        if self.pk and hasattr(self, 'lines') and self.lines.exists():
             self.calculate_totals()
+            # Guardar solo los campos de totales para evitar recursión.
             super().save(update_fields=['subtotal', 'tax', 'total'])
 
 
@@ -820,6 +853,23 @@ class PurchaseInvoiceLine(models.Model):
         return f"{self.invoice.number} - {self.product_name or self.product_code or 'Sin producto'}"
 
     def save(self, *args, **kwargs):
+        # ✅ Asignar UUID si no existe
+        if not self.uuid:
+            self.uuid = uuid.uuid4()
+        
+        # ✅ RED DE SEGURIDAD: Asignar compañía si no tiene
+        if not self.company_id:
+            # Primero intentar desde la factura
+            if self.invoice and self.invoice.company:
+                self.company = self.invoice.company
+            else:
+                # Fallback a compañía activa
+                from django_erp.configuration.models import Company
+                company = Company.get_active()
+                if company:
+                    self.company = company
+        
+        # ✅ Si la línea viene de una línea de compra, copiar datos
         if self.purchase_line:
             if self.purchase_line.product:
                 self.product = self.purchase_line.product
@@ -832,8 +882,7 @@ class PurchaseInvoiceLine(models.Model):
             self.unit_price = self.purchase_line.unit_price
             self.description = self.purchase_line.description or self.product_name
         
-        if not self.uuid:
-            self.uuid = uuid.uuid4()
-        
+        # ✅ Calcular subtotal
         self.subtotal = self.quantity * self.unit_price
+        
         super().save(*args, **kwargs)

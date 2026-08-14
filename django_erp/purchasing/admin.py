@@ -164,6 +164,69 @@ class PurchaseInvoicePaymentInline(UnfoldTabularInline):
         queryset = super().get_queryset(request)
         return queryset.select_related('method', 'company_bank_account', 'currency')
 
+    # ✅ NUEVO MÉTODO: Guardar el formset con asignación de compañía
+    def save_formset(self, request, form, formset, change):
+        """
+        Guardar los pagos de la factura con asignación de compañía.
+        """
+        logger.info("=" * 80)
+        logger.info("🔴 [PurchaseInvoicePaymentInline.save_formset] INICIANDO")
+        
+        # ✅ Obtener la factura y su compañía
+        invoice = form.instance
+        invoice_company = invoice.company if invoice and invoice.pk else None
+        
+        logger.info(f"   Factura: {invoice.number if invoice.pk else 'Nueva'}")
+        logger.info(f"   Compañía de la factura: {invoice_company.code if invoice_company else 'N/A'}")
+        
+        # ✅ Obtener compañía del request como fallback
+        company = getattr(request, 'current_company', None)
+        if not company:
+            from django_erp.configuration.models import Company
+            company = Company.get_active()
+        
+        logger.info(f"   Compañía del request: {company.code if company else 'N/A'}")
+        
+        # ✅ Guardar las instancias del formset SIN commit aún
+        instances = formset.save(commit=False)
+        logger.info(f"   Instancias de pago a guardar: {len(instances)}")
+        
+        for instance in instances:
+            # ✅ ASIGNAR COMPAÑÍA AL PAGO
+            if hasattr(instance, 'company') and not instance.company_id:
+                # Prioridad 1: Usar la compañía de la factura
+                if invoice_company:
+                    instance.company = invoice_company
+                    logger.info(f"   ✅ Compañía asignada desde factura al pago: {invoice_company.code}")
+                # Prioridad 2: Usar la compañía del request
+                elif company:
+                    instance.company = company
+                    logger.info(f"   ✅ Compañía asignada desde request al pago: {company.code}")
+                else:
+                    logger.error(f"   ❌ No hay compañía disponible para el pago")
+            
+            # ✅ Asignar usuario
+            if not instance.user:
+                instance.user = request.user
+            
+            # ✅ Guardar el pago
+            instance.save()
+            logger.info(f"   ✅ Pago guardado con company_id={instance.company_id}")
+        
+        # ✅ Guardar relaciones ManyToMany
+        formset.save_m2m()
+        
+        # ✅ Eliminar objetos marcados para borrar
+        for obj in formset.deleted_objects:
+            logger.info(f"   🗑️ Eliminando objeto: {obj}")
+            obj.delete()
+        
+        logger.info("🔴 [PurchaseInvoicePaymentInline.save_formset] FINALIZADO")
+        logger.info("=" * 80)
+        
+        # ✅ Llamar al save_formset del padre
+        return super().save_formset(request, form, formset, change)
+
 
 
 class PurchaseInvoiceInline(UnfoldTabularInline):
@@ -967,33 +1030,50 @@ class PurchaseInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         logger.info("=" * 80)
         logger.info("🔴 [PurchaseInvoiceAdmin.save_formset] INICIANDO")
         
+        # ✅ Obtener la compañía activa
         company = self._resolve_company(request)
-        logger.info(f"   Compañía para inlines: {company.code if company else 'N/A'}")
         
-        # ✅ Guardar los inlines (líneas y pagos)
+        # ✅ También obtener la compañía de la factura (por si acaso)
+        invoice = form.instance
+        invoice_company = invoice.company if invoice and invoice.pk else None
+        
+        logger.info(f"   Compañía del request: {company.code if company else 'N/A'}")
+        logger.info(f"   Compañía de la factura: {invoice_company.code if invoice_company else 'N/A'}")
+        
+        # ✅ Guardar las instancias del formset SIN commit aún
         instances = formset.save(commit=False)
         logger.info(f"   Instancias a guardar: {len(instances)}")
         
         for instance in instances:
+            # ✅ PRIORIDAD 1: Usar la compañía de la factura
             if hasattr(instance, 'company') and not instance.company_id:
-                instance.company = company
-                logger.info(f"   ✅ Compañía asignada a {instance.__class__.__name__}")
+                if invoice_company:
+                    instance.company = invoice_company
+                    logger.info(f"   ✅ Compañía asignada desde factura a {instance.__class__.__name__}: {invoice_company.code}")
+                elif company:
+                    instance.company = company
+                    logger.info(f"   ✅ Compañía asignada desde request a {instance.__class__.__name__}: {company.code}")
+                else:
+                    logger.error(f"   ❌ No hay compañía disponible para {instance.__class__.__name__}")
             
             # ✅ Si es una línea de factura, copiar datos del producto
             if hasattr(instance, 'product') and instance.product:
                 instance.product_code = instance.product.code
                 instance.product_name = instance.product.name
             
+            # ✅ Guardar la instancia
             instance.save()
+            logger.info(f"   ✅ {instance.__class__.__name__} guardada con company_id={instance.company_id}")
         
+        # ✅ Guardar relaciones ManyToMany
         formset.save_m2m()
         
+        # ✅ Eliminar objetos marcados para borrar
         for obj in formset.deleted_objects:
             logger.info(f"   🗑️ Eliminando objeto: {obj}")
             obj.delete()
         
         # ✅ Recalcular totales después de guardar líneas
-        invoice = form.instance
         if invoice.pk and hasattr(invoice, 'lines') and invoice.lines.exists():
             invoice.calculate_totals()
             invoice.save(update_fields=['subtotal', 'tax', 'total'])
