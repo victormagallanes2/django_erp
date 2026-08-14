@@ -1007,25 +1007,60 @@ class PurchaseInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         return company
 
     def save_model(self, request, obj, form, change):
+        """Guardar factura de compra y preparar para procesar inventario"""
+        
+        logger.info("=" * 80)
+        logger.info("🔴 [PurchaseInvoiceAdmin.save_model] INICIANDO")
+        logger.info(f"   Factura: {obj.number if obj.number else 'Nueva'}")
+        logger.info(f"   Estado: {obj.status}")
+        logger.info(f"   Change: {change}")
+        
+        # ✅ Obtener el estado anterior si existe
+        self._old_status = None
+        if change and obj.pk:
+            try:
+                old_invoice = PurchaseInvoice.objects.get(pk=obj.pk)
+                self._old_status = old_invoice.status
+                logger.info(f"   Estado anterior: {self._old_status}")
+            except PurchaseInvoice.DoesNotExist:
+                pass
+
+        # ✅ Asignar compañía
         company = getattr(request, 'current_company', None)
         if not company:
             company = Company.get_active()
         
         if company and hasattr(obj, 'company'):
             obj.company = company
+            logger.info(f"   ✅ Compañía asignada: {company.code}")
 
+        # ✅ Copiar datos del proveedor
         if obj.supplier_id:
             obj.supplier_name = obj.supplier.name
             obj.supplier_rif = obj.supplier.tax_id
             obj.supplier_address = obj.supplier.address
+        
+        # ✅ Asignar usuario
         if not obj.user:
             obj.user = request.user
+
+        # ✅ Guardar la factura
         super().save_model(request, obj, form, change)
+        logger.info(f"   ✅ Factura guardada con ID: {obj.pk}")
+
+        # ✅ Guardar el estado actual
+        self._new_status = obj.status
+        
+        # ✅ Flag para controlar que solo se procese una vez
+        self._inventory_processed = False
+        
+        logger.info("🔴 [PurchaseInvoiceAdmin.save_model] FINALIZADO")
+        logger.info("=" * 80)
 
     def save_formset(self, request, form, formset, change):
         """
         Guardar líneas y pagos de la factura.
-        Después de guardar, recalcular totales.
+        Después de guardar, recalcular totales y procesar inventario si está pagada.
         """
         logger.info("=" * 80)
         logger.info("🔴 [PurchaseInvoiceAdmin.save_formset] INICIANDO")
@@ -1079,8 +1114,191 @@ class PurchaseInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             invoice.save(update_fields=['subtotal', 'tax', 'total'])
             logger.info(f"   ✅ Totales recalculados: Subtotal={invoice.subtotal}, IVA={invoice.tax}, Total={invoice.total}")
         
+        # ✅ PROCESAR INVENTARIO SOLO UNA VEZ
+        # Verificar si el estado cambió a PAID y no se ha procesado aún
+        old_status = getattr(self, '_old_status', None)
+        new_status = getattr(self, '_new_status', invoice.status)
+        already_processed = getattr(self, '_inventory_processed', False)
+        
+        logger.info(f"   Estado anterior: {old_status}")
+        logger.info(f"   Estado actual: {new_status}")
+        logger.info(f"   Ya procesado: {already_processed}")
+        
+        # ✅ Solo procesar si:
+        # 1. El estado cambió a PAID
+        # 2. No se ha procesado antes
+        # 3. Es el formset de líneas (no el de pagos)
+        if (old_status != 'PAID' and new_status == 'PAID' and 
+            not already_processed and hasattr(formset, 'model') and 
+            formset.model.__name__ == 'PurchaseInvoiceLine'):
+            
+            logger.info(f"   🎯 Factura {invoice.number} cambiando a PAGADA")
+            logger.info("   📦 Procesando movimientos de inventario...")
+            
+            # ✅ Marcar como procesado para evitar duplicados
+            self._inventory_processed = True
+            
+            try:
+                # ✅ Procesar los movimientos de inventario
+                self._process_inventory_for_paid_invoice(invoice, request.user)
+                logger.info(f"   ✅ Movimientos de inventario procesados exitosamente")
+                
+                self.message_user(
+                    request,
+                    f'✅ Factura {invoice.number} pagada y movimientos de inventario creados',
+                    messages.SUCCESS
+                )
+            except Exception as e:
+                logger.error(f"   ❌ Error procesando inventario: {e}")
+                import traceback
+                logger.error(f"   Traceback: {traceback.format_exc()}")
+                self.message_user(
+                    request,
+                    f'⚠️ Factura guardada, pero error al procesar inventario: {str(e)}',
+                    messages.WARNING
+                )
+        
         logger.info("🔴 [PurchaseInvoiceAdmin.save_formset] FINALIZADO")
         logger.info("=" * 80)
         
         # ✅ Llamar al save_formset del padre
         return super().save_formset(request, form, formset, change)
+
+    def _process_inventory_for_paid_invoice(self, invoice, user):
+        """
+        Procesar movimientos de inventario para una factura de compra pagada.
+        """
+        from django_erp.inventory.services import WarehouseService
+        from django_erp.inventory.models import Location
+        
+        logger.info("=" * 80)
+        logger.info("🔴 [_process_inventory_for_paid_invoice] INICIANDO")
+        logger.info(f"   Factura: {invoice.number}")
+        logger.info(f"   ID: {invoice.pk}")
+        logger.info(f"   ¿Tiene orden de compra?: {invoice.purchase_order is not None}")
+        
+        company = invoice.company
+        if not company:
+            logger.error("   ❌ La factura no tiene compañía")
+            raise Exception("La factura no tiene una compañía asignada")
+        
+        logger.info(f"   Compañía: {company.code}")
+        
+        # ✅ Determinar de dónde obtener las líneas
+        lines_to_process = []
+        use_invoice_lines = False
+        
+        if invoice.purchase_order:
+            # ✅ Si tiene orden de compra, usar sus líneas
+            logger.info("   📝 Usando líneas de la orden de compra")
+            order = invoice.purchase_order
+            lines_to_process = order.lines.all()
+            
+            if not lines_to_process.exists():
+                logger.warning("   ⚠️ La orden de compra no tiene líneas")
+                return
+        else:
+            # ✅ Si no tiene orden, usar líneas de la factura
+            logger.info("   📝 Usando líneas de la factura")
+            lines_to_process = invoice.lines.all()
+            use_invoice_lines = True
+            
+            if not lines_to_process.exists():
+                logger.warning("   ⚠️ La factura no tiene líneas")
+                return
+        
+        logger.info(f"   📊 Líneas a procesar: {lines_to_process.count()}")
+        
+        # ✅ Obtener o crear ubicación por defecto
+        default_location = Location.objects.filter(
+            company=company,
+            is_active=True
+        ).first()
+        
+        if not default_location:
+            default_location = Location.objects.create(
+                code=f"ALM-{company.code}",
+                name=f"Almacén Principal - {company.name}",
+                description=f"Almacén principal de {company.name}",
+                company=company,
+                is_active=True
+            )
+            logger.info(f"   ✅ Ubicación por defecto creada: {default_location.code}")
+        
+        # ✅ Procesar cada línea
+        movements_created = 0
+        for idx, line in enumerate(lines_to_process, 1):
+            logger.info(f"   📝 Procesando línea {idx}:")
+            
+            # ✅ Obtener el producto
+            product = line.product
+            if not product:
+                logger.warning(f"      ⚠️ Línea {idx} sin producto, saltando...")
+                continue
+            
+            # ✅ Si es un servicio, no se procesa en inventario
+            if product.is_service:
+                logger.info(f"      ℹ️ Producto '{product.name}' es servicio, no se procesa en inventario")
+                continue
+            
+            # ✅ OBTENER LA UBICACIÓN
+            location = None
+            
+            # ✅ CASO 1: Si la línea es de una orden de compra (tiene location)
+            if hasattr(line, 'location') and line.location:
+                location = line.location
+                logger.info(f"      📍 Ubicación desde línea de compra: {location.code}")
+            
+            # ✅ CASO 2: Si la línea es de factura (no tiene location), intentar obtener de la orden
+            elif use_invoice_lines and invoice.purchase_order:
+                # Buscar la línea correspondiente en la orden de compra
+                order_line = invoice.purchase_order.lines.filter(
+                    product=product
+                ).first()
+                
+                if order_line and hasattr(order_line, 'location') and order_line.location:
+                    location = order_line.location
+                    logger.info(f"      📍 Ubicación desde orden de compra: {location.code}")
+            
+            # ✅ CASO 3: Usar ubicación por defecto
+            if not location:
+                location = default_location
+                logger.info(f"      📍 Usando ubicación por defecto: {location.code}")
+            
+            if not location:
+                logger.error(f"      ❌ No hay ubicación para el producto {product.name}")
+                continue
+            
+            logger.info(f"      - Producto: {product.name} (ID: {product.id})")
+            logger.info(f"      - Cantidad: {line.quantity}")
+            logger.info(f"      - Ubicación: {location.code} (ID: {location.id})")
+            logger.info(f"      - Precio: {line.unit_price}")
+            
+            # ✅ Crear movimiento de entrada
+            try:
+                movement = WarehouseService.create_entry(
+                    product_id=product.id,
+                    quantity=line.quantity,
+                    location_to_id=location.id,
+                    unit_price=float(line.unit_price),
+                    source_type='PURCHASE',
+                    source_reference=f"FAC-COMPRA-{invoice.number}",
+                    note=f"Entrada por factura de compra {invoice.number} - {invoice.supplier_name}",
+                    user=user,
+                    company=company
+                )
+                movements_created += 1
+                logger.info(f"      ✅ Movimiento de entrada creado (ID: {movement.id})")
+            except Exception as e:
+                logger.error(f"      ❌ Error creando movimiento: {e}")
+                import traceback
+                logger.error(f"      Traceback: {traceback.format_exc()}")
+                raise
+        
+        logger.info(f"   ✅ Total movimientos creados: {movements_created}")
+        
+        if movements_created == 0:
+            logger.warning("   ⚠️ No se crearon movimientos")
+        
+        logger.info("🔴 [_process_inventory_for_paid_invoice] FINALIZADO")
+        logger.info("=" * 80)
