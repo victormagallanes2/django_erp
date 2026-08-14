@@ -388,15 +388,9 @@ class SaleInvoicePaymentInline(UnfoldTabularInline):
     form = SaleInvoicePaymentForm
     extra = 1
     fields = ['method', 'amount', 'reference']
-    #readonly_fields = ['payment_date', 'amount_usd_display']
     autocomplete_fields = ['method']
     verbose_name_plural = "💳 Pagos del Cliente"
 
-    # @admin.display(description='Monto en USD')
-    # def amount_usd_display(self, obj):
-    #     if obj and obj.amount_usd:
-    #         return f"$ {obj.amount_usd:,.2f}"
-    #     return "$ 0.00"
     
     def get_formset(self, request, obj=None, **kwargs):
         """Pasar la factura padre al formulario"""

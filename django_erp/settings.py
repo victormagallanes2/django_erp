@@ -166,7 +166,13 @@ def get_menu_items(request):
     
     if user.has_perm('inventory.view_product') or user.has_perm('inventory.view_movement') or user.has_perm('inventory.view_inventory'):
         inventory_items = []
-        
+
+        if user.has_perm('inventory.view_inventory'):
+            inventory_items.append({
+                "title": "Inventarios",
+                "icon": "storage",
+                "link": "/admin/inventory/inventory/",
+            })
         if user.has_perm('inventory.view_product'):
             inventory_items.append({
                 "title": "Productos",
@@ -179,19 +185,19 @@ def get_menu_items(request):
                 "icon": "swap_horiz",
                 "link": "/admin/inventory/movement/", 
             })
-        if user.has_perm('inventory.view_deliverynote'):
-            inventory_items.append({
-                "title": "Notas de Entrega",
-                "icon": "fact_check",  # O "move_down" o cualquier icono de Material Symbols
-                "link": "/admin/inventory/deliverynote/",
-            })
+        # if user.has_perm('inventory.view_deliverynote'):
+        #     inventory_items.append({
+        #         "title": "Notas de Entrega",
+        #         "icon": "fact_check",
+        #         "link": "/admin/inventory/deliverynote/",
+        #     })
         
-        if user.has_perm('inventory.view_receiptnote'):
-            inventory_items.append({
-                "title": "Notas de Recibo",
-                "icon": "move_up",  # O "inbox"
-                "link": "/admin/inventory/receiptnote/",
-            })
+        # if user.has_perm('inventory.view_receiptnote'):
+        #     inventory_items.append({
+        #         "title": "Notas de Recibo",
+        #         "icon": "move_up",
+        #         "link": "/admin/inventory/receiptnote/",
+        #     })
         
         if user.has_perm('inventory.view_location'):
             inventory_items.append({
@@ -200,19 +206,14 @@ def get_menu_items(request):
                 "link": "/admin/inventory/location/",  
             })
         
-        if user.has_perm('inventory.view_inventory'):
-            inventory_items.append({
-                "title": "Inventarios",
-                "icon": "storage",
-                "link": "/admin/inventory/inventory/",
-            })
+
         
-        if user.has_perm('inventory.view_physicalcount'):
-            inventory_items.append({
-                "title": "Conteos Físicos",
-                "icon": "fact_check",
-                "link": "/admin/inventory/physicalcount/",
-            })
+        # if user.has_perm('inventory.view_physicalcount'):
+        #     inventory_items.append({
+        #         "title": "Conteos Físicos",
+        #         "icon": "fact_check",
+        #         "link": "/admin/inventory/physicalcount/",
+        #     })
 
         
         if inventory_items:
@@ -234,12 +235,12 @@ def get_menu_items(request):
                 "link": "/admin/purchasing/supplier/",
             })
         
-        if user.has_perm('purchasing.view_purchaseorder'):
-            purchasing_items.append({
-                "title": "Ordenes de Compras",
-                "icon": "shopping_cart",
-                "link": "/admin/purchasing/purchaseorder/",
-            })
+        # if user.has_perm('purchasing.view_purchaseorder'):
+        #     purchasing_items.append({
+        #         "title": "Ordenes de Compras",
+        #         "icon": "shopping_cart",
+        #         "link": "/admin/purchasing/purchaseorder/",
+        #     })
         if user.has_perm('purchasing.view_purchaseorder'):
             purchasing_items.append({
                 "title": "Facturas de Compra",
@@ -267,25 +268,25 @@ def get_menu_items(request):
                 "link": "/admin/sales/customer/",
             })
         
-        if user.has_perm('sales.view_saleorder'):
-            sales_items.append({
-                "title": "Ordenes de Ventas",
-                "icon": "receipt_long",
-                "link": "/admin/sales/saleorder/",
-            })
-        
-        if user.has_perm('sales.view_cashregister'):
-            sales_items.append({
-                "title": "Cajas",
-                "icon": "payments",
-                "link": "/admin/sales/cashregister/",
-            })
+        # if user.has_perm('sales.view_saleorder'):
+        #     sales_items.append({
+        #         "title": "Ordenes de Ventas",
+        #         "icon": "receipt_long",
+        #         "link": "/admin/sales/saleorder/",
+        #     })
         if user.has_perm('sales.view_saleorder'):
             sales_items.append({
                 "title": "Facturas de Ventas",
                 "icon": "fact_check",
                 "link": "/admin/sales/saleinvoice/",
             })
+        if user.has_perm('sales.view_cashregister'):
+            sales_items.append({
+                "title": "Cajas",
+                "icon": "payments",
+                "link": "/admin/sales/cashregister/",
+            })
+
         if user.has_perm('sales.can_view_reports'):
             sales_items.append({
                 "title": "Reporte de Ventas",
