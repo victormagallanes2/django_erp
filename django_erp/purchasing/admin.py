@@ -721,17 +721,137 @@ class PurchaseInvoiceLineInline(UnfoldTabularInline):
         return formset
 
 
+
+class PurchaseInvoiceForm(forms.ModelForm):
+    """Formulario personalizado para facturas de compra - Igual que ventas"""
+    
+    # Campos para mostrar totales en USD
+    subtotal_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Subtotal (USD)",
+        initial="0.00"
+    )
+    
+    tax_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="IVA (USD)",
+        initial="0.00"
+    )
+    
+    total_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Total (USD)",
+        initial="0.00"
+    )
+    
+    # Campos para mostrar totales en Bs.
+    subtotal_bs_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Subtotal (Bs.)",
+        initial="0.00"
+    )
+    
+    tax_bs_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="IVA (Bs.)",
+        initial="0.00"
+    )
+    
+    total_bs_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Total (Bs.)",
+        initial="0.00",
+        help_text="Convertido según tasa del día"
+    )
+    
+    rate_display = forms.CharField(
+        required=False,
+        disabled=True,
+        label="Tasa del día",
+        initial="1 USD = Bs. 0.00"
+    )
+    
+    class Meta:
+        model = PurchaseInvoice
+        fields = ['number', 'purchase_order', 'supplier', 'status', 'date_due', 'note']
+        widgets = {
+            'number': forms.TextInput(attrs={'readonly': 'readonly'}),
+        }
+    
+    def __init__(self, *args, **kwargs):
+        self._request = kwargs.pop('request', None)
+        instance = kwargs.get('instance')
+        super().__init__(*args, **kwargs)
+        
+        # ✅ Obtener tasa de cambio
+        rate = ExchangeRate.get_today_rate('USD', 'BS')
+        if rate:
+            self.initial['rate_display'] = f"1 USD = Bs. {rate:.2f}"
+        else:
+            self.initial['rate_display'] = "No hay tasa configurada"
+        
+        # ✅ Si es una nueva factura, generar número automáticamente (IGUAL QUE VENTAS)
+        if not instance or not instance.pk:
+            from datetime import datetime
+            last_invoice = PurchaseInvoice.objects.order_by('-id').first()
+            if last_invoice and last_invoice.number:
+                try:
+                    last_num = int(last_invoice.number.split('-')[-1])
+                    next_num = last_num + 1
+                except (ValueError, IndexError):
+                    next_num = 1
+            else:
+                next_num = 1
+            
+            self.initial['number'] = f"FAC-COMPRA-{datetime.now().strftime('%Y%m')}-{next_num:04d}"
+            self.initial['status'] = 'ISSUED'
+            
+            # ✅ Inicializar totales en 0
+            self.initial['subtotal_display'] = "0.00"
+            self.initial['tax_display'] = "0.00"
+            self.initial['total_display'] = "0.00"
+            self.initial['subtotal_bs_display'] = "0.00"
+            self.initial['tax_bs_display'] = "0.00"
+            self.initial['total_bs_display'] = "0.00"
+        
+        # ✅ Si es una factura existente, mostrar totales
+        if instance and instance.pk:
+            self.initial['subtotal_display'] = f"{instance.subtotal:.2f}"
+            self.initial['tax_display'] = f"{instance.tax:.2f}"
+            self.initial['total_display'] = f"{instance.total:.2f}"
+            
+            if rate:
+                self.initial['subtotal_bs_display'] = f"{(instance.subtotal * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
+                self.initial['tax_bs_display'] = f"{(instance.tax * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
+                self.initial['total_bs_display'] = f"{(instance.total * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
+        
+        # ✅ Configurar opciones de estado
+        self.fields['status'].choices = PurchaseInvoice.STATUS_CHOICES
+        self.fields['purchase_order'].required = False
+        self.fields['purchase_order'].help_text = "Opcional: Si la factura proviene de una orden de compra"
+
+
 @admin.register(PurchaseInvoice)
 class PurchaseInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
-    """Admin de facturas de compra con multicompañía"""
-
+    """Admin de facturas de compra - IGUAL QUE VENTAS"""
+    
+    form = PurchaseInvoiceForm
+    
     list_display = [
         'number',
         'company_display',
         'supplier',
         'date_issued',
-        'total',
-        'status',
+        'subtotal_display',
+        'tax_display',
+        'total_display',
+        'status_badge',
         'created_at'
     ]
     list_filter = ['status', 'date_issued', 'company']
@@ -741,24 +861,31 @@ class PurchaseInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     autocomplete_fields = ['supplier', 'purchase_order']
 
     fieldsets = (
-        ('Información', {
-            'fields': ('number', 'purchase_order', 'supplier', 'status')
+        ('Información de la Factura', {
+            'fields': ('number', 'supplier', 'status')
         }),
-        ('Datos del Proveedor', {
-            'fields': ('supplier_name', 'supplier_rif', 'supplier_address')
+        ('Orden de Compra (opcional)', {
+            'fields': ('purchase_order',),
+            'description': 'Si esta factura proviene de una orden de compra, selecciónala aquí.'
         }),
-        ('Fechas', {
-            'fields': ('date_issued', 'date_due')
-        }),
-        ('Totales', {
-            'fields': ('subtotal', 'tax', 'total')
+        # ✅ Totales en Tiempo Real - IGUAL QUE VENTAS
+        ('Totales en Tiempo Real', {
+            'fields': (
+                ('subtotal_display', 'subtotal_bs_display'),
+                ('tax_display', 'tax_bs_display'),
+                ('total_display', 'total_bs_display'),
+                'rate_display',
+            ),
+            'classes': ('tab', 'wide'),
+            'description': 'Los totales se actualizan automáticamente al modificar las líneas'
         }),
         ('Información Adicional', {
-            'fields': ('note',)
+            'fields': ('note',),
+            'classes': ('collapse',),
         }),
     )
 
-    readonly_fields = ['date_issued', 'subtotal', 'tax', 'total', 'user', 'created_at', 'updated_at']
+    readonly_fields = ['date_issued', 'user', 'created_at', 'updated_at', 'subtotal', 'tax', 'total']
 
     class Media:
         js = ('admin/js/purchase_invoice_admin.js',)
@@ -773,9 +900,109 @@ class PurchaseInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             )
         return "Sin compañía"
 
+    @admin.display(description='Subtotal')
+    def subtotal_display(self, obj):
+        return f"$ {obj.subtotal:.2f}"
+
+    @admin.display(description='IVA')
+    def tax_display(self, obj):
+        return f"$ {obj.tax:.2f}"
+
+    @admin.display(description='Total')
+    def total_display(self, obj):
+        return f"$ {obj.total:.2f}"
+
+    @admin.display(description='Estado', ordering='status')
+    def status_badge(self, obj):
+        colors = {
+            'DRAFT': ('#6c757d', '📝 Borrador'),
+            'ISSUED': ('#17a2b8', '📄 Emitida'),
+            'PAID': ('#28a745', '✅ Pagada'),
+            'CANCELLED': ('#dc3545', '❌ Anulada'),
+        }
+        color, label = colors.get(obj.status, ('#6c757d', obj.status))
+        return format_html(
+            '<span style="background: {}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 12px;">{}</span>',
+            color,
+            label
+        )
+
+    def get_form(self, request, obj=None, **kwargs):
+        """Limpiar banderas de sesión al abrir una nueva factura"""
+        if obj is None:
+            for key in list(request.session.keys()):
+                if key.startswith('invoice_'):
+                    del request.session[key]
+        return super().get_form(request, obj, **kwargs)
+
+    def _resolve_company(self, request):
+        """Resolver la compañía activa"""
+        company = getattr(request, 'current_company', None)
+        if not company:
+            company = Company.get_active()
+        return company
+
     def save_model(self, request, obj, form, change):
+        """Guardar la factura"""
+        # ✅ Asignar compañía
+        company = self._resolve_company(request)
+        if company and hasattr(obj, 'company'):
+            obj.company = company
+        
+        # ✅ Si tiene proveedor, copiar sus datos
+        if obj.supplier_id:
+            obj.supplier_name = obj.supplier.name
+            obj.supplier_rif = obj.supplier.tax_id
+            obj.supplier_address = obj.supplier.address
+        
         if not obj.user:
             obj.user = request.user
+        
+        # ✅ Guardar la factura
         super().save_model(request, obj, form, change)
-        obj.calculate_totals()
-        obj.save(update_fields=['subtotal', 'tax', 'total'])
+
+    def save_formset(self, request, form, formset, change):
+        """
+        Guardar líneas y pagos de la factura.
+        Después de guardar, recalcular totales.
+        """
+        logger.info("=" * 80)
+        logger.info("🔴 [PurchaseInvoiceAdmin.save_formset] INICIANDO")
+        
+        company = self._resolve_company(request)
+        logger.info(f"   Compañía para inlines: {company.code if company else 'N/A'}")
+        
+        # ✅ Guardar los inlines (líneas y pagos)
+        instances = formset.save(commit=False)
+        logger.info(f"   Instancias a guardar: {len(instances)}")
+        
+        for instance in instances:
+            if hasattr(instance, 'company') and not instance.company_id:
+                instance.company = company
+                logger.info(f"   ✅ Compañía asignada a {instance.__class__.__name__}")
+            
+            # ✅ Si es una línea de factura, copiar datos del producto
+            if hasattr(instance, 'product') and instance.product:
+                instance.product_code = instance.product.code
+                instance.product_name = instance.product.name
+            
+            instance.save()
+        
+        formset.save_m2m()
+        
+        for obj in formset.deleted_objects:
+            logger.info(f"   🗑️ Eliminando objeto: {obj}")
+            obj.delete()
+        
+        # ✅ Recalcular totales después de guardar líneas
+        invoice = form.instance
+        if invoice.pk and hasattr(invoice, 'lines') and invoice.lines.exists():
+            invoice.calculate_totals()
+            invoice.save(update_fields=['subtotal', 'tax', 'total'])
+            logger.info(f"   ✅ Totales recalculados: Subtotal={invoice.subtotal}, IVA={invoice.tax}, Total={invoice.total}")
+        
+        logger.info("🔴 [PurchaseInvoiceAdmin.save_formset] FINALIZADO")
+        logger.info("=" * 80)
+        
+        # ✅ Llamar al save_formset del padre
+        return super().save_formset(request, form, formset, change)
