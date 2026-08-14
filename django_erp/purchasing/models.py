@@ -358,7 +358,19 @@ class PurchasePayment(models.Model):
         'purchasing.PurchaseOrder',
         on_delete=models.CASCADE,
         related_name='payments',
-        verbose_name="Orden de Compra"
+        verbose_name="Orden de Compra",
+        null=True,
+        blank=True,
+    )
+
+    purchase_invoice = models.ForeignKey(
+        'purchasing.PurchaseInvoice',
+        on_delete=models.CASCADE,
+        related_name='payments',
+        verbose_name="Factura de Compra",
+        null=True,
+        blank=True,
+        help_text="Factura a la que pertenece este pago."
     )
     
     # ✅ Proveedor (para saber a quién se paga)
@@ -432,19 +444,6 @@ class PurchasePayment(models.Model):
         null=True,
         blank=True,
         verbose_name="Fecha esperada"
-    )
-    
-    STATUS_CHOICES = [
-        ('PENDING', 'Pendiente'),
-        ('COMPLETED', 'Completado'),
-        ('FAILED', 'Fallido'),
-        ('CANCELLED', 'Cancelado'),
-    ]
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='PENDING',
-        verbose_name="Estado"
     )
     
     payment_date = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Pago")

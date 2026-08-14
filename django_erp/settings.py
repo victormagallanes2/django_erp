@@ -173,18 +173,19 @@ def get_menu_items(request):
                 "icon": "storage",
                 "link": "/admin/inventory/inventory/",
             })
-        if user.has_perm('inventory.view_product'):
-            inventory_items.append({
-                "title": "Productos",
-                "icon": "inventory_2",
-                "link": "/admin/inventory/product/", 
-            })
         if user.has_perm('inventory.view_movement'):
             inventory_items.append({
                 "title": "Movimientos",
                 "icon": "swap_horiz",
                 "link": "/admin/inventory/movement/", 
             })
+        if user.has_perm('inventory.view_product'):
+            inventory_items.append({
+                "title": "Productos",
+                "icon": "inventory_2",
+                "link": "/admin/inventory/product/", 
+            })
+
         # if user.has_perm('inventory.view_deliverynote'):
         #     inventory_items.append({
         #         "title": "Notas de Entrega",

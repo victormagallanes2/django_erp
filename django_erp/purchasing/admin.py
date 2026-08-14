@@ -126,6 +126,46 @@ class PurchasePaymentInline(UnfoldTabularInline):
         return queryset.select_related('method', 'company_bank_account', 'currency', 'supplier')
 
 
+
+class PurchaseInvoicePaymentInline(UnfoldTabularInline):
+    """Inline de pagos para facturas de compra"""
+    model = PurchasePayment
+    fk_name = 'purchase_invoice'  # Relación con la factura de compra
+    extra = 0
+    fields = [
+        'method',
+        'company_bank_account',
+        'amount',
+        'reference',
+    ]
+    exclude = [
+        'status', 'supplier_bank', 'expected_date', 'amount_usd', 
+        'payment_date', 'user', 'company', 'purchase_order'
+    ]
+    readonly_fields = ['payment_date', 'amount_usd_display']
+    autocomplete_fields = ['method', 'company_bank_account', 'currency']
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        from django_erp.configuration.models import CompanyBankAccount
+        default_account = CompanyBankAccount.get_default()
+        if default_account:
+            formset.form.base_fields['company_bank_account'].initial = default_account.id
+
+        return formset
+
+    @admin.display(description='Monto en USD')
+    def amount_usd_display(self, obj):
+        if obj and obj.amount_usd:
+            return f"$ {obj.amount_usd:,.2f}"
+        return "$ 0.00"
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.select_related('method', 'company_bank_account', 'currency')
+
+
+
 class PurchaseInvoiceInline(UnfoldTabularInline):
     """Inline de facturas de compra en la orden"""
     model = PurchaseInvoice
@@ -697,7 +737,7 @@ class PurchaseInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     list_filter = ['status', 'date_issued', 'company']
     search_fields = ['number', 'supplier__name', 'supplier_rif', 'company__name']
 
-    inlines = [PurchaseInvoiceLineInline]
+    inlines = [PurchaseInvoiceLineInline, PurchaseInvoicePaymentInline]
     autocomplete_fields = ['supplier', 'purchase_order']
 
     fieldsets = (
