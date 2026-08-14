@@ -524,10 +524,7 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 obj.save(update_fields=['subtotal', 'tax', 'total'])
             return
 
-        # ✅ Si es una orden NUEVA (no existe fila previa en BD), no hay
-        # una "transición" real que validar/procesar vía PurchaseService
-        # (no existe un estado anterior contra el cual comparar). Se
-        # guarda directamente con el estado elegido en el formulario.
+
         if not change or old_status is None:
             if not obj.user:
                 obj.user = request.user
@@ -541,13 +538,6 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         if not obj.user:
             obj.user = request.user
 
-        # ✅ IMPORTANTE: Verificar si la transición es válida ANTES de guardar
-        # ✅ FIX: se pasa old_status explícitamente porque en este punto
-        # obj.status YA fue sobreescrito por Django con el nuevo valor
-        # (form._post_clean() ya volcó cleaned_data sobre la instancia).
-        # Sin esto, can_transition comparaba new_status contra sí mismo
-        # y la validación fallaba siempre, bloqueando cualquier cambio
-        # de estado.
         from .services import PurchaseService
         if not PurchaseService.can_transition(obj, new_status, current_status=old_status):
             self.message_user(
@@ -560,16 +550,6 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             super().save_model(request, obj, form, change)
             return
 
-        # ✅ FIX: Guardar la orden con el ESTADO ANTERIOR (old_status),
-        # NO con el nuevo. Antes se guardaba ya con obj.status=new_status,
-        # así que cuando PurchaseService.send_order() / confirm_order_
-        # from_supplier() / receive_order() / cancel_order() revisaban
-        # order.status para validar su precondición (p. ej. "solo se
-        # puede enviar una orden en Borrador"), la orden YA figuraba en
-        # el estado nuevo en la BD y la precondición siempre fallaba.
-        # Ahora el nuevo estado (y sus efectos secundarios: fechas, nota
-        # de recibo, factura, movimientos de inventario, etc.) lo aplica
-        # PurchaseService dentro de _process_status_change().
         obj.status = old_status
         super().save_model(request, obj, form, change)
 
@@ -702,9 +682,30 @@ class PurchaseInvoiceLineInline(UnfoldTabularInline):
     """Inline de líneas de factura de compra"""
     model = PurchaseInvoiceLine
     extra = 0
-    fields = ['product', 'quantity', 'unit_price', 'subtotal']
-    readonly_fields = ['subtotal']
+    fields = ['product', 'stock_display','quantity', 'unit_price', 'subtotal']
+    readonly_fields = ['subtotal', 'stock_display']
     autocomplete_fields = ['product']
+
+    def stock_display(self, obj):
+        """Mostrar el stock disponible del producto"""
+        if obj and obj.product:
+            company = getattr(obj, 'company', None)
+            if not company:
+                company = obj.invoice.company if hasattr(obj, 'invoice') and obj.invoice else None
+            
+            if company:
+                from django_erp.inventory.models import Inventory
+                total_stock = sum(
+                    inv.quantity for inv in Inventory.objects.filter(
+                        product=obj.product, 
+                        company=company
+                    )
+                )
+                if total_stock > 0:
+                    return f"{total_stock} disponibles"
+                return "⚠️ Sin stock"
+        return "-"
+    stock_display.short_description = "Stock disponible"
 
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
@@ -810,7 +811,7 @@ class PurchaseInvoiceForm(forms.ModelForm):
                 next_num = 1
             
             self.initial['number'] = f"FAC-COMPRA-{datetime.now().strftime('%Y%m')}-{next_num:04d}"
-            self.initial['status'] = 'ISSUED'
+            self.initial['status'] = 'PAID'
             
             # ✅ Inicializar totales en 0
             self.initial['subtotal_display'] = "0.00"
@@ -943,22 +944,19 @@ class PurchaseInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         return company
 
     def save_model(self, request, obj, form, change):
-        """Guardar la factura"""
-        # ✅ Asignar compañía
-        company = self._resolve_company(request)
+        company = getattr(request, 'current_company', None)
+        if not company:
+            company = Company.get_active()
+        
         if company and hasattr(obj, 'company'):
             obj.company = company
-        
-        # ✅ Si tiene proveedor, copiar sus datos
+
         if obj.supplier_id:
             obj.supplier_name = obj.supplier.name
             obj.supplier_rif = obj.supplier.tax_id
             obj.supplier_address = obj.supplier.address
-        
         if not obj.user:
             obj.user = request.user
-        
-        # ✅ Guardar la factura
         super().save_model(request, obj, form, change)
 
     def save_formset(self, request, form, formset, change):

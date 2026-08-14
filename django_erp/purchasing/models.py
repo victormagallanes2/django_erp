@@ -592,7 +592,9 @@ class PurchaseInvoice(models.Model):
         'purchasing.PurchaseOrder',
         on_delete=models.CASCADE,
         related_name='invoices',
-        verbose_name="Orden de Compra"
+        verbose_name="Orden de Compra",
+        null=True,
+        blank=True 
     )
     
     # Proveedor (desde la orden)

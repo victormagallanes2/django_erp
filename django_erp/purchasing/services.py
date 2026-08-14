@@ -322,7 +322,7 @@ class PurchaseInvoiceService:
             supplier_rif=purchase_order.supplier.tax_id,
             supplier_address=purchase_order.supplier.address,
             date_due=datetime.now().date() + timedelta(days=30),
-            status='ISSUED',
+            status='PAID',
             user=user or purchase_order.user,
             sync_status='SYNCED',
             company=company,
