@@ -42,8 +42,6 @@ class Product(models.Model):
         max_digits=10,
         decimal_places=2,
         default=0,
-        null=True,
-        blank=True,
         verbose_name="Precio de Compra (USD)",
         help_text="Precio de compra para referencia. El costo real se calcula desde los movimientos."
     )

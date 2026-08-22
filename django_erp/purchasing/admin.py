@@ -91,7 +91,6 @@ class PurchasePaymentInline(UnfoldTabularInline):
         'amount_usd_display',
         'reference',
         'supplier_bank',
-        'status',
         'payment_date'
     ]
     readonly_fields = ['payment_date', 'amount_usd_display']
@@ -139,7 +138,7 @@ class PurchaseInvoicePaymentInline(UnfoldTabularInline):
         'reference',
     ]
     exclude = [
-        'status', 'supplier_bank', 'expected_date', 'amount_usd', 
+        'supplier_bank', 'expected_date', 'amount_usd', 
         'payment_date', 'user', 'company', 'purchase_order'
     ]
     readonly_fields = ['payment_date', 'amount_usd_display']

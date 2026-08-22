@@ -350,10 +350,7 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             company=obj.company,
             type='ENTRY'
         ).aggregate(total=models.Sum('quantity'))['total'] or 0
-        return format_html(
-            '<span style="color: #28a745; font-weight: bold;">+{}</span>',
-            total
-        )
+        return total
     
     @admin.display(description='Salidas')
     def total_exits_display(self, obj):
@@ -362,28 +359,11 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             company=obj.company,
             type='EXIT'
         ).aggregate(total=models.Sum('quantity'))['total'] or 0
-        return format_html(
-            '<span style="color: #dc3545; font-weight: bold;">-{}</span>',
-            total
-        )
+        return total
     
     @admin.display(description='Stock', ordering='quantity')
     def quantity_display(self, obj):
-        if obj.quantity == 0:
-            return format_html(
-                '<span style="color: #dc3545; font-weight: bold;">{}</span>',
-                obj.quantity
-            )
-        elif obj.quantity < 10:
-            return format_html(
-                '<span style="color: #ffc107; font-weight: bold;">{}</span>',
-                obj.quantity
-            )
-        else:
-            return format_html(
-                '<span style="color: #28a745; font-weight: bold;">{}</span>',
-                obj.quantity
-            )
+        return obj.quantity
     
     # ============================================================
     # PRECIO DE COMPRA (USD y Bs.)
@@ -391,51 +371,27 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     
     @admin.display(description='Precio Compra (USD)')
     def purchase_price_usd_display(self, obj):
-        if obj.product.purchase_price:
-            return format_html(
-                '<span style="color: #0d6efd; font-weight: bold;">${:.2f}</span>',
-                float(obj.product.purchase_price)
-            )
-        return '-'
-    
+        return obj.product.purchase_price or 0
+
     @admin.display(description='Precio Compra (Bs.)')
     def purchase_price_bs_display(self, obj):
-        if obj.product.purchase_price:
-            rate = self.get_exchange_rate()
-            if rate > 0:
-                price_bs = float(obj.product.purchase_price) * rate
-                return format_html(
-                    '<span style="color: #6c757d;">Bs. {:.2f}</span>',
-                    price_bs
-                )
-            return 'Sin tasa'
-        return '-'
-    
-    # ============================================================
-    # PRECIO DE VENTA (USD y Bs.)
-    # ============================================================
-    
+        from decimal import Decimal
+        rate = self.get_exchange_rate()
+        if rate > 0 and obj.product.purchase_price:
+            return obj.product.purchase_price * Decimal(str(rate))
+        return 'Sin tasa'
+
     @admin.display(description='Precio Venta (USD)')
     def sale_price_usd_display(self, obj):
-        if obj.product.sale_price > 0:
-            return format_html(
-                '<span style="color: #28a745; font-weight: bold;">${:.2f}</span>',
-                float(obj.product.sale_price)
-            )
-        return '-'
-    
+        return obj.product.sale_price or 0
+
     @admin.display(description='Precio Venta (Bs.)')
     def sale_price_bs_display(self, obj):
-        if obj.product.sale_price > 0:
-            rate = self.get_exchange_rate()
-            if rate > 0:
-                price_bs = float(obj.product.sale_price) * rate
-                return format_html(
-                    '<span style="color: #28a745; font-weight: bold;">Bs. {:.2f}</span>',
-                    price_bs
-                )
-            return 'Sin tasa'
-        return '-'
+        from decimal import Decimal
+        rate = self.get_exchange_rate()
+        if rate > 0 and obj.product.sale_price:
+            return obj.product.sale_price * Decimal(str(rate))
+        return 'Sin tasa'
     
     # ============================================================
     # CHANGELIST_VIEW - Con tasa de cambio en el contexto
