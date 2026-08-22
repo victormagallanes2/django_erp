@@ -258,17 +258,32 @@ def load_products(companies):
         if not product_code:
             print(f"   ⚠️ Falta 'code' en producto para {company_code}.")
             continue
+        
+        # ✅ Asegurar que los campos de precio existen
+        defaults = {
+            'name': fields.get('name', ''),
+            'description': fields.get('description', ''),
+            'unit': fields.get('unit', 'UNIT'),
+            'sale_price': fields.get('sale_price', 0.00),      # ✅ Precio de venta
+            'purchase_price': fields.get('purchase_price', 0.00), # ✅ Precio de compra
+            'is_service': fields.get('is_service', False),
+            'is_active': fields.get('is_active', True),
+        }
             
         try:
             product, created = Product.objects.get_or_create(
                 code=product_code,
                 company=company,
-                defaults=fields
+                defaults=defaults
             )
             if created:
                 print(f"   ✅ Producto creado: {product.code} - {product.name} para {company_code}")
             else:
-                print(f"   ℹ️ Producto existente: {product.code} - {product.name} para {company_code}")
+                # ✅ Actualizar si existe
+                for key, value in defaults.items():
+                    setattr(product, key, value)
+                product.save()
+                print(f"   ℹ️ Producto actualizado: {product.code} - {product.name} para {company_code}")
         except Exception as e:
             print(f"   ❌ Error creando producto {product_code}: {e}")
 

@@ -15,6 +15,7 @@ from .models import DeliveryNote, DeliveryNoteLine, ReceiptNote, ReceiptNoteLine
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 import logging
+from django.db import models
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,10 @@ class ProductAdmin(CompanyFilterMixin, SimpleHistoryAdmin, UnfoldModelAdmin):
     """Admin de productos con precios en USD y BS"""
     
     list_display = [
-        'image_preview', 'code', 'name', 
-        'price_usd_display',
-        'price_bs_display',
+        'image_preview', 'code', 'name',
+        'purchase_price',
+        'sale_price_usd_display',
+        'sale_price_bs_display',
         'unit', 'is_service_badge', 'is_active'
     ]
     list_filter = ['is_active', 'unit', 'is_service']
@@ -44,7 +46,7 @@ class ProductAdmin(CompanyFilterMixin, SimpleHistoryAdmin, UnfoldModelAdmin):
             'fields': ('is_service',),
         }),
         ('Precio en USD (Moneda Base)', {
-            'fields': ('price',),
+            'fields': ('purchase_price', 'sale_price'),
             'description': 'Precio en dólares americanos (USD)'
         }),
         ('Características', {
@@ -55,31 +57,31 @@ class ProductAdmin(CompanyFilterMixin, SimpleHistoryAdmin, UnfoldModelAdmin):
         }),
     )
     
-    readonly_fields = ['created_at', 'updated_at', 'price_bs_info']
+    readonly_fields = ['created_at', 'updated_at', 'sale_price_bs_info']
     
     @admin.display(description='Precio (USD)')
-    def price_usd_display(self, obj):
-        return f"$ {obj.price:.2f}"
+    def sale_price_usd_display(self, obj):
+        return f"$ {obj.sale_price:.2f}"
     
     @admin.display(description='Precio (Bs.)')
-    def price_bs_display(self, obj):
+    def sale_price_bs_display(self, obj):
         try:
             rate = ExchangeRate.get_today_rate('USD', 'BS')
             if rate:
-                price_bs = obj.price * rate
-                return f"Bs. {price_bs:.2f}"
+                sale_price_bs = obj.sale_price * rate
+                return f"Bs. {sale_price_bs:.2f}"
             return "Sin tasa"
         except:
             return "Error"
     
     @admin.display(description='Precio en Bs. (hoy)')
-    def price_bs_info(self, obj):
+    def sale_price_bs_info(self, obj):
         try:
             rate = ExchangeRate.get_today_rate('USD', 'BS')
             if not rate:
                 return "No hay tasa configurada"
             
-            price_bs = obj.price * rate
+            sale_price_bs = obj.sale_price * rate
             local = Currency.objects.get(code='BS')
             
             return format_html(
@@ -92,7 +94,7 @@ class ProductAdmin(CompanyFilterMixin, SimpleHistoryAdmin, UnfoldModelAdmin):
                 rate,
                 local.symbol,
                 local.symbol,
-                price_bs
+                sale_price_bs
             )
         except Exception as e:
             return f"Error: {str(e)}"
@@ -294,43 +296,180 @@ class MovementAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
 
 @admin.register(Inventory)
 class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
+    """
+    Dashboard de Inventario para la contadora.
+    Muestra: Producto, Entradas, Salidas, Stock, Precios en USD y Bs.
+    """
+    
     list_display = [
-        'product',
-        'location',
-        'company_display',
-        'quantity',
-        # 'total_value_usd_display',
-        # 'total_value_bs_display',
-        'updated_at'
+        'product_display',
+        'total_entries_display',
+        'total_exits_display',
+        'quantity_display',
+        'purchase_price_usd_display',
+        'purchase_price_bs_display',
+        'sale_price_usd_display',
+        'sale_price_bs_display',
     ]
+    
     list_filter = ['company', 'location']
-    search_fields = ['product__name', 'product__code', 'company__name', 'company__code']
-    readonly_fields = ['updated_at']
-
-    @admin.display(description='Compañía', ordering='company__name')
-    def company_display(self, obj):
-        if obj.company:
-            return format_html(
-                '<span style="font-weight: 500;">{} - {}</span>',
-                obj.company.code,
-                obj.company.name
-            )
-        return "Sin compañía"
-
-    @admin.display(description='Valor total (USD)')
-    def total_value_usd_display(self, obj):
-        return f"$ {obj.total_value:,.2f}"
-
-    @admin.display(description='Valor total (Bs.)')
-    def total_value_bs_display(self, obj):
+    search_fields = ['product__name', 'product__code']
+    ordering = ['quantity']
+    actions = None
+    list_per_page = 50
+    
+    # ============================================================
+    # MÉTODOS PARA OBTENER LA TASA DE CAMBIO
+    # ============================================================
+    
+    def get_exchange_rate(self, request=None):
+        """Obtener la tasa de cambio del día"""
         try:
             rate = ExchangeRate.get_today_rate('USD', 'BS')
-            if rate:
-                value_bs = obj.total_value * rate
-                return f"Bs. {value_bs:,.2f}"
-            return "Sin tasa"
-        except Exception:
-            return "Error"
+            return float(rate) if rate else 0
+        except Exception as e:
+            logger.error(f"Error obteniendo tasa de cambio: {e}")
+            return 0
+    
+    # ============================================================
+    # MÉTODOS PARA MOSTRAR LOS DATOS
+    # ============================================================
+    
+    @admin.display(description='Producto', ordering='product__name')
+    def product_display(self, obj):
+        return format_html(
+            '<div><strong>{}</strong><br><span style="color: #6c757d; font-size: 12px;">{}</span></div>',
+            obj.product.name,
+            obj.product.code
+        )
+    
+    @admin.display(description='Entradas')
+    def total_entries_display(self, obj):
+        total = Movement.objects.filter(
+            product=obj.product,
+            company=obj.company,
+            type='ENTRY'
+        ).aggregate(total=models.Sum('quantity'))['total'] or 0
+        return format_html(
+            '<span style="color: #28a745; font-weight: bold;">+{}</span>',
+            total
+        )
+    
+    @admin.display(description='Salidas')
+    def total_exits_display(self, obj):
+        total = Movement.objects.filter(
+            product=obj.product,
+            company=obj.company,
+            type='EXIT'
+        ).aggregate(total=models.Sum('quantity'))['total'] or 0
+        return format_html(
+            '<span style="color: #dc3545; font-weight: bold;">-{}</span>',
+            total
+        )
+    
+    @admin.display(description='Stock', ordering='quantity')
+    def quantity_display(self, obj):
+        if obj.quantity == 0:
+            return format_html(
+                '<span style="color: #dc3545; font-weight: bold;">{}</span>',
+                obj.quantity
+            )
+        elif obj.quantity < 10:
+            return format_html(
+                '<span style="color: #ffc107; font-weight: bold;">{}</span>',
+                obj.quantity
+            )
+        else:
+            return format_html(
+                '<span style="color: #28a745; font-weight: bold;">{}</span>',
+                obj.quantity
+            )
+    
+    # ============================================================
+    # PRECIO DE COMPRA (USD y Bs.)
+    # ============================================================
+    
+    @admin.display(description='Precio Compra (USD)')
+    def purchase_price_usd_display(self, obj):
+        if obj.product.purchase_price:
+            return format_html(
+                '<span style="color: #0d6efd; font-weight: bold;">${:.2f}</span>',
+                float(obj.product.purchase_price)
+            )
+        return '-'
+    
+    @admin.display(description='Precio Compra (Bs.)')
+    def purchase_price_bs_display(self, obj):
+        if obj.product.purchase_price:
+            rate = self.get_exchange_rate()
+            if rate > 0:
+                price_bs = float(obj.product.purchase_price) * rate
+                return format_html(
+                    '<span style="color: #6c757d;">Bs. {:.2f}</span>',
+                    price_bs
+                )
+            return 'Sin tasa'
+        return '-'
+    
+    # ============================================================
+    # PRECIO DE VENTA (USD y Bs.)
+    # ============================================================
+    
+    @admin.display(description='Precio Venta (USD)')
+    def sale_price_usd_display(self, obj):
+        if obj.product.sale_price > 0:
+            return format_html(
+                '<span style="color: #28a745; font-weight: bold;">${:.2f}</span>',
+                float(obj.product.sale_price)
+            )
+        return '-'
+    
+    @admin.display(description='Precio Venta (Bs.)')
+    def sale_price_bs_display(self, obj):
+        if obj.product.sale_price > 0:
+            rate = self.get_exchange_rate()
+            if rate > 0:
+                price_bs = float(obj.product.sale_price) * rate
+                return format_html(
+                    '<span style="color: #28a745; font-weight: bold;">Bs. {:.2f}</span>',
+                    price_bs
+                )
+            return 'Sin tasa'
+        return '-'
+    
+    # ============================================================
+    # CHANGELIST_VIEW - Con tasa de cambio en el contexto
+    # ============================================================
+    
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        
+        queryset = self.get_queryset(request)
+        
+        # Estadísticas básicas
+        extra_context['total_products'] = queryset.count()
+        extra_context['total_stock'] = sum(inv.quantity for inv in queryset)
+        extra_context['products_without_stock'] = queryset.filter(quantity=0).count()
+        
+        # ✅ Tasa de cambio para mostrar en el template
+        rate = self.get_exchange_rate()
+        extra_context['exchange_rate'] = rate
+        extra_context['exchange_rate_display'] = f"1 USD = Bs. {rate:.2f}" if rate > 0 else "Sin tasa configurada"
+        
+        company = getattr(request, 'current_company', None)
+        extra_context['company_name'] = company.name if company else 'Sistema'
+        
+        return super().changelist_view(request, extra_context=extra_context)
+    
+    # ============================================================
+    # PERMISOS
+    # ============================================================
+    
+    def has_add_permission(self, request):
+        return False
+    
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 

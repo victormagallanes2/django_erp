@@ -28,12 +28,24 @@ class Product(models.Model):
     description = models.TextField(blank=True, verbose_name="Descripción")
     unit = models.CharField(max_length=10, choices=UNIT_CHOICES, default='UNIT', verbose_name="Unidad")
     
-    price = models.DecimalField(
+    # ✅ PRECIO DE VENTA (antes llamado 'price')
+    sale_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=0,
-        verbose_name="Precio",
-        help_text="Precio en la moneda base del sistema (configurable en Configuración → Monedas)"
+        verbose_name="Precio de Venta (USD)",
+        help_text="Precio al que se vende al cliente"
+    )
+    
+    # ✅ NUEVO: PRECIO DE COMPRA (referencia)
+    purchase_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        null=True,
+        blank=True,
+        verbose_name="Precio de Compra (USD)",
+        help_text="Precio de compra para referencia. El costo real se calcula desde los movimientos."
     )
     
     is_service = models.BooleanField(

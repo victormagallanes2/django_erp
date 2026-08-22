@@ -39,7 +39,7 @@ def get_product_price(request):
             stock_total += inv.quantity
         
         # ✅ Obtener el precio en USD
-        price_usd = Decimal(str(product.price)) if product.price else Decimal('0')
+        price_usd = Decimal(str(product.purchase_price)) if product.purchase_price else Decimal('0')
         
         # ✅ Obtener tasa del día
         rate = ExchangeRate.get_today_rate('USD', 'BS')

@@ -295,7 +295,13 @@ def get_menu_items(request):
                 "link": "/admin/sales/saleorder/sales-report/", # URL que definimos en get_urls
             })
 
-        
+        if user.has_perm('sales.can_view_reports'):
+            sales_items.append({
+                    "title": "Tasas de Cambio",
+                    "icon": "swap_horiz",
+                    "link": "/admin/configuration/exchangerate/",
+               
+            })
         if sales_items:
             navigation.append({
                 "title": "Ventas",
@@ -303,6 +309,7 @@ def get_menu_items(request):
                 "collapsible": True,
                 "items": sales_items,
             })
+
     
     # ✅ Configuración (solo administradores)
     if user.is_superuser:
@@ -331,11 +338,7 @@ def get_menu_items(request):
                     "icon": "attach_money",
                     "link": "/admin/configuration/currency/",
                 },
-                {
-                    "title": "Tasas de Cambio",
-                    "icon": "swap_horiz",
-                    "link": "/admin/configuration/exchangerate/",
-                },
+
                 {   "title": "Métodos de Pago",
                     "icon": "payments",
                     "link": "/admin/configuration/paymentmethod/"

@@ -6,7 +6,8 @@
       "name": "Shampoo Profesional",
       "description": "Shampoo para todo tipo de cabello",
       "unit": "UNIT",
-      "price": 15.00,
+      "sale_price": 15.00,
+      "purchase_price": 8.50,
       "is_service": false,
       "is_active": true
     }
@@ -18,7 +19,8 @@
       "name": "Acondicionador Hidratante",
       "description": "Acondicionador con keratina",
       "unit": "UNIT",
-      "price": 12.00,
+      "sale_price": 12.00,
+      "purchase_price": 6.75,
       "is_service": false,
       "is_active": true
     }
@@ -30,7 +32,8 @@
       "name": "Cera Modeladora",
       "description": "Cera para peinar y modelar",
       "unit": "UNIT",
-      "price": 8.00,
+      "sale_price": 8.00,
+      "purchase_price": 4.20,
       "is_service": false,
       "is_active": true
     }
@@ -42,7 +45,8 @@
       "name": "Tinte de Cabello",
       "description": "Tinte profesional de larga duración",
       "unit": "UNIT",
-      "price": 25.00,
+      "sale_price": 25.00,
+      "purchase_price": 14.50,
       "is_service": false,
       "is_active": true
     }
@@ -54,7 +58,8 @@
       "name": "Navaja de Afeitar",
       "description": "Navaja de afeitar profesional",
       "unit": "UNIT",
-      "price": 5.00,
+      "sale_price": 5.00,
+      "purchase_price": 2.30,
       "is_service": false,
       "is_active": true
     }
@@ -66,7 +71,8 @@
       "name": "Corte de Cabello",
       "description": "Corte de cabello para hombre y mujer",
       "unit": "UNIT",
-      "price": 10.00,
+      "sale_price": 10.00,
+      "purchase_price": 0.00,
       "is_service": true,
       "is_active": true
     }
@@ -78,7 +84,8 @@
       "name": "Tinte y Coloración",
       "description": "Tinte profesional con productos de calidad",
       "unit": "UNIT",
-      "price": 35.00,
+      "sale_price": 35.00,
+      "purchase_price": 0.00,
       "is_service": true,
       "is_active": true
     }
@@ -90,7 +97,8 @@
       "name": "Afeitado Clásico",
       "description": "Afeitado con navaja y toalla caliente",
       "unit": "UNIT",
-      "price": 15.00,
+      "sale_price": 15.00,
+      "purchase_price": 0.00,
       "is_service": true,
       "is_active": true
     }
@@ -102,7 +110,8 @@
       "name": "Premium Shampoo",
       "description": "Professional shampoo for all hair types",
       "unit": "UNIT",
-      "price": 20.00,
+      "sale_price": 20.00,
+      "purchase_price": 11.50,
       "is_service": false,
       "is_active": true
     }
@@ -114,7 +123,8 @@
       "name": "Hair Clay",
       "description": "Matte hair clay for styling",
       "unit": "UNIT",
-      "price": 12.00,
+      "sale_price": 12.00,
+      "purchase_price": 6.80,
       "is_service": false,
       "is_active": true
     }
@@ -126,7 +136,8 @@
       "name": "Haircut",
       "description": "Professional haircut for men and women",
       "unit": "UNIT",
-      "price": 30.00,
+      "sale_price": 30.00,
+      "purchase_price": 0.00,
       "is_service": true,
       "is_active": true
     }
@@ -138,7 +149,8 @@
       "name": "Beard Trim",
       "description": "Professional beard trimming and shaping",
       "unit": "UNIT",
-      "price": 15.00,
+      "sale_price": 15.00,
+      "purchase_price": 0.00,
       "is_service": true,
       "is_active": true
     }
