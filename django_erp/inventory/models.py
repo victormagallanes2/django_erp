@@ -313,43 +313,7 @@ class Inventory(models.Model):
 
 
 class PhysicalCount(models.Model):
-    """Conteo físico de inventario"""
-    
-    uuid = models.UUIDField(
-        default=uuid.uuid4,
-        editable=False,
-        unique=True,
-        db_index=True,
-        verbose_name="ID Universal"
-    )
-    
-    SYNC_STATUS_CHOICES = [
-        ('PENDING', 'Pendiente de sincronizar'),
-        ('SYNCING', 'Sincronizando...'),
-        ('SYNCED', 'Sincronizada'),
-        ('FAILED', 'Error en sincronización'),
-    ]
-    
-    sync_status = models.CharField(
-        max_length=20,
-        choices=SYNC_STATUS_CHOICES,
-        default='PENDING',
-        db_index=True,
-        verbose_name="Estado de sincronización"
-    )
-    
-    device_id = models.CharField(
-        max_length=100,
-        blank=True,
-        null=True,
-        verbose_name="Dispositivo de creación"
-    )
-
-    STATUS_CHOICES = [
-        ('DRAFT', 'Borrador'),
-        ('CONFIRMED', 'Confirmado'),
-        ('CANCELLED', 'Cancelado'),
-    ]
+    """Ajuste de inventario - Versión simplificada (aplicación directa)"""
     
     product = models.ForeignKey(
         Product,
@@ -364,14 +328,30 @@ class PhysicalCount(models.Model):
         verbose_name="Ubicación"
     )
     
-    count_date = models.DateField(auto_now_add=True, verbose_name="Fecha de conteo")
-    counted_quantity = models.IntegerField(verbose_name="Cantidad contada")
-    system_quantity = models.IntegerField(verbose_name="Cantidad en sistema")
-    difference = models.IntegerField(editable=False, verbose_name="Diferencia")
+    # ✅ Campos renombrados para mayor claridad
+    available_quantity = models.IntegerField(
+        verbose_name="Cantidad disponible",
+        help_text="Cantidad actual en el sistema (solo lectura)"
+    )
+    adjustment_quantity = models.IntegerField(
+        verbose_name="Cantidad a ajustar",
+        help_text="Nueva cantidad que debe quedar en el sistema"
+    )
     
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='DRAFT', verbose_name="Estado")
+    # ✅ Diferencia calculada automáticamente
+    difference = models.IntegerField(
+        editable=False,
+        verbose_name="Diferencia",
+        help_text="Ajuste = Cantidad ajustada - Cantidad disponible"
+    )
+    
     note = models.TextField(blank=True, verbose_name="Nota")
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="Usuario")
+    user = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        verbose_name="Usuario"
+    )
     company = models.ForeignKey(
         Company,
         on_delete=models.CASCADE,
@@ -383,28 +363,67 @@ class PhysicalCount(models.Model):
     history = HistoricalRecords()
     
     class Meta:
-        verbose_name = "Conteo Físico"
-        verbose_name_plural = "Conteos Físicos"
-        ordering = ['-count_date']
+        verbose_name = "Ajuste de Inventario"
+        verbose_name_plural = "Ajustes de Inventario"
+        ordering = ['-created_at']
         permissions = [
-            ("can_view_physicalcount", "Puede ver conteos físicos"),
-            ("can_create_physicalcount", "Puede crear conteos físicos"),
-            ("can_confirm_physicalcount", "Puede confirmar conteos físicos"),
+            ("can_view_physicalcount", "Puede ver ajustes de inventario"),
+            ("can_create_physicalcount", "Puede crear ajustes de inventario"),
         ]
 
-        indexes = [
-            models.Index(fields=['uuid']),
-            models.Index(fields=['sync_status']),
-        ]
-    
     def __str__(self):
-        return f"{self.product.name} - {self.count_date}"
+        return f"{self.product.name} - {self.location.code}: {self.available_quantity} → {self.adjustment_quantity}"
     
     def save(self, *args, **kwargs):
-        if not self.uuid:
-            self.uuid = uuid.uuid4()
-        self.difference = self.counted_quantity - self.system_quantity
+        # ✅ Calcular la diferencia automáticamente
+        self.difference = self.adjustment_quantity - self.available_quantity
+        
+        # ✅ Guardar el ajuste
+        is_new = self.pk is None
         super().save(*args, **kwargs)
+        
+        # ✅ Si es nuevo, aplicar el ajuste inmediatamente
+        if is_new and self.difference != 0:
+            self._apply_adjustment()
+    
+    def _apply_adjustment(self):
+        """Aplicar el ajuste al inventario"""
+        from .models import Inventory, Movement
+        
+        try:
+            # ✅ Obtener o crear el registro de inventario
+            inventory, created = Inventory.objects.get_or_create(
+                product=self.product,
+                location=self.location,
+                company=self.company,
+                defaults={
+                    'quantity': 0,
+                    'total_value': 0,
+                }
+            )
+            
+            # ✅ Actualizar la cantidad
+            inventory.quantity = self.adjustment_quantity
+            inventory.save()
+            
+            # ✅ Crear un movimiento de ajuste para auditoría (solo si hay cambio)
+            if self.difference != 0:
+                Movement.objects.create(
+                    product=self.product,
+                    type='ADJUSTMENT',
+                    quantity=abs(self.difference),
+                    unit_price=0,
+                    location_from=self.location if self.difference < 0 else None,
+                    location_to=self.location if self.difference > 0 else None,
+                    source_type='MANUAL',
+                    source_reference=f"AJUSTE-{self.id}",
+                    note=f"Ajuste de inventario: {self.available_quantity} → {self.adjustment_quantity}. {self.note}",
+                    user=self.user,
+                    company=self.company,
+                )
+                
+        except Exception as e:
+            raise Exception(f"Error al aplicar ajuste: {str(e)}")
 
 
 class DeliveryNote(models.Model):
