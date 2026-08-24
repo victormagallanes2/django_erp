@@ -31,6 +31,7 @@ def health_check(request):
 
 urlpatterns = [
     # ✅ Health Check (para detectar conexión real)
+    path('admin/inventory/', include('django_erp.inventory.urls')),
     path('admin/health-check/', health_check, name='health_check'),
     path('admin/sales/', include('django_erp.sales.urls')),
     path('admin/purchasing/', include('django_erp.purchasing.urls')),

@@ -457,12 +457,11 @@ class PhysicalCountAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 'adjustment_quantity', 
                 'note',
             ),
-            'description': '⚠️ El ajuste se aplica AUTOMÁTICAMENTE al guardar.'
+            
         }),
     )
     
     readonly_fields = [
-        'available_quantity',  # SE MANTIENE VISIBLE como antes
         'difference_display',
         'user', 
         'created_at',
@@ -470,6 +469,10 @@ class PhysicalCountAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     ]
     
     actions = []
+
+    class Media:
+        js = ('admin/js/physicalcount_admin.js',)
+
     
     @admin.display(description='Diferencia')
     def difference_display(self, obj):
