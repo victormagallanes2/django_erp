@@ -432,16 +432,162 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
 
 @admin.register(PhysicalCount)
 class PhysicalCountAdmin(CompanyFilterMixin, UnfoldModelAdmin):
-    list_display = ['product', 'location', 'company', 'count_date', 'counted_quantity', 'system_quantity', 'difference', 'status']
-    list_filter = ['company', 'status', 'count_date']
-    search_fields = ['product__name', 'company__name']
-    readonly_fields = ['difference', 'user', 'created_at']
+    """Admin de ajustes de inventario - Aplicación directa"""
+    
+    list_display = [
+        'product', 
+        'location',
+        'available_quantity',
+        'adjustment_quantity', 
+        'difference_display',
+        'user',
+        'created_at'
+    ]
+    
+    list_filter = ['company', 'location']
+    search_fields = ['product__name', 'product__code', 'company__name']
+    autocomplete_fields = ['product']
+    
+    fieldsets = (
+        ('Ajuste de Inventario', {
+            'fields': (
+                'product', 
+                'location',
+                
+                ('available_quantity', 'adjustment_quantity'),
+                'difference_display', 'note',
+            ),
+            'description': '⚠️ El ajuste se aplica AUTOMÁTICAMENTE al guardar.'
+        }),
+    )
+    
+    readonly_fields = [
+        'available_quantity',
+        'difference_display',
+        'user', 
+        'created_at',
+        'updated_at',
+    ]
+    
+    actions = []
+    
+    @admin.display(description='Diferencia')
+    def difference_display(self, obj):
+        """Mostrar la diferencia como texto simple"""
+        if obj.difference is None:
+            return '—'
+        
+        diff = obj.difference
+        if diff > 0:
+            return f'+{diff}'
+        elif diff < 0:
+            return str(diff)
+        else:
+            return '0'
+    
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        
+        if obj is None:
+            company = getattr(request, 'current_company', None)
+            if company:
+                from .models import Product
+                form.base_fields['product'].queryset = Product.objects.filter(
+                    company=company,
+                    is_active=True
+                )
+                form.base_fields['location'].queryset = Location.objects.filter(
+                    company=company,
+                    is_active=True
+                )
+        
+        return form
+    
+    def get_changeform_initial_data(self, request):
+        """Precargar la cantidad disponible al crear un nuevo ajuste"""
+        initial = super().get_changeform_initial_data(request)
+        
+        product_id = request.GET.get('product')
+        location_id = request.GET.get('location')
+        
+        if product_id and location_id:
+            try:
+                from .models import Inventory
+                inventory = Inventory.objects.filter(
+                    product_id=product_id,
+                    location_id=location_id,
+                    company=getattr(request, 'current_company', None)
+                ).first()
+                
+                if inventory:
+                    initial['available_quantity'] = inventory.quantity
+                else:
+                    initial['available_quantity'] = 0
+                    
+            except Exception:
+                initial['available_quantity'] = 0
+        
+        return initial
     
     def save_model(self, request, obj, form, change):
+        """Guardar el ajuste con usuario y compañía"""
+        # Asignar usuario
         if not obj.user:
             obj.user = request.user
-        obj.system_quantity = InventoryService.get_stock_by_location(obj.product.id, obj.location.id)
+        
+        # Asignar compañía activa
+        if not obj.company_id:
+            company = getattr(request, 'current_company', None)
+            if company:
+                obj.company = company
+        
+        # Guardar el objeto (la diferencia se calcula en save() del modelo)
         super().save_model(request, obj, form, change)
+        
+        # Mostrar mensaje de éxito
+        if obj.difference != 0:
+            diff_text = f'+{obj.difference}' if obj.difference > 0 else str(obj.difference)
+            self.message_user(
+                request,
+                f'✅ Ajuste aplicado: {obj.product.name} {obj.available_quantity} → {obj.adjustment_quantity} (Diferencia: {diff_text})',
+                messages.SUCCESS
+            )
+        else:
+            self.message_user(
+                request,
+                f'ℹ️ No se realizaron cambios: {obj.product.name} ya tiene {obj.available_quantity} unidades',
+                messages.INFO
+            )
+    
+    def save_formset(self, request, form, formset, change):
+        """Guardar formset con asignación de compañía"""
+        company = getattr(request, 'current_company', None)
+        
+        instances = formset.save(commit=False)
+        for instance in instances:
+            if hasattr(instance, 'company') and not instance.company_id:
+                instance.company = company
+            instance.save()
+        
+        formset.save_m2m()
+        for obj in formset.deleted_objects:
+            obj.delete()
+    
+    def has_delete_permission(self, request, obj=None):
+        """No permitir eliminar ajustes (quedan como historial)"""
+        return False
+    
+    def get_actions(self, request):
+        """Eliminar acciones masivas"""
+        return {}
+    
+    def add_view(self, request, form_url='', extra_context=None):
+        """Personalizar la vista de agregar"""
+        extra_context = extra_context or {}
+        extra_context['title'] = 'Nuevo Ajuste de Inventario'
+        extra_context['show_save_and_continue'] = False
+        extra_context['show_save_and_add_another'] = False
+        return super().add_view(request, form_url, extra_context)
 
 
 class DeliveryNoteLineInline(UnfoldTabularInline):
