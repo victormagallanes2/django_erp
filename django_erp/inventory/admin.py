@@ -448,21 +448,21 @@ class PhysicalCountAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     search_fields = ['product__name', 'product__code', 'company__name']
     autocomplete_fields = ['product']
     
+    # ELIMINADO: el campo 'location' ya no está en fields
     fieldsets = (
         ('Ajuste de Inventario', {
             'fields': (
                 'product', 
-                'location',
-                
-                ('available_quantity', 'adjustment_quantity'),
-                'difference_display', 'note',
+                'available_quantity',  # VISIBLE como antes
+                'adjustment_quantity', 
+                'note',
             ),
             'description': '⚠️ El ajuste se aplica AUTOMÁTICAMENTE al guardar.'
         }),
     )
     
     readonly_fields = [
-        'available_quantity',
+        'available_quantity',  # SE MANTIENE VISIBLE como antes
         'difference_display',
         'user', 
         'created_at',
@@ -486,20 +486,28 @@ class PhysicalCountAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             return '0'
     
     def get_form(self, request, obj=None, **kwargs):
+        """Precargar la ubicación y compañía (ambos ocultos)"""
         form = super().get_form(request, obj, **kwargs)
         
         if obj is None:
             company = getattr(request, 'current_company', None)
             if company:
-                from .models import Product
-                form.base_fields['product'].queryset = Product.objects.filter(
-                    company=company,
-                    is_active=True
-                )
-                form.base_fields['location'].queryset = Location.objects.filter(
-                    company=company,
-                    is_active=True
-                )
+                # Ocultar el campo location y asignar la ubicación por defecto
+                if hasattr(form.base_fields, 'location'):
+                    default_location = Location.objects.filter(
+                        company=company,
+                        is_active=True
+                    ).first()
+                    if default_location:
+                        form.base_fields['location'].initial = default_location.id
+                        form.base_fields['location'].widget = forms.HiddenInput()
+                    else:
+                        form.base_fields['location'].widget = forms.HiddenInput()
+                
+                # Ocultar el campo company y asignar la compañía activa
+                if hasattr(form.base_fields, 'company'):
+                    form.base_fields['company'].initial = company.id
+                    form.base_fields['company'].widget = forms.HiddenInput()
         
         return form
     
@@ -530,7 +538,7 @@ class PhysicalCountAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         return initial
     
     def save_model(self, request, obj, form, change):
-        """Guardar el ajuste con usuario y compañía"""
+        """Guardar el ajuste con usuario y compañía automática"""
         # Asignar usuario
         if not obj.user:
             obj.user = request.user
@@ -541,7 +549,16 @@ class PhysicalCountAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             if company:
                 obj.company = company
         
-        # Guardar el objeto (la diferencia se calcula en save() del modelo)
+        # Asignar ubicación por defecto si no tiene
+        if not obj.location_id and obj.company:
+            default_location = Location.objects.filter(
+                company=obj.company,
+                is_active=True
+            ).first()
+            if default_location:
+                obj.location = default_location
+        
+        # Guardar el objeto
         super().save_model(request, obj, form, change)
         
         # Mostrar mensaje de éxito
@@ -588,7 +605,6 @@ class PhysicalCountAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         extra_context['show_save_and_continue'] = False
         extra_context['show_save_and_add_another'] = False
         return super().add_view(request, form_url, extra_context)
-
 
 class DeliveryNoteLineInline(UnfoldTabularInline):
     model = DeliveryNoteLine
