@@ -61,21 +61,24 @@ class CompanyFilterMixin(ModelAdmin):
     
     def get_queryset(self, request):
         """
-        Filtrar el queryset por la compañía activa.
-        Los superusuarios ven todas las compañías.
+        ✅ MODIFICADO: Filtrar por compañía activa SIEMPRE, incluso para superusuarios.
         """
         queryset = super().get_queryset(request)
         
-        # Los superusuarios ven todo
-        if request.user.is_superuser:
-            return queryset
+        # ✅ ELIMINADA la excepción para superusuarios
+        # Ahora TODOS los usuarios (incluyendo superusuarios) ven solo su compañía activa
         
-        # Usuarios normales: filtrar por su compañía
+        # Obtener la compañía activa
         company = self._get_active_company(request)
+        
+        # Si hay compañía y el modelo tiene campo company, filtrar
         if company and hasattr(queryset.model, 'company'):
+            print(f"🔍 Filtrando {queryset.model.__name__} por compañía: {company.code}")
             return queryset.filter(company=company)
         
-        return queryset
+        # Si no hay compañía, devolver queryset vacío
+        print(f"⚠️ No hay compañía activa para {queryset.model.__name__}, devolviendo vacío")
+        return queryset.none()
     
     def _assign_company(self, request, obj):
         """Método obsoleto, ahora se hace en save_model directamente."""

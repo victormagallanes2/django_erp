@@ -318,29 +318,6 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     actions = None
     list_per_page = 50
     
-    def get_queryset(self, request):
-        """
-        Filtrar por compañía activa SIEMPRE, incluso para superusuarios.
-        """
-        queryset = super().get_queryset(request)
-        
-        # Obtener la compañía activa del request o sesión
-        company = getattr(request, 'current_company', None)
-        
-        if not company:
-            company_id = request.session.get('active_company_id')
-            if company_id:
-                try:
-                    company = Company.objects.get(id=company_id, is_active=True)
-                except Company.DoesNotExist:
-                    company = None
-        
-        # Si hay una compañía, filtrar
-        if company:
-            return queryset.filter(company=company)
-        
-        # Si no hay compañía, devolver vacío
-        return queryset.none()
     
     def get_exchange_rate(self, request=None):
         """Obtener la tasa de cambio del día"""
@@ -493,29 +470,6 @@ class PhysicalCountAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     class Media:
         js = ('admin/js/physicalcount_admin.js',)
 
-    def get_queryset(self, request):
-        """
-        Filtrar por compañía activa SIEMPRE, incluso para superusuarios.
-        """
-        queryset = super().get_queryset(request)
-        
-        # Obtener la compañía activa del request o sesión
-        company = getattr(request, 'current_company', None)
-        
-        if not company:
-            company_id = request.session.get('active_company_id')
-            if company_id:
-                try:
-                    company = Company.objects.get(id=company_id, is_active=True)
-                except Company.DoesNotExist:
-                    company = None
-        
-        # Si hay una compañía, filtrar
-        if company:
-            return queryset.filter(company=company)
-        
-        # Si no hay compañía, devolver vacío
-        return queryset.none()
 
     
     @admin.display(description='Diferencia')
