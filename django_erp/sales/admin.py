@@ -18,6 +18,7 @@ from django_erp.configuration.models import PaymentMethod
 from django.urls import path
 from django.views.generic import TemplateView
 from unfold.views import UnfoldModelAdminViewMixin
+from unfold.widgets import UnfoldAdminTextInputWidget, UnfoldAdminSelectWidget, UnfoldAdminTextareaWidget
 from .services import SaleReportService
 from django_erp.configuration.mixins import CompanyFilterMixin
 from .signals import order_confirmed
@@ -1220,45 +1221,6 @@ class SalesReportView(UnfoldModelAdminViewMixin, TemplateView):
         return context
 
 
-class CashRegisterForm(forms.ModelForm):
-    """Formulario personalizado para caja con asignación de compañía"""
-    class Meta:
-        model = CashRegister
-        fields = '__all__'
-    
-    def __init__(self, *args, **kwargs):
-        self._request = kwargs.pop('request', None)
-        super().__init__(*args, **kwargs)
-        
-        if self._request and not self.instance.pk:
-            company = getattr(self._request, 'current_company', None)
-            if company:
-                self.instance.company = company
-            else:
-                fallback = Company.get_active()
-                if fallback:
-                    self.instance.company = fallback
-    
-    def save(self, commit=True):
-        instance = super().save(commit=False)
-        
-        if not instance.company_id:
-            if self._request:
-                company = getattr(self._request, 'current_company', None)
-                if company:
-                    instance.company = company
-            
-            if not instance.company_id:
-                company = Company.get_active()
-                if company:
-                    instance.company = company
-        
-        if commit:
-            instance.save()
-            self.save_m2m()
-        
-        return instance
-
 
 @admin.register(SaleOrder)
 class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
@@ -1490,180 +1452,361 @@ def close_register_action(modeladmin, request, queryset):
 
 
 class CashTransactionInline(UnfoldTabularInline):
+    """Inline para mostrar transacciones dentro de la caja"""
     model = CashTransaction
     extra = 0
-    can_delete = False
     readonly_fields = ['type', 'amount', 'description', 'reference', 'user', 'created_at']
     fields = ['type', 'amount', 'description', 'reference', 'user', 'created_at']
-    verbose_name_plural = "📋 Transacciones de esta Caja"
-    ordering = ('-created_at',)
-
+    can_delete = False
+    max_num = 0  # No permitir agregar desde aquí
+    
+    @admin.display(description='Tipo')
+    def type_display(self, obj):
+        return obj.get_type_display()
+    
     def has_add_permission(self, request, obj=None):
         return False
 
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related('user')
 
+# ============================================================
+# FORMULARIO DE CAJA
+# ============================================================
+
+class CashRegisterForm(forms.ModelForm):
+    """Formulario para apertura y cierre de caja"""
+    
+    class Meta:
+        model = CashRegister
+        fields = ['initial_amount']
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # ✅ Si es una caja existente (edición), mostrar campos para cerrar
+        if self.instance and self.instance.pk:
+            # Agregar campo para dinero contado
+            self.fields['counted_total'] = forms.DecimalField(
+                label='💰 Dinero Contado',
+                required=False,
+                help_text='Ingresa el total de dinero contado al cerrar la caja.',
+                widget=forms.NumberInput(attrs={
+                    'step': '0.01',
+                    'min': '0',
+                    'placeholder': '0.00',
+                })
+            )
+            
+            
+            # Agregar campo para estado con widget de Unfold
+            self.fields['status'] = forms.ChoiceField(
+                label='Estado',
+                choices=CashRegister.STATUS_CHOICES,
+                widget=UnfoldAdminSelectWidget(attrs={'class': 'form-control'})
+            )
+            
+            # Agregar campo para nota con widget de Unfold
+            self.fields['note'] = forms.CharField(
+                label='Nota',
+                required=False,
+                widget=UnfoldAdminTextareaWidget(attrs={'rows': 3})
+            )
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        
+        # ✅ Validar que si se cierra la caja, se ingrese el dinero contado
+        if self.instance and self.instance.pk:
+            status = cleaned_data.get('status')
+            counted_total = cleaned_data.get('counted_total')
+            
+            if status == 'CLOSED' and counted_total is None:
+                raise forms.ValidationError(
+                    'Debes ingresar el dinero contado para cerrar la caja.'
+                )
+        
+        return cleaned_data
+
+
+# ============================================================
+# ADMIN DE CAJA
+# ============================================================
 
 @admin.register(CashRegister)
 class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
+    """Admin de caja - Apertura y cierre simplificado"""
+    
     form = CashRegisterForm
     
-    inlines = [CashTransactionInline]
-    
     list_display = [
-        'number', 
-        'user', 
-        'date', 
+        'number',
+        'user',
+        'opened_at',
         'status_badge',
-        'total_sales_usd_display',
-        'total_sales_bs_display',
-        'expected_total_usd_display',
-        'difference_usd_display',
+        'expected_total',
+        'difference',
+        'transactions_count',
     ]
+    
     list_filter = ['status', 'date']
     search_fields = ['number', 'user__username']
     
-    actions = [open_register_action, close_register_action]
+    # ✅ Inline para ver transacciones
+    inlines = [CashTransactionInline]
     
-    fieldsets = (
-        ('📌 Información', {'fields': ('user', 'status')}),
-        ('💰 Dinero', {
-            'fields': (
-                'initial_amount', 
-                'total_sales', 
-                'total_expenses', 
-                'total_withdrawals', 
-                'expected_total'
-            )
-        }),
-        ('🔒 Cierre', {
-            'fields': ('counted_total', 'breakdown', 'difference', 'note'),
-            'classes': ('tab',),
-        }),
-        ('📅 Fechas', {
-            'fields': ('opened_at', 'closed_at'),
-            'classes': ('tab',),
-        }),
-    )
-    
-    readonly_fields = ['number',
-        'opened_at', 'closed_at', 'total_sales', 
-        'total_expenses', 'total_withdrawals', 'expected_total'
+    readonly_fields = [
+        'number',
+        'user',
+        'opened_at',
+        'closed_at',
+        'date',
+        'total_sales',
+        'total_expenses',
+        'total_withdrawals',
+        'expected_total',
+        'difference',
+        'created_at',
+        'updated_at',
+        'company',
     ]
-
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
-        return qs.filter(user=request.user)
-
-    def get_form(self, request, obj=None, **kwargs):
-        form_class = super().get_form(request, obj, **kwargs)
-        
-        def form_with_request(*args, **kwargs):
-            kwargs['request'] = request
-            return form_class(*args, **kwargs)
-        
-        return form_with_request
-
-    def save_model(self, request, obj, form, change):
-        if not obj.company_id:
-            company = getattr(request, 'current_company', None)
-            if company:
-                obj.company = company
-            else:
-                company = Company.get_active()
-                if company:
-                    obj.company = company
-                else:
-                    self.message_user(request, '❌ No hay una compañía activa para abrir la caja.', messages.ERROR)
-                    raise forms.ValidationError('No hay una compañía activa configurada en el sistema.')
-        
-        super().save_model(request, obj, form, change)
-        
-        if not change and obj.number:
-            self.message_user(
-                request, 
-                f'✅ Caja {obj.number} creada exitosamente.', 
-                messages.SUCCESS
-            )
-
+    
+    actions = []
+    
+    # ============================================================
+    # MÉTODOS DE DISPLAY
+    # ============================================================
+    
     @admin.display(description='Estado')
     def status_badge(self, obj):
         colors = {
-            'OPEN': ('#28a745', '✅ Abierta'),
-            'CLOSED': ('#17a2b8', '🔒 Cerrada'),
-            'APPROVED': ('#28a745', '✅ Aprobada'),
+            'OPEN': ('#28a745', '🟢 Abierta'),
+            'CLOSED': ('#6c757d', '🔒 Cerrada'),
+            'APPROVED': ('#17a2b8', '✅ Aprobada'),
             'CANCELLED': ('#dc3545', '❌ Cancelada'),
         }
         color, label = colors.get(obj.status, ('#6c757d', obj.status))
         return format_html(
             '<span style="background: {}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 12px;">{}</span>',
-            color, label
+            color,
+            label
         )
     
-    @admin.display(description='Total Ventas (USD)')
-    def total_sales_usd_display(self, obj):
-        return f"$ {obj.total_sales:,.2f}"
+    @admin.display(description='Transacciones')
+    def transactions_count(self, obj):
+        count = obj.transactions.count()
+        if count > 0:
+            return format_html(
+                '<span style="background: #17a2b8; color: white; padding: 2px 10px; border-radius: 12px; font-size: 12px;">{} movimientos</span>',
+                count
+            )
+        return '-'
     
-    @admin.display(description='Total Ventas (Bs.)')
-    def total_sales_bs_display(self, obj):
-        try:
-            rate = ExchangeRate.get_today_rate('USD', 'BS')
-            if rate:
-                value_bs = obj.total_sales * rate
-                return f"Bs. {value_bs:,.2f}"
-            return "Sin tasa"
-        except:
-            return "Error"
+    # ============================================================
+    # CONTROL DE CAMPOS SEGÚN EL CONTEXTO
+    # ============================================================
     
-    @admin.display(description='Total Esperado (USD)')
-    def expected_total_usd_display(self, obj):
-        return f"$ {obj.expected_total:,.2f}"
+    def get_fields(self, request, obj=None):
+        """Mostrar diferentes campos según el contexto"""
+        
+        if obj is None:
+            # ✅ NUEVA CAJA: solo initial_amount
+            return ['initial_amount']
+        
+        else:
+            # ✅ EDITAR CAJA ABIERTA: campos para cerrar
+            if obj.status == 'OPEN':
+                return ['status', 'counted_total', 'note']
+            
+            # ✅ CAJA CERRADA: todo readonly (solo información)
+            else:
+                return [
+                    'number', 'user', 'opened_at', 'closed_at', 'date',
+                    'status', 'initial_amount', 'total_sales', 'total_expenses',
+                    'total_withdrawals', 'expected_total', 'counted_total',
+                    'difference', 'note', 'company'
+                ]
     
-    @admin.display(description='Diferencia (USD)')
-    def difference_usd_display(self, obj):
-        if obj.difference is not None:
-            try:
-                diff = Decimal(str(obj.difference))
-                color = 'green' if diff >= 0 else 'red'
-                return format_html(
-                    '<span style="color: {};">$ {:.2f}</span>',
-                    color,
-                    diff
+    def get_readonly_fields(self, request, obj=None):
+        """Controlar qué campos son de solo lectura"""
+        
+        if obj is None:
+            # ✅ NUEVA CAJA: initial_amount es editable
+            return []
+        
+        else:
+            # ✅ CAJA ABIERTA: status, counted_total y note son EDITABLES
+            if obj.status == 'OPEN':
+                return []  # Todos los campos visibles son editables
+            
+            # ✅ CAJA CERRADA: todos readonly
+            return self.readonly_fields
+    
+    # ============================================================
+    # GUARDAR
+    # ============================================================
+    
+    def save_model(self, request, obj, form, change):
+        """Guardar caja con campos automáticos"""
+        
+        # ✅ Si es NUEVA caja (apertura)
+        if not change:
+            # Asignar todo automáticamente
+            obj.user = request.user
+            obj.status = 'OPEN'
+            
+            # Asignar compañía activa
+            company = getattr(request, 'current_company', None)
+            if not company:
+                company = Company.get_active()
+            if company:
+                obj.company = company
+            
+            # Verificar que no tenga otra caja abierta
+            if CashRegister.objects.filter(user=obj.user, status='OPEN').exists():
+                self.message_user(
+                    request,
+                    f'❌ El usuario {obj.user.username} ya tiene una caja abierta.',
+                    messages.ERROR
                 )
-            except:
-                return "$ 0.00"
-        return "-"
+                raise forms.ValidationError('Ya tienes una caja abierta.')
+            
+            # Guardar
+            super().save_model(request, obj, form, change)
+            
+            self.message_user(
+                request,
+                f'✅ Caja #{obj.number} abierta con ${obj.initial_amount:.2f}',
+                messages.SUCCESS
+            )
+        
+        # ✅ Si es EDITAR (cerrar caja)
+        else:
+            old_obj = CashRegister.objects.get(pk=obj.pk)
+            
+            # ✅ Si la caja estaba abierta y se cambia a CLOSED
+            if old_obj.status == 'OPEN' and obj.status == 'CLOSED':
+                # Validar que se haya ingresado el dinero contado
+                if obj.counted_total is None:
+                    self.message_user(
+                        request,
+                        '❌ Debes ingresar el dinero contado para cerrar la caja.',
+                        messages.ERROR
+                    )
+                    raise forms.ValidationError('El dinero contado es obligatorio.')
+                
+                # Calcular totales y diferencia
+                obj.calculate_totals()
+                obj.closed_at = timezone.now()
+                
+                # Guardar
+                super().save_model(request, obj, form, change)
+                
+                self.message_user(
+                    request,
+                    f'✅ Caja #{obj.number} cerrada. Diferencia: ${obj.difference:.2f}',
+                    messages.SUCCESS
+                )
+            
+            # ✅ Si no hay cambio de estado o es otro cambio, guardar normal
+            else:
+                super().save_model(request, obj, form, change)
+    
+    # ============================================================
+    # PERMISOS
+    # ============================================================
+    
+    def has_delete_permission(self, request, obj=None):
+        return False
+    
+    def get_actions(self, request):
+        return {}
+    
+    # ============================================================
+    # VISTAS PERSONALIZADAS
+    # ============================================================
+    
+    def add_view(self, request, form_url='', extra_context=None):
+        """Personalizar título al abrir caja"""
+        extra_context = extra_context or {}
+        extra_context['title'] = 'Abrir Caja'
+        return super().add_view(request, form_url, extra_context=extra_context)
+    
+    def change_view(self, request, object_id, form_url='', extra_context=None):
+        """Personalizar título al cerrar caja"""
+        extra_context = extra_context or {}
+        obj = CashRegister.objects.get(pk=object_id)
+        
+        if obj.status == 'OPEN':
+            extra_context['title'] = f'Cerrar Caja #{obj.number}'
+        else:
+            extra_context['title'] = f'Caja #{obj.number}'
+        
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
+
+    def get_inlines(self, request, obj=None):
+        """Mostrar transacciones SOLO cuando se edita una caja existente"""
+        if obj is not None:
+            # Si es una caja existente, mostrar las transacciones
+            return [CashTransactionInline]
+        # Si es nueva caja, NO mostrar transacciones
+        return []
+
+
+# ============================================================
+# ADMIN DE TRANSACCIONES DE CAJA (Vista independiente)
+# ============================================================
 
 @admin.register(CashTransaction)
 class CashTransactionAdmin(CompanyFilterMixin, UnfoldModelAdmin):
+    """Admin de transacciones de caja - Vista independiente"""
+    
     list_display = [
-        'register', 
-        'type', 
-        'amount_usd_display',
-        'amount_bs_display',
-        'description', 
-        'user', 
+        'register',
+        'type_badge',
+        'amount_display',
+        'description',
+        'reference',
+        'user',
         'created_at'
     ]
-    list_filter = ['type']
-    search_fields = ['description', 'reference']
-    readonly_fields = ['created_at']
     
-    @admin.display(description='Monto (USD)')
-    def amount_usd_display(self, obj):
-        return f"$ {obj.amount:,.2f}"
+    list_filter = ['type', 'company', 'register__status']
+    search_fields = ['description', 'reference', 'register__number', 'user__username']
+    readonly_fields = ['uuid', 'created_at']
+    autocomplete_fields = ['register', 'user']
     
-    @admin.display(description='Monto (Bs.)')
-    def amount_bs_display(self, obj):
-        try:
-            rate = ExchangeRate.get_today_rate('USD', 'BS')
-            if rate:
-                value_bs = obj.amount * rate
-                return f"Bs. {value_bs:,.2f}"
-            return "Sin tasa"
-        except:
-            return "Error"
+    fieldsets = (
+        ('Información de la Transacción', {
+            'fields': ('register', 'type', 'amount', 'description', 'reference')
+        }),
+        ('Auditoría', {
+            'fields': ('uuid', 'user', 'created_at'),
+            'classes': ('collapse',),
+        }),
+    )
+    
+    @admin.display(description='Tipo', ordering='type')
+    def type_badge(self, obj):
+        colors = {
+            'SALE': ('#28a745', '💰 Venta'),
+            'EXPENSE': ('#dc3545', '📤 Gasto'),
+            'WITHDRAWAL': ('#ffc107', '🏦 Retiro'),
+            'DEPOSIT': ('#17a2b8', '📥 Depósito'),
+            'ADJUSTMENT': ('#6c757d', '⚖️ Ajuste'),
+        }
+        color, label = colors.get(obj.type, ('#6c757d', obj.type))
+        return format_html(
+            '<span style="background: {}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 11px;">{}</span>',
+            color,
+            label
+        )
+    
+    @admin.display(description='Monto')
+    def amount_display(self, obj):
+        return f"$ {obj.amount:.2f}"
+    
+    def has_add_permission(self, request):
+        return False
+    
+    def has_delete_permission(self, request, obj=None):
+        return False

@@ -118,33 +118,6 @@ class SaleService:
         
         logger.info(f"   ✅ Orden {order.number} marcada como CONFIRMADA")
         
-        # ============================================================
-        # 💰 3. REGISTRAR EN CAJA (solo si hay total > 0)
-        # ============================================================
-        
-        if order.total > 0:
-            from .models import CashTransaction
-            from .helpers import get_open_register
-            
-            try:
-                register = get_open_register(user or order.user)
-                
-                CashTransaction.objects.create(
-                    register=register,
-                    type='SALE',
-                    amount=order.total,
-                    description=f"Venta {order.number} - {order.customer.name}",
-                    reference=order.number,
-                    user=user or order.user,
-                    company=company,
-                )
-                
-                register.calculate_totals()
-                logger.info(f"   ✅ Transacción registrada en caja {register.number}")
-                
-            except ValidationError as e:
-                logger.warning(f"   ⚠️ Error al registrar en caja: {e}")
-        
         logger.info("=" * 80)
         return order
     
@@ -155,9 +128,13 @@ class SaleService:
         ✅ Entregar una orden (llamado desde la confirmación de la nota de entrega).
         - Marca la orden como DELIVERED
         - Genera la factura de venta
+        - Registra la transacción en caja (SOLO UNA VEZ)
         - Asocia los pagos existentes a la factura
         """
         from .models import SaleInvoice, SaleInvoiceLine, Payment
+        from .models import CashTransaction
+        from .helpers import get_open_register
+        from django_erp.configuration.models import PaymentMethod, Currency
         
         logger.info("=" * 80)
         logger.info(f"🔴 [deliver_order] Entregando orden {order.number}")
@@ -170,21 +147,62 @@ class SaleService:
             logger.info(f"   ℹ️ La orden ya estaba entregada")
             return order
         
-        # ✅ Marcar como entregada
+        company = order.company or Company.get_active()
+        
+        # ============================================================
+        # 💰 1. REGISTRAR TRANSACCIÓN EN CAJA (SOLO UNA VEZ)
+        # ============================================================
+        transaction_created = False
+        if order.total > 0:
+            try:
+                register = get_open_register(user or order.user)
+                
+                # ✅ Verificar que no exista ya una transacción para esta orden
+                existing_transaction = CashTransaction.objects.filter(
+                    reference=order.number,
+                    type='SALE',
+                    register=register
+                ).first()
+                
+                if not existing_transaction:
+                    transaction = CashTransaction.objects.create(
+                        register=register,
+                        type='SALE',
+                        amount=order.total,
+                        description=f"Venta {order.number} - {order.customer.name}",
+                        reference=order.number,
+                        user=user or order.user,
+                        company=company,
+                    )
+                    register.calculate_totals()
+                    transaction_created = True
+                    logger.info(f"   ✅ Transacción registrada en caja {register.number}")
+                else:
+                    logger.info(f"   ℹ️ Transacción ya existe para {order.number}")
+                    transaction = existing_transaction
+                    transaction_created = False
+                    
+            except ValidationError as e:
+                logger.warning(f"   ⚠️ Error al registrar en caja: {e}")
+                # Si no hay caja abierta, no se puede registrar transacción
+                transaction = None
+        
+        # ============================================================
+        # ✅ 2. MARCAR COMO ENTREGADA
+        # ============================================================
         order.status = 'DELIVERED'
         order.delivered_date = timezone.now()
         order.save()
         logger.info(f"   ✅ Orden {order.number} marcada como DELIVERED")
         
         # ============================================================
-        # 📄 GENERAR FACTURA DE VENTA
+        # 📄 3. GENERAR FACTURA DE VENTA
         # ============================================================
-        
         try:
             # ✅ Verificar si ya existe factura para esta orden
             existing_invoice = SaleInvoice.objects.filter(
                 sale_order=order,
-                company=order.company
+                company=company
             ).first()
             
             if existing_invoice:
@@ -206,8 +224,6 @@ class SaleService:
             number = f"FAC-VENTA-{datetime.now().strftime('%Y%m')}-{next_num:04d}"
             logger.info(f"   📝 Número de factura generado: {number}")
             
-            # ✅ Obtener tasa de IVA de la empresa
-            company = order.company or Company.get_active()
             tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
             
             # ✅ Crear la factura
@@ -223,7 +239,7 @@ class SaleService:
                 tax_rate=tax_rate,
                 user=user or order.user,
                 sync_status='SYNCED',
-                company=order.company,
+                company=company,
             )
             logger.info(f"   ✅ Factura creada: {invoice.number}")
             
@@ -240,7 +256,7 @@ class SaleService:
                     quantity=sale_line.quantity,
                     unit_price=sale_line.unit_price,
                     subtotal=sale_line.subtotal,
-                    company=order.company,
+                    company=company,
                 )
                 lines_count += 1
             
@@ -252,61 +268,48 @@ class SaleService:
             logger.info(f"   ✅ Totales calculados: Subtotal={invoice.subtotal}, IVA={invoice.tax}, Total={invoice.total}")
             
             # ============================================================
-            # 💰 ASOCIAR PAGOS EXISTENTES A LA FACTURA
+            # 💰 4. ASOCIAR PAGOS A LA FACTURA
             # ============================================================
             payments_updated = 0
-            # Buscar pagos asociados a la orden de venta
+            
+            # ✅ Si se creó una transacción, crear el pago desde ella
+            if transaction_created and transaction:
+                # Crear pago desde la transacción recién creada
+                default_method = PaymentMethod.objects.filter(
+                    company=company,
+                    is_active=True
+                ).first()
+                
+                if default_method:
+                    Payment.objects.create(
+                        sale_order=order,
+                        sale_invoice=invoice,
+                        method=default_method,
+                        currency=Currency.objects.get(code='USD'),
+                        amount=transaction.amount,
+                        amount_usd=transaction.amount,
+                        reference=f"Pago automático - {order.number}",
+                        status='COMPLETED',
+                        user=user or order.user,
+                        company=company,
+                    )
+                    payments_updated += 1
+                    logger.info(f"   ✅ Pago creado desde transacción")
+            
+            # ✅ Buscar pagos existentes que no tengan factura asignada
             payments = Payment.objects.filter(
                 sale_order=order,
-                status='COMPLETED'
-            ).exclude(sale_invoice__isnull=False)
+                status='COMPLETED',
+                sale_invoice__isnull=True
+            )
             
-            logger.info(f"   💰 Pagos encontrados para asociar: {payments.count()}")
+            logger.info(f"   💰 Pagos existentes sin factura: {payments.count()}")
             
             for payment in payments:
                 payment.sale_invoice = invoice
                 payment.save()
                 payments_updated += 1
                 logger.info(f"   ✅ Pago {payment.id} asociado a factura {invoice.number}")
-            
-            # ✅ También buscar pagos que puedan estar en la caja
-            from .models import CashTransaction
-            cash_transactions = CashTransaction.objects.filter(
-                reference=order.number,
-                type='SALE'
-            ).exclude(register__status='CLOSED')
-            
-            logger.info(f"   🏦 Transacciones de caja encontradas: {cash_transactions.count()}")
-            
-            for transaction in cash_transactions:
-                # Si no existe un pago para esta transacción, crearlo
-                if not Payment.objects.filter(
-                    sale_order=order,
-                    amount=transaction.amount,
-                    reference__icontains=order.number
-                ).exists():
-                    # Obtener el método de pago por defecto
-                    from django_erp.configuration.models import PaymentMethod, Currency
-                    default_method = PaymentMethod.objects.filter(
-                        company=order.company,
-                        is_active=True
-                    ).first()
-                    
-                    if default_method:
-                        payment = Payment.objects.create(
-                            sale_order=order,
-                            sale_invoice=invoice,
-                            method=default_method,
-                            currency=Currency.objects.get(code='USD'),
-                            amount=transaction.amount,
-                            amount_usd=transaction.amount,
-                            reference=f"Pago automático - {order.number}",
-                            status='COMPLETED',
-                            user=user or order.user,
-                            company=order.company,
-                        )
-                        payments_updated += 1
-                        logger.info(f"   ✅ Pago creado desde transacción: {payment.id}")
             
             logger.info(f"   💰 Total pagos asociados: {payments_updated}")
             
