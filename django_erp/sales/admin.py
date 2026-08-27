@@ -536,6 +536,75 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         # ✅ Guardar la factura
         super(CompanyFilterMixin, self).save_model(request, obj, form, change)
 
+    def _register_cash_transaction(self, invoice, user):
+        """Registrar transacción en caja desde una factura"""
+        from .models import CashTransaction
+        from .helpers import get_open_register
+        from django_erp.configuration.models import PaymentMethod, Currency
+        
+        try:
+            # ✅ Verificar que no exista ya una transacción para esta factura
+            existing = CashTransaction.objects.filter(
+                reference=invoice.number,
+                type='SALE'
+            ).first()
+            
+            if existing:
+                logger.info(f"   ℹ️ Transacción ya existe para factura {invoice.number}")
+                return
+            
+            # ✅ Obtener caja abierta
+            register = get_open_register(user)
+            
+            # ✅ Crear transacción
+            CashTransaction.objects.create(
+                register=register,
+                type='SALE',
+                amount=invoice.total,
+                description=f"Factura {invoice.number} - {invoice.customer_name}",
+                reference=invoice.number,
+                user=user,
+                company=invoice.company,
+            )
+            
+            # ✅ Recalcular totales de la caja
+            register.calculate_totals()
+            
+            # ✅ Crear pago asociado a la factura
+            default_method = PaymentMethod.objects.filter(
+                company=invoice.company,
+                is_active=True
+            ).first()
+            
+            if default_method:
+                from .models import Payment
+                Payment.objects.create(
+                    sale_invoice=invoice,
+                    method=default_method,
+                    currency=Currency.objects.get(code='USD'),
+                    amount=invoice.total,
+                    amount_usd=invoice.total,
+                    reference=f"Pago factura {invoice.number}",
+                    status='COMPLETED',
+                    user=user,
+                    company=invoice.company,
+                )
+            
+            self.message_user(
+                request,
+                f'✅ Transacción registrada en caja por ${invoice.total:.2f}',
+                messages.SUCCESS
+            )
+            
+        except ValidationError as e:
+            self.message_user(
+                request,
+                f'⚠️ No se pudo registrar en caja: {str(e)}',
+                messages.WARNING
+            )
+        except Exception as e:
+            logger.error(f"Error registrando transacción en caja: {e}")
+
     def _reduce_inventory(self, request, invoice):
         """
         Reducir el inventario para cada línea de la factura.
