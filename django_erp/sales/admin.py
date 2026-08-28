@@ -21,7 +21,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 from unfold.widgets import UnfoldAdminTextInputWidget, UnfoldAdminSelectWidget, UnfoldAdminTextareaWidget
 from .services import SaleReportService
 from django_erp.configuration.mixins import CompanyFilterMixin
-from .signals import order_confirmed
+from .signals import order_confirmed, invoice_paid
 from django_erp.inventory.models import Product, Location
 from django_erp.inventory.models import Inventory
 from django.db import transaction
@@ -517,7 +517,7 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
 
     def save_model(self, request, obj, form, change):
         """
-        Guardar la factura (SOLO la factura, sin procesar inventario)
+        Guardar la factura y enviar señal si cambia a PAID
         """
         # ✅ Asignar compañía
         company = self._get_active_company(request)
@@ -533,8 +533,23 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         if not obj.user:
             obj.user = request.user
         
+        # ✅ Obtener el estado anterior (si existe)
+        old_status = None
+        if change and obj.pk:
+            try:
+                old_invoice = SaleInvoice.objects.get(pk=obj.pk)
+                old_status = old_invoice.status
+            except SaleInvoice.DoesNotExist:
+                pass
+        
         # ✅ Guardar la factura
         super(CompanyFilterMixin, self).save_model(request, obj, form, change)
+        
+        # ✅ Si cambió a PAID, enviar señal para registrar en caja
+        if obj.status == 'PAID' and old_status != 'PAID':
+            from .signals import invoice_paid
+            invoice_paid.send(sender=SaleInvoice, invoice=obj, request=request)
+            logger.info(f"   📨 Señal invoice_paid enviada para {obj.number}")
 
     def _register_cash_transaction(self, invoice, user):
         """Registrar transacción en caja desde una factura"""
@@ -721,8 +736,7 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     def save_formset(self, request, form, formset, change):
         """
         Guardar líneas y pagos de la factura.
-        Después de guardar, procesar reducción de inventario si está pagada.
-        SOLO UNA VEZ (usando bandera en sesión)
+        Después de guardar, procesar reducción de inventario y registro en caja.
         """
         logger.info("=" * 80)
         logger.info("🔴 [SaleInvoiceAdmin.save_formset] INICIANDO")
@@ -766,7 +780,6 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 instance.company = company
                 logger.info(f"   ✅ Compañía asignada a {instance.__class__.__name__}")
             
-            # ✅ Si es una línea de factura, copiar datos del producto
             if hasattr(instance, 'product') and instance.product:
                 instance.product_code = instance.product.code
                 instance.product_name = instance.product.name
@@ -779,20 +792,151 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             logger.info(f"   🗑️ Eliminando objeto: {obj}")
             obj.delete()
         
-        # ✅ Recalcular totales después de guardar líneas
-        if invoice.pk and hasattr(invoice, 'lines') and invoice.lines.exists():
-            invoice.calculate_totals()
+        # ✅ RECALCULAR TOTALES DESPUÉS DE GUARDAR LÍNEAS
+        if invoice.pk:
+            # Recargar la instancia desde la base de datos para tener los datos más recientes
+            invoice.refresh_from_db()
+            
+            # Calcular totales desde las líneas
+            subtotal = Decimal('0.00')
+            for line in invoice.lines.all():
+                subtotal += Decimal(str(line.subtotal))
+            
+            # Obtener tasa de IVA de la compañía
+            company = invoice.company or Company.get_active()
+            tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
+            
+            tax = subtotal * (tax_rate / Decimal('100'))
+            total = subtotal + tax
+            
+            # Asignar los totales calculados
+            invoice.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            invoice.tax = tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            invoice.total = total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            
+            # Guardar solo los campos de totales
             invoice.save(update_fields=['subtotal', 'tax', 'total'])
+            
+            # ✅ Volver a recargar para asegurar que los valores están actualizados
+            invoice.refresh_from_db()
+            
             logger.info(f"   ✅ Totales recalculados: Subtotal={invoice.subtotal}, IVA={invoice.tax}, Total={invoice.total}")
         
-        # ✅ PROCESAR REDUCCIÓN DE INVENTARIO SOLO UNA VEZ
-        # Verificar si cambió a PAID o es nueva con PAID
+        # ✅ PROCESAR REGISTRO EN CAJA Y REDUCCIÓN DE INVENTARIO
         is_new_paid = new_status == 'PAID' and (old_status is None or old_status != 'PAID')
         
         if is_new_paid:
-            logger.info(f"   🎯 Factura {invoice.number} cambió a PAID - Verificando inventario...")
+            logger.info(f"   🎯 Factura {invoice.number} cambió a PAID")
+            logger.info(f"   📊 Monto total de la factura: {invoice.total}")
             
-            # ✅ Verificar si ya se redujo el inventario (evitar duplicados en BD)
+            # ✅ 1. VERIFICAR Y REGISTRAR EN CAJA
+            from .models import CashTransaction
+            from .helpers import get_open_register
+            from django_erp.configuration.models import PaymentMethod, Currency
+            
+            # Verificar que el monto total sea mayor a 0
+            if invoice.total <= 0:
+                logger.warning(f"   ⚠️ El total de la factura es {invoice.total}, no se registra en caja")
+                self.message_user(
+                    request,
+                    f'⚠️ La factura tiene total {invoice.total}, no se registra en caja porque el monto es cero o negativo.',
+                    messages.WARNING
+                )
+            else:
+                # Verificar que no exista ya una transacción
+                cash_exists = CashTransaction.objects.filter(
+                    reference=invoice.number,
+                    type='SALE'
+                ).exists()
+                
+                if cash_exists:
+                    logger.info(f"   ℹ️ Transacción de caja ya existe para {invoice.number}")
+                    existing = CashTransaction.objects.filter(
+                        reference=invoice.number,
+                        type='SALE'
+                    ).first()
+                    logger.info(f"   ℹ️ Monto existente: {existing.amount}")
+                else:
+                    try:
+                        register = get_open_register(request.user)
+                        logger.info(f"   ✅ Caja abierta: {register.number}")
+                        
+                        # ✅ CREAR LA TRANSACCIÓN CON EL MONTO CORRECTO
+                        transaction = CashTransaction.objects.create(
+                            register=register,
+                            type='SALE',
+                            amount=invoice.total,  # ✅ Usar el total calculado
+                            description=f"Factura {invoice.number} - {invoice.customer_name}",
+                            reference=invoice.number,
+                            user=request.user,
+                            company=invoice.company,
+                        )
+                        logger.info(f"   ✅ Transacción creada con monto: {transaction.amount}")
+                        
+                        # Recalcular totales de la caja
+                        register.calculate_totals()
+                        logger.info(f"   ✅ Totales de caja recalculados")
+                        
+                        self.message_user(
+                            request,
+                            f'✅ Transacción registrada en caja por ${invoice.total:.2f}',
+                            messages.SUCCESS
+                        )
+                        
+                        # Crear pago si no existe
+                        payment_exists = Payment.objects.filter(
+                            sale_invoice=invoice,
+                            status='COMPLETED'
+                        ).exists()
+                        
+                        if not payment_exists:
+                            default_method = PaymentMethod.objects.filter(
+                                company=invoice.company,
+                                is_active=True
+                            ).first()
+                            
+                            if default_method:
+                                try:
+                                    usd = Currency.objects.get(code='USD')
+                                except Currency.DoesNotExist:
+                                    usd = None
+                                
+                                if usd:
+                                    Payment.objects.create(
+                                        sale_invoice=invoice,
+                                        method=default_method,
+                                        currency=usd,
+                                        amount=invoice.total,
+                                        amount_usd=invoice.total,
+                                        reference=f"Pago factura {invoice.number}",
+                                        status='COMPLETED',
+                                        user=request.user,
+                                        company=invoice.company,
+                                    )
+                                    logger.info(f"   ✅ Pago creado para factura {invoice.number}")
+                        
+                    except ValidationError as e:
+                        logger.warning(f"   ⚠️ No se pudo registrar en caja: {e}")
+                        if not request.session.get(f'invoice_cash_warned_{invoice.pk}'):
+                            self.message_user(
+                                request,
+                                f'⚠️ No se pudo registrar en caja: {str(e)}',
+                                messages.WARNING
+                            )
+                            request.session[f'invoice_cash_warned_{invoice.pk}'] = True
+                    except Exception as e:
+                        logger.error(f"   ❌ Error al registrar en caja: {e}")
+                        import traceback
+                        logger.error(f"   Traceback: {traceback.format_exc()}")
+                        if not request.session.get(f'invoice_cash_error_{invoice.pk}'):
+                            self.message_user(
+                                request,
+                                f'⚠️ Error al registrar en caja: {str(e)}',
+                                messages.ERROR
+                            )
+                            request.session[f'invoice_cash_error_{invoice.pk}'] = True
+            
+            # ✅ 2. VERIFICAR Y REDUCIR INVENTARIO
             from django_erp.inventory.models import Movement
             already_reduced = Movement.objects.filter(
                 source_reference=invoice.number,
@@ -801,12 +945,9 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             
             if already_reduced:
                 logger.info(f"   ℹ️ El inventario ya fue reducido para {invoice.number}")
-                # ✅ NO mostrar mensaje si ya está reducido (solo en el primer guardado)
             else:
-                # ✅ Verificar que tenga líneas
                 if not invoice.lines.exists():
                     logger.warning(f"   ⚠️ La factura no tiene líneas, no se reduce inventario")
-                    # ✅ Mostrar un solo mensaje de advertencia
                     if not request.session.get(f'invoice_warned_{invoice.pk}'):
                         self.message_user(
                             request,
@@ -820,7 +961,6 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                         movements = self._reduce_inventory(request, invoice)
                         if movements:
                             logger.info(f"   ✅ {len(movements)} movimientos creados")
-                            # ✅ Mostrar UN SOLO mensaje de éxito
                             if not request.session.get(f'invoice_success_{invoice.pk}'):
                                 self.message_user(
                                     request,
@@ -832,7 +972,6 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                         logger.error(f"   ❌ Error al reducir inventario: {e}")
                         import traceback
                         logger.error(f"   Traceback: {traceback.format_exc()}")
-                        # ✅ Mostrar UN SOLO mensaje de error
                         if not request.session.get(f'invoice_error_{invoice.pk}'):
                             self.message_user(
                                 request,
@@ -840,13 +979,13 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                                 messages.ERROR
                             )
                             request.session[f'invoice_error_{invoice.pk}'] = True
-                        # ✅ Revertir el estado a ISSUED si no se pudo reducir
+                        # Revertir el estado a ISSUED si no se pudo reducir
                         invoice.status = 'ISSUED'
                         invoice.save(update_fields=['status'])
                         logger.info("   ↩️ Estado revertido a ISSUED")
                         raise
         else:
-            logger.info(f"   ℹ️ No se requiere reducción de inventario (status: {new_status}, old: {old_status})")
+            logger.info(f"   ℹ️ No se requiere procesamiento (status: {new_status}, old: {old_status})")
         
         # ✅ Marcar como procesado en esta sesión
         request.session[session_key] = True
@@ -854,7 +993,6 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         logger.info("🔴 [SaleInvoiceAdmin.save_formset] FINALIZADO")
         logger.info("=" * 80)
         
-        # ✅ Llamar al save_formset del padre
         return super().save_formset(request, form, formset, change)
 
 
