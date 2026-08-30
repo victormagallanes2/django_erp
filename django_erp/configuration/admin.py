@@ -11,6 +11,8 @@ from .services import BackupService
 from .models import Currency, ExchangeRate, CompanyBankAccount, Company, Backup, PaymentMethod
 import os
 from django_erp.configuration.mixins import CompanyFilterMixin
+from django import forms
+from unfold.widgets import UnfoldAdminSelectWidget
 
 
 @admin.register(Company)
@@ -165,70 +167,63 @@ class CurrencyAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
 
 @admin.register(ExchangeRate)
 class ExchangeRateAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
-    """Admin de tasas de cambio POR COMPAÑÍA CON HISTORIAL"""
+    """Admin de tasas de cambio - SIMPLE"""
     
-    list_display = [
-        'from_currency', 
-        'to_currency', 
-        'rate_display', 
-        'date', 
-        'effective_date',
-        'source', 
-        'user', 
-        'company'
-    ]
-    list_filter = ['from_currency', 'to_currency', 'date', 'effective_date', 'source', 'company']
-    search_fields = ['source', 'note']
-    autocomplete_fields = ['from_currency', 'to_currency']
+    # ✅ Los 3 campos que el usuario ve
+    fields = ('from_currency', 'to_currency', 'rate')
     
-    fieldsets = (
-        ('Tasa de Cambio', {
-            'fields': ('from_currency', 'to_currency', 'rate')
-        }),
-        ('Vigencia', {
-            'fields': ('effective_date',),
-            'description': 'La tasa será aplicable desde esta fecha. Si se deja vacío, usa la fecha de hoy.'
-        }),
-        ('Compañía', {
-            'fields': ('company',)
-        }),
-        ('Información Adicional', {
-            'fields': ('source', 'user', 'note')
-        }),
-    )
+    # ✅ Listado
+    list_display = ['from_currency', 'to_currency', 'rate_display', 'date', 'company', 'user']
+    list_filter = ['from_currency', 'to_currency', 'date', 'company']
+    search_fields = ['from_currency__code', 'to_currency__code']
     
-    readonly_fields = ['date', 'created_at', 'updated_at']
+    # ✅ Campos ocultos que se autollenan
+    readonly_fields = ['date', 'effective_date', 'source', 'user', 'company', 'created_at', 'updated_at']
+    exclude = ['note']
     
     @admin.display(description='Tasa')
     def rate_display(self, obj):
         return f"{obj.rate:.4f}"
     
     def save_model(self, request, obj, form, change):
-        """Guardar tasa de cambio - SIEMPRE crear un nuevo registro para historial"""
         from datetime import date
         
-        # ✅ Si no tiene fecha de vigencia, usar hoy
-        if not obj.effective_date:
-            obj.effective_date = date.today()
+        # ✅ Autollenar todo
+        obj.company = Company.get_active()
+        obj.user = request.user
+        obj.source = 'Manual'
+        obj.effective_date = date.today()
+        obj.date = date.today()
         
-        # ✅ Si no tiene usuario, asignar el actual
-        if not obj.user:
-            obj.user = request.user
-        
-        # ✅ Si no tiene fuente, asignar 'Manual'
-        if not obj.source:
-            obj.source = 'Manual'
-        
-        # ✅ SIEMPRE crear un nuevo registro (no actualizar existente)
         super().save_model(request, obj, form, change)
         
-        # ✅ Mensaje informativo
         self.message_user(
             request,
-            f'✅ Tasa registrada: 1 {obj.from_currency.code} = {obj.rate} {obj.to_currency.code} '
-            f'(Vigente desde: {obj.effective_date.strftime("%Y-%m-%d")})',
+            f'✅ Tasa registrada: 1 {obj.from_currency.code} = {obj.rate} {obj.to_currency.code}',
             messages.SUCCESS
         )
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        company = Company.get_active()
+        if company:
+            qs = qs.filter(company=company)
+        return qs
+    
+    def has_change_permission(self, request, obj=None):
+        if obj:
+            return False
+        return True
+    
+    # ✅ Valores por defecto - ESTO ES LO QUE FUNCIONA
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        try:
+            initial['from_currency'] = Currency.objects.get(code='USD').pk
+            initial['to_currency'] = Currency.objects.get(code='BS').pk
+        except Currency.DoesNotExist:
+            pass
+        return initial
 
 
 @admin.register(PaymentMethod)

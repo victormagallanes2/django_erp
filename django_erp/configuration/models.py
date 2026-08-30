@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from simple_history.models import HistoricalRecords
 from decimal import Decimal
 import os
+import datetime
 
 
 User = get_user_model()
@@ -269,47 +270,39 @@ class ExchangeRate(models.Model):
         verbose_name="Fecha",
         help_text="Fecha en que se registró esta tasa"
     )
-    # ✅ NUEVO: Campo para fecha de vigencia (permite cargar tasas con fecha diferente)
     effective_date = models.DateField(
-        null=True,
-        blank=True,
+        default=datetime.date.today,  # ✅ Mejor que auto_now_add
         verbose_name="Fecha de vigencia",
-        help_text="Fecha desde la cual aplica esta tasa. Si se deja vacío, usa la fecha de registro."
+        help_text="Fecha desde la cual aplica esta tasa"
     )
     source = models.CharField(
         max_length=100,
-        blank=True,
-        verbose_name="Fuente",
-        help_text="Ej: BCV, DolarToday, Manual"
+        default='Manual',
+        editable=False,
+        verbose_name="Fuente"
     )
     user = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
         null=True,
+        editable=False,
         verbose_name="Usuario que registró"
     )
     company = models.ForeignKey(
         Company,
         on_delete=models.CASCADE,
+        editable=False,
         verbose_name="Compañía/Sucursal",
         related_name='exchangerate'
     )
-    # ✅ NUEVO: Nota o comentario sobre el cambio
-    note = models.TextField(
-        blank=True,
-        verbose_name="Nota",
-        help_text="Motivo del cambio de tasa"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
     history = HistoricalRecords()
     
     class Meta:
         verbose_name = "Tasa de Cambio"
         verbose_name_plural = "Tasas de Cambio"
         ordering = ['-date', '-created_at']
-        # ✅ Permitir múltiples tasas por día (para contabilidad)
-        # Cada registro es único por su combinación de campos
         unique_together = [
             ['company', 'from_currency', 'to_currency', 'date', 'created_at']
         ]
@@ -320,14 +313,9 @@ class ExchangeRate(models.Model):
         ]
 
     def __str__(self):
-        effective = f" (vigente desde {self.effective_date})" if self.effective_date else ""
-        return f"1 {self.from_currency.code} = {self.rate} {self.to_currency.code} ({self.company.code}){effective}"
+        return f"1 {self.from_currency.code} = {self.rate} {self.to_currency.code} ({self.company.code})"
     
     def save(self, *args, **kwargs):
-        # ✅ Si no tiene fecha de vigencia, usar la fecha de registro
-        if not self.effective_date:
-            self.effective_date = self.date
-        
         # ✅ Si no tiene fuente, asignar 'Manual'
         if not self.source:
             self.source = 'Manual'
@@ -336,10 +324,7 @@ class ExchangeRate(models.Model):
     
     @classmethod
     def get_rate(cls, from_code, to_code, company=None, date=None):
-        """
-        Obtener la tasa de cambio VIGENTE para una fecha específica
-        Busca la tasa más reciente que sea <= a la fecha solicitada
-        """
+        """Obtener la tasa de cambio VIGENTE para una fecha específica"""
         from datetime import date as date_type
         from decimal import Decimal
         
@@ -362,18 +347,16 @@ class ExchangeRate(models.Model):
         if from_currency == to_currency:
             return Decimal('1')
         
-        # ✅ Buscar la tasa más reciente (por fecha de vigencia y fecha de creación)
         rate = cls.objects.filter(
             company=company,
             from_currency=from_currency,
             to_currency=to_currency,
-            effective_date__lte=date  # ← Tasa vigente para esa fecha
+            effective_date__lte=date
         ).order_by(
-            '-effective_date',  # Primero la más reciente
-            '-created_at'       # Si misma fecha, la más reciente en tiempo
+            '-effective_date',
+            '-created_at'
         ).first()
         
-        # ✅ Si no hay tasa vigente para esa fecha, buscar la más reciente
         if not rate:
             rate = cls.objects.filter(
                 company=company,
@@ -392,12 +375,8 @@ class ExchangeRate(models.Model):
     
     @classmethod
     def get_historical_rates(cls, from_code, to_code, company=None, days=30):
-        """
-        Obtener el historial de tasas de cambio para los últimos N días
-        Útil para reportes contables
-        """
+        """Obtener el historial de tasas de cambio para los últimos N días"""
         from datetime import date as date_type, timedelta
-        from decimal import Decimal
         
         if company is None:
             from .models import Company
@@ -417,7 +396,6 @@ class ExchangeRate(models.Model):
         
         start_date = date_type.today() - timedelta(days=days)
         
-        # ✅ Obtener todas las tasas en el período
         rates = cls.objects.filter(
             company=company,
             from_currency=from_currency,
