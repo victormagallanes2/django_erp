@@ -40,6 +40,8 @@ dmypy.json
 # !*/migrations/__init__.py
 
 # Base de datos
+db.sqlite3
+db.sqlite3-journal
 *.db
 *.sqlite3
 
