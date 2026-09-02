@@ -8,81 +8,91 @@ logger = logging.getLogger(__name__)
 
 class CompanyFilterMixin(ModelAdmin):
     """
-    Mixin para ModelAdmin que maneja la asignación y filtrado de compañías.
+    Mixin para ModelAdmin que maneja la asignación, filtrado de compañías
+    y ahora también inyecta ERP_CONFIG al contexto.
     """
+    
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        """Inyectar ERP_CONFIG al contexto del formulario"""
+        extra_context = extra_context or {}
+        from .context_processors import erp_config
+        erp_context = erp_config(request)
+        extra_context.update(erp_context)
+        return super().changeform_view(request, object_id, form_url, extra_context)
     
     def save_model(self, request, obj, form, change):
         """Asignar la compañía activa al guardar un objeto."""
         print(f"🔴 ===== MIXIN: save_model =====")
         print(f"   Modelo: {obj.__class__.__name__}")
-        print(f"   Tiene company: {hasattr(obj, 'company')}")
-        print(f"   company_id actual: {getattr(obj, 'company_id', 'NO TIENE')}")
         
-        # ✅ FORZAR la asignación de compañía (sin condiciones)
+        # ✅ FORZAR ASIGNACIÓN - Verificar si el modelo tiene campo company
         company = self._get_active_company(request)
-        if company and hasattr(obj, 'company'):
-            obj.company = company
-            print(f"   ✅ Compañía asignada: {company.code} (ID: {company.id})")
-        elif company:
-            print(f"   ⚠️ El objeto no tiene campo 'company'")
+        
+        if company:
+            # ✅ Verificar si el modelo tiene el campo 'company' usando _meta
+            from django.db import models
+            has_company_field = any(
+                field.name == 'company' 
+                for field in obj._meta.get_fields()
+            )
+            
+            if has_company_field:
+                obj.company = company
+                print(f"   ✅ Compañía asignada: {company.code} (ID: {company.id})")
+            else:
+                print(f"   ⚠️ El modelo {obj.__class__.__name__} no tiene campo 'company'")
         else:
             print(f"   ❌ No se encontró compañía activa")
         
-        print(f"   company_id después de asignar: {obj.company_id}")
+        print(f"   company_id después de asignar: {getattr(obj, 'company_id', None)}")
         print("🔴 ===== FIN MIXIN save_model =====")
         
-        # Llamar a super() para que Django guarde el objeto
         super().save_model(request, obj, form, change)
     
     def save_formset(self, request, form, formset, change):
-        """
-        Asignar la compañía activa a todos los objetos en un formset (inlines)
-        ANTES de que Django los guarde.
-        """
+        """Asignar la compañía activa a todos los objetos en un formset."""
         print(f"🔴 ===== MIXIN: save_formset =====")
         
-        # 1. Obtenemos las instancias del formset sin guardarlas aún
         instances = formset.save(commit=False)
         print(f"   Instancias en formset: {len(instances)}")
         
-        # 2. Asignamos la compañía a cada instancia que lo necesite
         company = self._get_active_company(request)
         print(f"   Compañía obtenida: {company.code if company else 'NINGUNA'}")
         
         for instance in instances:
-            if hasattr(instance, 'company'):
-                print(f"   Asignando compañía a: {instance.__class__.__name__}")
+            # ✅ Verificar si el modelo tiene el campo 'company' usando _meta
+            from django.db import models
+            has_company_field = any(
+                field.name == 'company' 
+                for field in instance._meta.get_fields()
+            )
+            
+            if has_company_field:
                 instance.company = company
-                print(f"   ✅ company_id asignado: {instance.company_id}")
+                print(f"   ✅ company_id asignado a {instance.__class__.__name__}: {instance.company_id}")
         
-        # 3. Llamamos al save_formset de la clase padre
         super().save_formset(request, form, formset, change)
         print("🔴 ===== FIN MIXIN save_formset =====")
     
     def get_queryset(self, request):
-        """
-        ✅ MODIFICADO: Filtrar por compañía activa SIEMPRE, incluso para superusuarios.
-        """
+        """Filtrar por compañía activa."""
         queryset = super().get_queryset(request)
-        
-        # ✅ ELIMINADA la excepción para superusuarios
-        # Ahora TODOS los usuarios (incluyendo superusuarios) ven solo su compañía activa
-        
-        # Obtener la compañía activa
         company = self._get_active_company(request)
         
-        # Si hay compañía y el modelo tiene campo company, filtrar
-        if company and hasattr(queryset.model, 'company'):
-            print(f"🔍 Filtrando {queryset.model.__name__} por compañía: {company.code}")
-            return queryset.filter(company=company)
+        if company:
+            # ✅ Verificar si el modelo tiene el campo 'company' usando _meta
+            from django.db import models
+            has_company_field = any(
+                field.name == 'company' 
+                for field in queryset.model._meta.get_fields()
+            )
+            
+            if has_company_field:
+                print(f"🔍 Filtrando {queryset.model.__name__} por compañía: {company.code}")
+                return queryset.filter(company=company)
         
-        # Si no hay compañía, devolver queryset vacío
         print(f"⚠️ No hay compañía activa para {queryset.model.__name__}, devolviendo vacío")
         return queryset.none()
-    
-    def _assign_company(self, request, obj):
-        """Método obsoleto, ahora se hace en save_model directamente."""
-        pass
     
     def _get_active_company(self, request):
         """Obtener la compañía activa del request o fallback."""

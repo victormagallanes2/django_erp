@@ -20,6 +20,7 @@ from django_erp.configuration.models import Company, Currency, ExchangeRate, Pay
 from django_erp.inventory.models import Location, Product
 from django_erp.purchasing.models import Supplier
 from django_erp.sales.models import Customer
+from django_erp.accounting.models import Tax, TaxRate
 
 User = get_user_model()
 
@@ -440,6 +441,68 @@ def load_users(companies):
         except Exception as e:
             print(f"   ❌ Error creando usuario {username}: {e}")
 
+def load_taxes():
+    """Carga los impuestos globales."""
+    data = load_json_file('01_taxes.json')
+    if not data:
+        print("   ⚠️ No hay datos de impuestos para cargar.")
+        return
+    
+    for item in data:
+        fields = item.get('fields', {})
+        tax_code = fields.get('code')
+        if not tax_code:
+            print(f"   ⚠️ Falta 'code' en impuesto.")
+            continue
+        
+        tax, created = Tax.objects.get_or_create(
+            code=tax_code,
+            defaults=fields
+        )
+        if created:
+            print(f"   ✅ Impuesto creado: {tax.code} - {tax.name}")
+        else:
+            print(f"   ℹ️ Impuesto existente: {tax.code} - {tax.name}")
+
+def load_tax_rates(companies):
+    """Carga las tasas de impuesto para cada empresa."""
+    data = load_json_file('02_tax_rates.json')
+    if not data:
+        print("   ⚠️ No hay datos de tasas de impuesto para cargar.")
+        return
+        
+    for item in data:
+        company_code = item.get('company_code')
+        company = companies.get(company_code)
+        if not company:
+            print(f"   ⚠️ Empresa {company_code} no encontrada para tasas de impuesto.")
+            continue
+            
+        fields = item.get('fields', {})
+        tax_code = fields.pop('tax_code', None)
+        if not tax_code:
+            print(f"   ⚠️ Falta 'tax_code' en tasa de impuesto para {company_code}.")
+            continue
+        
+        try:
+            tax = Tax.objects.get(code=tax_code)
+        except Tax.DoesNotExist:
+            print(f"   ⚠️ Impuesto {tax_code} no encontrado.")
+            continue
+        
+        try:
+            tax_rate, created = TaxRate.objects.get_or_create(
+                tax=tax,
+                company=company,
+                effective_date=fields.get('effective_date'),
+                defaults=fields
+            )
+            if created:
+                print(f"   ✅ Tasa de impuesto creada: {tax_rate.tax.code} ({tax_rate.rate}%) para {company_code}")
+            else:
+                print(f"   ℹ️ Tasa de impuesto existente: {tax_rate.tax.code} ({tax_rate.rate}%) para {company_code}")
+        except Exception as e:
+            print(f"   ❌ Error creando tasa de impuesto: {e}")
 
 @transaction.atomic
 def load_all():
@@ -481,6 +544,12 @@ def load_all():
     print("\n" + "=" * 70)
     print("✅ CARGA COMPLETADA EXITOSAMENTE")
     print("=" * 70)
+
+    print("\n📊 CARGANDO IMPUESTOS (CONTABILIDAD)...")
+    load_taxes()
+    
+    print("\n📊 CARGANDO TASAS DE IMPUESTO (CONTABILIDAD)...")
+    load_tax_rates(companies)
 
 
 if __name__ == "__main__":

@@ -3,11 +3,12 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from simple_history.models import HistoricalRecords
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from django.apps import apps
 import uuid
 from django.conf import settings
 from django_erp.configuration.models import Currency, ExchangeRate, Company
+from django_erp.accounting.services import TaxService
 
 
 
@@ -159,21 +160,14 @@ class SaleOrder(models.Model):
         return f"{self.number} - {self.customer.name}"
 
     def calculate_totals(self):
-        """Calcular totales usando el IVA de la empresa"""
-        from decimal import Decimal, ROUND_HALF_UP
-        from django_erp.configuration.models import Company
-        
+        """Calcular totales usando el módulo de contabilidad"""
         subtotal = Decimal('0.00')
         for line in self.lines.all():
             subtotal += Decimal(str(line.subtotal))
         
-        company = Company.get_active()
-        if company:
-            tax_rate = Decimal(str(company.tax_rate))
-        else:
-            tax_rate = Decimal('16.00')
+        # ✅ Obtener tasa de IVA desde el servicio de contabilidad
+        rate, tax = TaxService.calculate_vat(subtotal, self.company)
         
-        tax = subtotal * (tax_rate / Decimal('100'))
         total = subtotal + tax
         
         self.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
@@ -955,10 +949,8 @@ class SaleInvoice(models.Model):
         subtotal = sum(line.subtotal for line in self.lines.all())
         
         company = Company.get_active()
-        if company:
-            tax_rate = Decimal(str(company.tax_rate))
-        else:
-            tax_rate = Decimal('16.00')
+        from django_erp.accounting.services import TaxService
+        tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
         
         tax = subtotal * (tax_rate / Decimal('100'))
         total = subtotal + tax

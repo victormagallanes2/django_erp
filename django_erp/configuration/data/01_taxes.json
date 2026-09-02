@@ -1,0 +1,10 @@
+[
+  {
+    "fields": {
+      "code": "VAT",
+      "name": "Impuesto al Valor Agregado",
+      "tax_type": "SALES",
+      "is_active": true
+    }
+  }
+]

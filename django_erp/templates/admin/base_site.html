@@ -4,6 +4,19 @@
 
 {% block extrahead %}
     {{ block.super }}
+    
+    {# ✅ INYECTAR ERP_CONFIG directamente desde el contexto #}
+    <script>
+        window.ERP_CONFIG = {
+            tax_rate: {{ ERP_CONFIG.tax_rate|default:16 }},
+            exchange_rate: {{ ERP_CONFIG.exchange_rate|default:0 }},
+            company_name: "{{ ERP_CONFIG.company_name|default:'' }}",
+            company_rif: "{{ ERP_CONFIG.company_rif|default:'' }}",
+            currency_symbol: "{{ ERP_CONFIG.currency_symbol|default:'$' }}"
+        };
+        console.log('✅ ERP_CONFIG inyectado desde template:', window.ERP_CONFIG);
+    </script>
+    
     <style>
         .company-selector-injected {
             display: inline-block;
@@ -123,5 +136,9 @@
             setTimeout(injectSelector, 300);
             setTimeout(injectSelector, 600);
         });
+    </script>
+    <script>
+        window.ERP_CONFIG = {{ ERP_CONFIG_JSON|safe }};
+        console.log('✅ ERP_CONFIG inyectado desde JSON:', window.ERP_CONFIG);
     </script>
 {% endblock %}

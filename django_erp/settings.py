@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'django_erp.inventory',
     'django_erp.sales',
     'django_erp.purchasing',
+    'django_erp.accounting',
 ]
 
 MIDDLEWARE = [
@@ -308,6 +309,31 @@ def get_menu_items(request):
                 "separator": True,
                 "collapsible": True,
                 "items": sales_items,
+            })
+
+    # ✅ CONTABILIDAD (NUEVO MÓDULO)
+    if user.has_perm('accounting.view_tax') or user.has_perm('accounting.view_taxrate'):
+        accounting_items = []
+        
+        if user.has_perm('accounting.view_tax'):
+            accounting_items.append({
+                "title": "Tipos de Impuestos",
+                "icon": "receipt",
+                "link": "/admin/accounting/tax/",
+            })
+        if user.has_perm('accounting.view_taxrate'):
+            accounting_items.append({
+                "title": "Tasas de Impuesto",
+                "icon": "percent",
+                "link": "/admin/accounting/taxrate/",
+            })
+        
+        if accounting_items:
+            navigation.append({
+                "title": "Contabilidad",
+                "separator": True,
+                "collapsible": True,
+                "items": accounting_items,
             })
 
     

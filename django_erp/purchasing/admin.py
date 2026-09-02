@@ -13,6 +13,7 @@ from .models import PurchaseInvoice, PurchaseInvoiceLine
 from django_erp.configuration.models import ExchangeRate, Company
 from django_erp.configuration.mixins import CompanyFilterMixin
 import logging
+from django_erp.accounting.services import TaxService
 
 logger = logging.getLogger(__name__)
 
@@ -313,7 +314,7 @@ class PurchaseOrderForm(forms.ModelForm):
 
         # Obtener tasa de cambio y IVA
         company = Company.get_active()
-        tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
+        tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
         rate = ExchangeRate.get_today_rate('USD', 'BS')
 
         if rate:

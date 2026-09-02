@@ -1,0 +1,22 @@
+[
+  {
+    "company_code": "PEL01",
+    "fields": {
+      "tax_code": "VAT",
+      "rate": 16.00,
+      "effective_date": "2024-01-01",
+      "is_default": true,
+      "note": "Tasa de IVA estándar para Venezuela"
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "tax_code": "VAT",
+      "rate": 8.00,
+      "effective_date": "2024-01-01",
+      "is_default": true,
+      "note": "Tasa de impuesto estatal en California"
+    }
+  }
+]

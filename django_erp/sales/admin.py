@@ -804,7 +804,8 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             
             # Obtener tasa de IVA de la compañía
             company = invoice.company or Company.get_active()
-            tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
+            from django_erp.accounting.services import TaxService
+            tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
             
             tax = subtotal * (tax_rate / Decimal('100'))
             total = subtotal + tax
@@ -1238,7 +1239,8 @@ class SaleOrderForm(forms.ModelForm):
                     self.instance.company = fallback
         
         company = self.instance.company or Company.get_active()
-        tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
+        from django_erp.accounting.services import TaxService
+        tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
         rate = ExchangeRate.get_today_rate('USD', 'BS')
         
         if rate:
@@ -1543,7 +1545,8 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             subtotal += Decimal(str(line.subtotal))
         
         company = obj.company or Company.get_active()
-        tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
+        from django_erp.accounting.services import TaxService
+        tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
         
         tax = subtotal * (tax_rate / Decimal('100'))
         total = subtotal + tax

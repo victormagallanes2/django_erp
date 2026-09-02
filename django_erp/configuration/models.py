@@ -46,14 +46,7 @@ class Company(models.Model):
         null=True,
         verbose_name="Logo"
     )
-    
-    # Configuración fiscal
-    tax_rate = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=16.00,
-        verbose_name="Tasa de IVA (%)"
-    )
+
     
     # Configuración de facturación
     invoice_prefix = models.CharField(
@@ -114,6 +107,7 @@ class Company(models.Model):
         
         if self.parent and self.parent.pk == self.pk:
             raise ValidationError("Una compañía no puede ser su propio padre.")
+
 
     def save(self, *args, **kwargs):
         self.full_clean()

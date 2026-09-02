@@ -224,7 +224,8 @@ class SaleService:
             number = f"FAC-VENTA-{datetime.now().strftime('%Y%m')}-{next_num:04d}"
             logger.info(f"   📝 Número de factura generado: {number}")
             
-            tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
+            from django_erp.accounting.services import TaxService
+            tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
             
             # ✅ Crear la factura
             invoice = SaleInvoice.objects.create(
@@ -414,7 +415,8 @@ class SaleInvoiceService:
         number = f"FAC-VENTA-{datetime.now().strftime('%Y%m')}-{next_num:04d}"
         logger.info(f"   Número de factura generado: {number}")
         
-        tax_rate = Decimal(str(company.tax_rate)) if company else Decimal('16.00')
+        from django_erp.accounting.services import TaxService
+        tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
         
         invoice = SaleInvoice.objects.create(
             number=number,

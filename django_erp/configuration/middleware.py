@@ -3,6 +3,7 @@ from django.shortcuts import redirect
 from django.contrib import messages
 from .models import Company
 
+# django_erp/configuration/middleware.py
 class CurrentCompanyMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -22,11 +23,9 @@ class CurrentCompanyMiddleware:
         if company_id:
             try:
                 company = Company.objects.get(id=company_id, is_active=True)
-                # Verificar acceso
                 if request.user.is_superuser or company in request.user.companies.all():
                     request.session['active_company_id'] = company.id
                     request.current_company = company
-                    # ✅ IMPORTANTE: No hacer redirect aquí, solo guardar en sesión
                     return
             except Company.DoesNotExist:
                 pass
@@ -38,7 +37,6 @@ class CurrentCompanyMiddleware:
                     id=request.session['active_company_id'],
                     is_active=True
                 )
-                # Verificar acceso
                 if request.user.is_superuser or company in request.user.companies.all():
                     request.current_company = company
                     return
@@ -64,3 +62,4 @@ class CurrentCompanyMiddleware:
             return
 
         request.current_company = None
+

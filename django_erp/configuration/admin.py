@@ -32,7 +32,7 @@ class CompanyAdmin(UnfoldModelAdmin):
             'fields': ('address', 'phone', 'email', 'website', 'logo')
         }),
         ('Configuración', {
-            'fields': ('tax_rate', 'default_currency', 'invoice_prefix', 'control_number_required')
+            'fields': ('default_currency', 'invoice_prefix', 'control_number_required')
         }),
         ('Estado', {
             'fields': ('is_main', 'is_active')

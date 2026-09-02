@@ -9,6 +9,7 @@ from django_erp.configuration.models import Company, Currency, ExchangeRate
 import uuid
 import logging
 logger = logging.getLogger(__name__)
+from django_erp.accounting.services import TaxService
 
 User = get_user_model()
 
@@ -172,30 +173,18 @@ class PurchaseOrder(models.Model):
         return f"{self.number} - {self.supplier.name}"
 
     def calculate_totals(self):
-        """Calcular totales usando el IVA de la empresa"""
-        from decimal import Decimal, ROUND_HALF_UP
-        from django_erp.configuration.models import Company
-        
-        # ✅ Solo calcular si ya tiene ID
+        """Calcular totales usando el módulo de contabilidad"""
         if not self.pk:
             return
         
-        # ✅ Asegurar que subtotal sea Decimal
         subtotal = Decimal('0.00')
         for line in self.lines.all():
             subtotal += Decimal(str(line.subtotal))
         
-        # ✅ Obtener IVA de la empresa
-        company = Company.get_active()
-        if company:
-            tax_rate = Decimal(str(company.tax_rate))
-        else:
-            tax_rate = Decimal('16.00')
-        
-        tax = subtotal * (tax_rate / Decimal('100'))
+        # ✅ Obtener tasa de IVA desde el servicio de contabilidad
+        rate, tax = TaxService.calculate_vat(subtotal, self.company)
         total = subtotal + tax
         
-        # ✅ Redondear a 2 decimales
         self.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         self.tax = tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         self.total = total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
@@ -215,10 +204,8 @@ class PurchaseOrder(models.Model):
         if not self.pk:
             if not self.tax_rate or self.tax_rate == 0:
                 company = Company.get_active()
-                if company:
-                    self.tax_rate = Decimal(str(company.tax_rate))
-                else:
-                    self.tax_rate = Decimal('16.00')
+                from django_erp.accounting.services import TaxService
+                tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
         
         # ✅ Guardar primero para tener ID
         super().save(*args, **kwargs)
@@ -727,10 +714,8 @@ class PurchaseInvoice(models.Model):
         subtotal = sum(line.subtotal for line in self.lines.all())
         
         company = Company.get_active()
-        if company:
-            tax_rate = Decimal(str(company.tax_rate))
-        else:
-            tax_rate = Decimal('16.00')
+        from django_erp.accounting.services import TaxService
+        tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
         
         tax = subtotal * (tax_rate / Decimal('100'))
         total = subtotal + tax
