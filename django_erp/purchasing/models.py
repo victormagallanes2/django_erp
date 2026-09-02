@@ -479,7 +479,8 @@ class PurchasePayment(models.Model):
             })
 
     def save(self, *args, **kwargs):
-        from django_erp.configuration.models import ExchangeRate, Currency
+        from django_erp.configuration.models import Currency
+        from django_erp.accounting.models import ExchangeRate
         from decimal import Decimal, ROUND_HALF_UP
 
         # ✅ RED DE SEGURIDAD: heredar la compañía de la orden de compra

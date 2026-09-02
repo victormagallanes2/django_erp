@@ -740,7 +740,8 @@ class Payment(models.Model):
             return f"Pago #{self.id} - {self.method.name} - {self.amount}"
 
     def save(self, *args, **kwargs):
-        from django_erp.configuration.models import Currency, ExchangeRate
+        from django_erp.configuration.models import Currency
+        from django_erp.accounting.models import ExchangeRate
         from decimal import Decimal, ROUND_HALF_UP
         
         if not self.currency_id and self.method_id:
