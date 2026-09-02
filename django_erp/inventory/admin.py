@@ -8,7 +8,8 @@ from .models import (
     Product, Location, Movement,
     Inventory, PhysicalCount
 )
-from django_erp.configuration.models import ExchangeRate, Currency, Company
+from django_erp.configuration.models import Currency, Company
+from django_erp.accounting.models import ExchangeRate
 from django_erp.configuration.mixins import CompanyFilterMixin
 from .services import InventoryService
 from .models import DeliveryNote, DeliveryNoteLine, ReceiptNote, ReceiptNoteLine

@@ -6,7 +6,8 @@ from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
 from django_erp.inventory.models import Product
 from django_erp.inventory.models import Inventory
-from django_erp.configuration.models import ExchangeRate, Currency
+from django_erp.configuration.models import Currency
+from django_erp.accounting.models import ExchangeRate
 from decimal import Decimal
 from .models import PurchaseOrder
 from .services import PurchaseInvoiceService

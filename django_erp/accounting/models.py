@@ -3,8 +3,12 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from simple_history.models import HistoricalRecords
 from decimal import Decimal
+import datetime
+from django.contrib.auth import get_user_model
+from django_erp.configuration.models import Company, Currency
 
-from django_erp.configuration.models import Company
+User = get_user_model()
+
 
 class Tax(models.Model):
     """
@@ -135,3 +139,164 @@ class TaxRate(models.Model):
         ).first()
         
         return rate_obj.rate if rate_obj else Decimal('0.00')
+
+
+class ExchangeRate(models.Model):
+    """✅ TASA DE CAMBIO POR COMPAÑÍA - Con historial completo para contabilidad"""
+    
+    from_currency = models.ForeignKey(
+        Currency,
+        on_delete=models.CASCADE,
+        related_name='rates_from',
+        verbose_name="De"
+    )
+    to_currency = models.ForeignKey(
+        Currency,
+        on_delete=models.CASCADE,
+        related_name='rates_to',
+        verbose_name="A"
+    )
+    rate = models.DecimalField(
+        max_digits=20,
+        decimal_places=6,
+        verbose_name="Tasa de cambio"
+    )
+    date = models.DateField(
+        auto_now_add=True, 
+        verbose_name="Fecha",
+        help_text="Fecha en que se registró esta tasa"
+    )
+    effective_date = models.DateField(
+        default=datetime.date.today,  # ✅ Mejor que auto_now_add
+        verbose_name="Fecha de vigencia",
+        help_text="Fecha desde la cual aplica esta tasa"
+    )
+    source = models.CharField(
+        max_length=100,
+        default='Manual',
+        editable=False,
+        verbose_name="Fuente"
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        editable=False,
+        verbose_name="Usuario que registró"
+    )
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        editable=False,
+        verbose_name="Compañía/Sucursal",
+        related_name='exchangerate'
+    )
+    created_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True, editable=False)
+    history = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = "Tasa de Cambio"
+        verbose_name_plural = "Tasas de Cambio"
+        ordering = ['-date', '-created_at']
+        unique_together = [
+            ['company', 'from_currency', 'to_currency', 'date', 'created_at']
+        ]
+        indexes = [
+            models.Index(fields=['company', 'date']),
+            models.Index(fields=['from_currency', 'to_currency']),
+            models.Index(fields=['company', 'from_currency', 'to_currency', '-date']),
+        ]
+
+    def __str__(self):
+        return f"1 {self.from_currency.code} = {self.rate} {self.to_currency.code} ({self.company.code})"
+    
+    def save(self, *args, **kwargs):
+        # ✅ Si no tiene fuente, asignar 'Manual'
+        if not self.source:
+            self.source = 'Manual'
+        
+        super().save(*args, **kwargs)
+    
+    @classmethod
+    def get_rate(cls, from_code, to_code, company=None, date=None):
+        """Obtener la tasa de cambio VIGENTE para una fecha específica"""
+        from datetime import date as date_type
+        from decimal import Decimal
+        
+        if date is None:
+            date = date_type.today()
+        
+        if company is None:
+            from .models import Company
+            company = Company.get_active()
+        
+        if not company:
+            return Decimal('1')
+        
+        try:
+            from_currency = Currency.objects.get(code=from_code)
+            to_currency = Currency.objects.get(code=to_code)
+        except Currency.DoesNotExist:
+            return Decimal('1')
+        
+        if from_currency == to_currency:
+            return Decimal('1')
+        
+        rate = cls.objects.filter(
+            company=company,
+            from_currency=from_currency,
+            to_currency=to_currency,
+            effective_date__lte=date
+        ).order_by(
+            '-effective_date',
+            '-created_at'
+        ).first()
+        
+        if not rate:
+            rate = cls.objects.filter(
+                company=company,
+                from_currency=from_currency,
+                to_currency=to_currency
+            ).order_by('-effective_date', '-created_at').first()
+        
+        return rate.rate if rate else Decimal('1')
+    
+    @classmethod
+    def get_today_rate(cls, from_code, to_code, company=None):
+        """Obtener la tasa de cambio VIGENTE para hoy"""
+        from datetime import date as date_type
+        today = date_type.today()
+        return cls.get_rate(from_code, to_code, company, today)
+    
+    @classmethod
+    def get_historical_rates(cls, from_code, to_code, company=None, days=30):
+        """Obtener el historial de tasas de cambio para los últimos N días"""
+        from datetime import date as date_type, timedelta
+        
+        if company is None:
+            from .models import Company
+            company = Company.get_active()
+        
+        if not company:
+            return []
+        
+        try:
+            from_currency = Currency.objects.get(code=from_code)
+            to_currency = Currency.objects.get(code=to_code)
+        except Currency.DoesNotExist:
+            return []
+        
+        if from_currency == to_currency:
+            return []
+        
+        start_date = date_type.today() - timedelta(days=days)
+        
+        rates = cls.objects.filter(
+            company=company,
+            from_currency=from_currency,
+            to_currency=to_currency,
+            effective_date__gte=start_date
+        ).order_by('effective_date', 'created_at')
+        
+        return rates

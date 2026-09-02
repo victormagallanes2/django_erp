@@ -4,7 +4,19 @@
     "fields": {
       "from_currency_code": "USD",
       "to_currency_code": "BS",
-      "rate": 42.50,
+      "rate": 780.00,
+      "effective_date": "2026-09-02",
+      "source": "BCV",
+      "user_username": "admin"
+    }
+  },
+  {
+    "company_code": "PEL02",
+    "fields": {
+      "from_currency_code": "USD",
+      "to_currency_code": "BS",
+      "rate": 780.00,
+      "effective_date": "2026-09-02",
       "source": "BCV",
       "user_username": "admin"
     }

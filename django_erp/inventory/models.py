@@ -82,7 +82,8 @@ class Product(models.Model):
     
     def get_price_in_currency(self, currency_code):
         """Obtener precio en una moneda específica"""
-        from django_erp.configuration.models import Currency, ExchangeRate
+        from django_erp.configuration.models import Currency
+        from django_erp.accounting.models import ExchangeRate
         
         base = Currency.get_base()
         if not base:

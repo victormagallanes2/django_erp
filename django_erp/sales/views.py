@@ -4,8 +4,9 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.views.decorators.http import require_GET
 from django_erp.inventory.models import Product
 from django_erp.inventory.models import Inventory
-from django_erp.configuration.services import CurrencyService
-from django_erp.configuration.models import ExchangeRate, Currency
+from django_erp.accounting.services import CurrencyService
+from django_erp.configuration.models import Currency
+from django_erp.accounting.models import ExchangeRate
 from decimal import Decimal
 from .models import CashRegister
 from django.shortcuts import render

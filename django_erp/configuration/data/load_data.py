@@ -3,7 +3,7 @@ import os
 import sys
 import json
 from decimal import Decimal
-from datetime import date
+from datetime import date, datetime
 from django.db import transaction
 from django.contrib.auth.hashers import make_password
 
@@ -16,7 +16,8 @@ django.setup()
 # Importar modelos directamente
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth import get_user_model
-from django_erp.configuration.models import Company, Currency, ExchangeRate, PaymentMethod
+from django_erp.configuration.models import Company, Currency, PaymentMethod
+from django_erp.accounting.models import ExchangeRate
 from django_erp.inventory.models import Location, Product
 from django_erp.purchasing.models import Supplier
 from django_erp.sales.models import Customer
@@ -100,64 +101,88 @@ def load_currencies():
 
 
 def load_exchange_rates(companies):
-    """Carga las tasas de cambio para cada empresa."""
+    """
+    Carga las tasas de cambio para TODAS las empresas activas.
+    """
     data = load_json_file('02_exchange_rates.json')
+    
+    # ✅ Valores por defecto
     if not data:
-        print("   ⚠️ No hay datos de tasas de cambio para cargar.")
+        print("   ⚠️ No hay datos en JSON. Usando valores por defecto.")
+        rate_data = {
+            'from_currency_code': 'USD',
+            'to_currency_code': 'BS',
+            'rate': 780.00,
+            'effective_date': date.today().isoformat(),
+            'source': 'Manual',
+            'user_username': 'admin'
+        }
+    else:
+        rate_data = data[0].get('fields', {})
+    
+    # ✅ Extraer datos
+    from_currency_code = rate_data.get('from_currency_code', 'USD')
+    to_currency_code = rate_data.get('to_currency_code', 'BS')
+    rate_value = Decimal(str(rate_data.get('rate', 780.00)))
+    source = rate_data.get('source', 'Manual')
+    user_username = rate_data.get('user_username', 'admin')
+    
+    effective_date_str = rate_data.get('effective_date', date.today().isoformat())
+    try:
+        effective_date = datetime.strptime(effective_date_str, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        effective_date = date.today()
+    
+    today = date.today()
+    
+    # ✅ Buscar monedas
+    try:
+        from_currency = Currency.objects.get(code=from_currency_code)
+        to_currency = Currency.objects.get(code=to_currency_code)
+        print(f"   ✅ Monedas: {from_currency_code} -> {to_currency_code}")
+    except Currency.DoesNotExist as e:
+        print(f"   ❌ Error: {e}")
         return
-        
-    for item in data:
-        company_code = item.get('company_code')
-        company = companies.get(company_code)
-        if not company:
-            print(f"   ⚠️ Empresa {company_code} no encontrada para tasas de cambio.")
-            continue
-            
-        fields = item.get('fields', {})
-        from_currency_code = fields.pop('from_currency_code', None)
-        to_currency_code = fields.pop('to_currency_code', None)
-        user_username = fields.pop('user_username', None)
-        
-        if not from_currency_code or not to_currency_code:
-            print(f"   ⚠️ Faltan códigos de moneda en la tasa de cambio para {company_code}.")
-            continue
-        
-        # Buscar monedas (son globales, sin company)
+    
+    # ✅ Buscar usuario
+    user = None
+    if user_username:
         try:
-            from_currency = Currency.objects.get(code=from_currency_code)
-            to_currency = Currency.objects.get(code=to_currency_code)
-        except Currency.DoesNotExist as e:
-            print(f"   ⚠️ Moneda no encontrada: {e}")
+            user = User.objects.get(username=user_username)
+            print(f"   ✅ Usuario: {user_username}")
+        except User.DoesNotExist:
+            print(f"   ⚠️ Usuario no encontrado.")
+    
+    print(f"   📝 Tasa: {from_currency_code} -> {to_currency_code} = {rate_value}")
+    
+    companies_processed = 0
+    for company_code, company in companies.items():
+        if not company.is_active:
             continue
         
-        user = None
-        if user_username:
-            try:
-                user = User.objects.get(username=user_username)
-            except User.DoesNotExist:
-                print(f"   ⚠️ Usuario {user_username} no encontrado.")
+        # ✅ Eliminar todas las tasas existentes para esta empresa
+        # (para asegurar que solo quede una)
+        ExchangeRate.objects.filter(
+            from_currency=from_currency,
+            to_currency=to_currency,
+            company=company
+        ).delete()
         
-        today = date.today()
-        rate_value = Decimal(str(fields.get('rate', 1.0)))
-        
-        try:
-            rate, created = ExchangeRate.objects.get_or_create(
-                from_currency=from_currency,
-                to_currency=to_currency,
-                date=today,
-                company=company,
-                defaults={
-                    'rate': rate_value,
-                    'source': fields.get('source', ''),
-                    'user': user,
-                }
-            )
-            if created:
-                print(f"   ✅ Tasa de cambio creada: 1 {from_currency.code} = {rate.rate} {to_currency.code} para {company_code}")
-            else:
-                print(f"   ℹ️ Tasa de cambio existente para {company_code}")
-        except Exception as e:
-            print(f"   ❌ Error creando tasa de cambio: {e}")
+        # ✅ Crear tasa nueva
+        rate = ExchangeRate.objects.create(
+            from_currency=from_currency,
+            to_currency=to_currency,
+            effective_date=effective_date,
+            company=company,
+            rate=rate_value,
+            source=source,
+            user=user,
+            date=today,
+        )
+        print(f"   ✅ Tasa CREADA para {company_code}: {rate.rate}")
+        companies_processed += 1
+    
+    print(f"   📊 Procesadas: {companies_processed} empresas")
 
 
 def load_payment_methods(companies):
@@ -503,6 +528,10 @@ def load_tax_rates(companies):
                 print(f"   ℹ️ Tasa de impuesto existente: {tax_rate.tax.code} ({tax_rate.rate}%) para {company_code}")
         except Exception as e:
             print(f"   ❌ Error creando tasa de impuesto: {e}")
+
+
+
+
 
 @transaction.atomic
 def load_all():

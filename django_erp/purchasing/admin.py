@@ -10,7 +10,8 @@ from unfold.admin import ModelAdmin as UnfoldModelAdmin
 from unfold.admin import TabularInline as UnfoldTabularInline
 from .models import Supplier, PurchaseOrder, PurchaseLine, PurchasePayment
 from .models import PurchaseInvoice, PurchaseInvoiceLine
-from django_erp.configuration.models import ExchangeRate, Company
+from django_erp.configuration.models import Company
+from django_erp.accounting.models import ExchangeRate
 from django_erp.configuration.mixins import CompanyFilterMixin
 import logging
 from django_erp.accounting.services import TaxService

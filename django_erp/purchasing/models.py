@@ -5,7 +5,8 @@ from django.core.exceptions import ValidationError
 from simple_history.models import HistoricalRecords
 from decimal import Decimal
 from decimal import Decimal, ROUND_HALF_UP
-from django_erp.configuration.models import Company, Currency, ExchangeRate
+from django_erp.configuration.models import Company, Currency
+from django_erp.accounting.models import ExchangeRate
 import uuid
 import logging
 logger = logging.getLogger(__name__)

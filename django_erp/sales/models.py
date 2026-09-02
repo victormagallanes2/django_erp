@@ -7,7 +7,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.apps import apps
 import uuid
 from django.conf import settings
-from django_erp.configuration.models import Currency, ExchangeRate, Company
+from django_erp.configuration.models import Currency, Company
+from django_erp.accounting.models import ExchangeRate
 from django_erp.accounting.services import TaxService
 
 

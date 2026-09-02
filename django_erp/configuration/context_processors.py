@@ -2,7 +2,8 @@
 import json
 import logging
 from django.core.serializers.json import DjangoJSONEncoder
-from django_erp.configuration.models import Company, ExchangeRate
+from django_erp.configuration.models import Company
+from django_erp.accounting.models import ExchangeRate
 from django_erp.accounting.services import TaxService
 
 logger = logging.getLogger(__name__)

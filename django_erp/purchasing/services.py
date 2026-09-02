@@ -7,7 +7,8 @@ from .models import PurchaseOrder, PurchaseInvoice, PurchaseInvoiceLine
 from decimal import Decimal
 import logging
 import traceback
-from django_erp.configuration.models import Company, ExchangeRate
+from django_erp.configuration.models import Company
+from django_erp.accounting.models import ExchangeRate
 
 logger = logging.getLogger(__name__)
 

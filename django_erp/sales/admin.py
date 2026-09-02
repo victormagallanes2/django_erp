@@ -12,7 +12,8 @@ from .models import CashRegister, CashTransaction
 from .helpers import get_open_register
 from decimal import Decimal, ROUND_HALF_UP
 from django.utils import timezone
-from django_erp.configuration.models import ExchangeRate, Company, Currency  # ✅ Importar Currency
+from django_erp.configuration.models import Company, Currency
+from django_erp.accounting.models import ExchangeRate
 from .models import Payment, SaleInvoiceLine, SaleInvoice
 from django_erp.configuration.models import PaymentMethod
 from django.urls import path

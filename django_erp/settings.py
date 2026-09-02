@@ -300,7 +300,7 @@ def get_menu_items(request):
             sales_items.append({
                     "title": "Tasas de Cambio",
                     "icon": "swap_horiz",
-                    "link": "/admin/configuration/exchangerate/",
+                    "link": "/admin/accounting/exchangerate/",
                
             })
         if sales_items:
