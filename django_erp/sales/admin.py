@@ -29,6 +29,7 @@ from django.db import transaction
 from django_erp.inventory.services import WarehouseService, InventoryService
 import logging
 logger = logging.getLogger(__name__)
+from django_erp.accounting.services import TaxService
 
 
 # ============================================================
@@ -481,17 +482,41 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             )
         return "Sin compañía"
     
-    @admin.display(description='Subtotal')
+    @admin.display(description='Subtotal', ordering='subtotal')
     def subtotal_display(self, obj):
-        return f"$ {obj.subtotal:.2f}"
+        # Calcular subtotal sumando las líneas
+        subtotal = sum(line.subtotal for line in obj.lines.all())
+        return f"$ {subtotal:.2f}"
     
-    @admin.display(description='IVA')
+    @admin.display(description='IVA', ordering='tax')
     def tax_display(self, obj):
-        return f"$ {obj.tax:.2f}"
+        # Obtener la compañía activa del request
+        company = getattr(self, '_current_company', None)
+        if not company:
+            company = Company.get_active()
+        
+        # Calcular subtotal y luego IVA con la tasa correcta
+        subtotal = sum(line.subtotal for line in obj.lines.all())
+        tax_rate = TaxService.get_current_vat_rate(company)
+        tax = subtotal * (tax_rate / Decimal('100'))
+        return f"$ {tax:.2f}"
     
-    @admin.display(description='Total')
+    @admin.display(description='Total', ordering='total')
     def total_display(self, obj):
-        return f"$ {obj.total:.2f}"
+        company = getattr(self, '_current_company', None)
+        if not company:
+            company = Company.get_active()
+        
+        subtotal = sum(line.subtotal for line in obj.lines.all())
+        tax_rate = TaxService.get_current_vat_rate(company)
+        tax = subtotal * (tax_rate / Decimal('100'))
+        total = subtotal + tax
+        return f"$ {total:.2f}"
+
+    # ✅ Agregar este método para guardar la compañía del request
+    def get_queryset(self, request):
+        self._current_company = getattr(request, 'current_company', None)
+        return super().get_queryset(request)
     
     @admin.display(description='Estado', ordering='status')
     def status_badge(self, obj):
