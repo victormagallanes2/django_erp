@@ -47,10 +47,10 @@ class SupplierAdmin(CompanyFilterMixin, UnfoldModelAdmin):
 # ============================================================
 
 class PurchaseLineInline(UnfoldTabularInline):
-    """Inline de líneas de compra"""
+    """Inline de líneas de compra - Exactamente igual que PurchaseInvoiceLineInline"""
     model = PurchaseLine
     extra = 0
-    fields = ['product', 'location', 'quantity', 'unit_price', 'subtotal']
+    fields = ['product', 'quantity', 'unit_price', 'subtotal']
     readonly_fields = ['subtotal']
     autocomplete_fields = ['product']
 
@@ -64,13 +64,15 @@ class PurchaseLineInline(UnfoldTabularInline):
                 company=company,
                 is_active=True
             )
-            formset.form.base_fields['location'].queryset = Location.objects.filter(
-                company=company,
-                is_active=True
-            )
+            if 'location' in formset.form.base_fields:
+                formset.form.base_fields['location'].queryset = Location.objects.filter(
+                    company=company,
+                    is_active=True
+                )
         else:
             formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
-            formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
+            if 'location' in formset.form.base_fields:
+                formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
             
         formset.form.base_fields['unit_price'].initial = Decimal('0.00')
         formset.form.base_fields['quantity'].initial = 1
@@ -82,36 +84,29 @@ class PurchaseLineInline(UnfoldTabularInline):
 
 
 class PurchasePaymentInline(UnfoldTabularInline):
-    """Inline de pagos para órdenes de compra"""
+    """Inline de pagos para órdenes de compra - Exactamente igual que PurchaseInvoicePaymentInline"""
     model = PurchasePayment
+    fk_name = 'purchase_order'  # Relación explícita con la Orden de Compra
     extra = 0
     fields = [
         'method',
         'company_bank_account',
-        'currency',
         'amount',
-        'amount_usd_display',
         'reference',
-        'supplier_bank',
-        'payment_date'
+    ]
+    exclude = [
+        'supplier_bank', 'expected_date', 'amount_usd', 
+        'payment_date', 'user', 'company', 'purchase_invoice', 'currency'
     ]
     readonly_fields = ['payment_date', 'amount_usd_display']
-    autocomplete_fields = ['method', 'company_bank_account', 'currency']
+    autocomplete_fields = ['method', 'company_bank_account']
 
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
-        from django_erp.configuration.models import Currency, CompanyBankAccount
-
-        # Moneda por defecto: USD
-        try:
-            usd = Currency.objects.get(code='USD')
-            formset.form.base_fields['currency'].initial = usd.id
-        except Currency.DoesNotExist:
-            pass
-
-        # Cuenta bancaria por defecto
+        from django_erp.configuration.models import CompanyBankAccount
+        
         default_account = CompanyBankAccount.get_default()
-        if default_account:
+        if default_account and 'company_bank_account' in formset.form.base_fields:
             formset.form.base_fields['company_bank_account'].initial = default_account.id
 
         return formset
@@ -124,7 +119,44 @@ class PurchasePaymentInline(UnfoldTabularInline):
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)
-        return queryset.select_related('method', 'company_bank_account', 'currency', 'supplier')
+        return queryset.select_related('method', 'company_bank_account', 'currency')
+
+    def save_formset(self, request, form, formset, change):
+        """Guardar los pagos de la orden de compra con asignación automática de compañía y usuario"""
+        logger.info("=" * 80)
+        logger.info("🔴 [PurchasePaymentInline.save_formset] INICIANDO")
+        
+        order = form.instance
+        order_company = order.company if order and order.pk else None
+        
+        company = getattr(request, 'current_company', None)
+        if not company:
+            from django_erp.configuration.models import Company
+            company = Company.get_active()
+        
+        instances = formset.save(commit=False)
+        
+        for instance in instances:
+            if hasattr(instance, 'company') and not instance.company_id:
+                if order_company:
+                    instance.company = order_company
+                elif company:
+                    instance.company = company
+            
+            if not instance.user:
+                instance.user = request.user
+            
+            instance.save()
+        
+        formset.save_m2m()
+        
+        for obj in formset.deleted_objects:
+            obj.delete()
+        
+        logger.info("🔴 [PurchasePaymentInline.save_formset] FINALIZADO")
+        logger.info("=" * 80)
+        
+        return super().save_formset(request, form, formset, change)
 
 
 
@@ -451,7 +483,7 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     # ✅ Búsqueda incluyendo compañía
     search_fields = ['number', 'supplier__name', 'company__name', 'company__code']
 
-    inlines = [PurchaseLineInline, PurchasePaymentInline, PurchaseInvoiceInline]
+    inlines = [PurchaseLineInline, PurchasePaymentInline]
     actions = []  # El flujo es por estado, no por acciones masivas
     autocomplete_fields = ['supplier']
 

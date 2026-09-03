@@ -1092,19 +1092,52 @@ class SaleLineInlineForm(forms.ModelForm):
 # ============================================================
 
 class SaleLineInline(UnfoldTabularInline):
+    """Inline de líneas de orden de venta con visualización de stock"""
     model = SaleLine
     form = SaleLineInlineForm
-    extra = 0
-    fields = ['product', 'location', 'quantity', 'unit_price', 'subtotal']
-    readonly_fields = ['subtotal']
+    extra = 1
+    fields = ['product', 'stock_display', 'quantity', 'unit_price', 'subtotal']
+    readonly_fields = ['subtotal', 'stock_display']
     autocomplete_fields = ['product']
-    
+    verbose_name_plural = "📦 Líneas de Productos/Servicios"
+
+    @admin.display(description='Stock Disponible')
+    def stock_display(self, obj):
+        """Mostrar el stock disponible del producto"""
+        if not obj or not obj.product_id:
+            return "—"
+        try:
+            company = obj.company if hasattr(obj, 'company') and obj.company_id else None
+            if not company:
+                company = Company.get_active()
+            
+            stock = Inventory.objects.filter(
+                product=obj.product,
+                company=company
+            ).aggregate(total=models.Sum('quantity'))['total'] or 0
+            
+            unit = obj.product.get_unit_display() if hasattr(obj.product, 'get_unit_display') else 'unidades'
+            return f"{stock} {unit}" if stock > 0 else "Sin stock"
+        except Exception:
+            return "Error al obtener stock"
+
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
-        formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
-        formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
-        formset.form.base_fields['unit_price'].initial = 0
-        formset.form.base_fields['quantity'].initial = 1
+        
+        class FormSetWithRequest(formset):
+            def _construct_form(self, i, **kwargs):
+                kwargs['request'] = request
+                return super()._construct_form(i, **kwargs)
+
+        company = getattr(request, 'current_company', None)
+        if company:
+            formset.form.base_fields['product'].queryset = Product.objects.filter(
+                company=company,
+                is_active=True
+            )
+        else:
+            formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
+            
         return formset
 
 
@@ -1113,40 +1146,57 @@ class SaleLineInline(UnfoldTabularInline):
 # ============================================================
 
 class PaymentInlineForm(forms.ModelForm):
-    """Formulario personalizado para pagos"""
+    """Formulario personalizado para pagos de órdenes de venta"""
     class Meta:
         model = Payment
-        fields = '__all__'
-    
+        fields = ['method', 'amount', 'reference', 'customer_bank']
+
     def __init__(self, *args, **kwargs):
         self._request = kwargs.pop('request', None)
+        self._parent_instance = kwargs.pop('parent_instance', None)
         super().__init__(*args, **kwargs)
-    
+
+    def clean(self):
+        cleaned_data = super().clean()
+        method = cleaned_data.get('method')
+        if method and not method.default_currency:
+            raise ValidationError(
+                f'El método de pago "{method.name}" no tiene una moneda por defecto configurada.'
+            )
+        return cleaned_data
+
     def save(self, commit=True):
         instance = super().save(commit=False)
         
+        # Asignar moneda predeterminada del método o USD por defecto
+        if instance.method and instance.method.default_currency:
+            instance.currency = instance.method.default_currency
+        else:
+            try:
+                usd = Currency.objects.get(code='USD')
+                instance.currency = usd
+            except Currency.DoesNotExist:
+                pass
+
+        if self._parent_instance:
+            instance.sale_order = self._parent_instance
+
         if not instance.company_id:
-            if hasattr(instance, 'sale_order') and instance.sale_order_id:
-                try:
-                    order = SaleOrder.objects.get(id=instance.sale_order_id)
-                    instance.company = order.company
-                except SaleOrder.DoesNotExist:
-                    pass
-            
-            if not instance.company_id and self._request:
+            if self._request:
                 company = getattr(self._request, 'current_company', None)
                 if company:
                     instance.company = company
-            
             if not instance.company_id:
                 company = Company.get_active()
                 if company:
                     instance.company = company
-        
+
+        if not instance.status:
+            instance.status = 'COMPLETED'
+
         if commit:
             instance.save()
             self.save_m2m()
-        
         return instance
 
 
@@ -1155,34 +1205,29 @@ class PaymentInlineForm(forms.ModelForm):
 # ============================================================
 
 class PaymentInline(UnfoldTabularInline):
+    """Inline de pagos para órdenes de venta estilo Factura"""
     model = Payment
+    fk_name = 'sale_order'
     form = PaymentInlineForm
-    extra = 0
-    fields = ['method', 'currency', 'amount', 'amount_usd_display', 'reference', 'payment_date']
-    readonly_fields = ['payment_date', 'amount_usd_display']
-    autocomplete_fields = ['method', 'currency']
+    extra = 1
+    fields = ['method', 'amount', 'reference']
+    autocomplete_fields = ['method']
+    verbose_name_plural = "💳 Pagos del Cliente"
 
-    @admin.display(description='Monto en USD')
-    def amount_usd_display(self, obj):
-        if obj and obj.amount_usd:
-            return f"$ {obj.amount_usd:,.2f}"
-        return "$ 0.00"
-    
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
         
-        if obj is None:
-            try:
-                usd = Currency.objects.get(code='USD')
-                formset.form.base_fields['currency'].initial = usd.id
-            except Currency.DoesNotExist:
-                pass
-        
-        return formset
-    
-    def get_queryset(self, request):
-        queryset = super().get_queryset(request)
-        return queryset.select_related('method', 'currency')
+        class FormSetWithParent(formset):
+            def __init__(self, *args, **kwargs):
+                self._parent_instance = obj
+                super().__init__(*args, **kwargs)
+
+            def _construct_form(self, i, **kwargs):
+                kwargs['parent_instance'] = self._parent_instance
+                kwargs['request'] = request
+                return super()._construct_form(i, **kwargs)
+
+        return FormSetWithParent
 
 
 # ============================================================
