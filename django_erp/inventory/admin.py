@@ -171,9 +171,9 @@ class LocationAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
     
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
         company = getattr(request, 'current_company', None)
+        if not company:
+            company = Company.get_main_company()
         if company:
             return qs.filter(company=company)
         return qs.none()
@@ -617,8 +617,20 @@ class DeliveryNoteLineInline(UnfoldTabularInline):
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
         from .models import Product, Location
-        formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
-        formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
+
+        company = getattr(request, 'current_company', None)
+        if not company and obj is not None:
+            company = getattr(obj, 'company', None)
+
+        product_qs = Product.objects.filter(is_active=True)
+        location_qs = Location.objects.filter(is_active=True)
+        if company:
+            location_qs = location_qs.filter(company=company)
+
+        formset.form.base_fields['product'].queryset = product_qs
+        formset.form.base_fields['location'].queryset = location_qs
+        formset.form.base_fields['product'].widget.attrs['autocomplete'] = 'off'
+        formset.form.base_fields['location'].widget.attrs['autocomplete'] = 'off'
         return formset
 
     def get_queryset(self, request):
@@ -635,8 +647,20 @@ class ReceiptNoteLineInline(UnfoldTabularInline):
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
         from .models import Product, Location
-        formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
-        formset.form.base_fields['location'].queryset = Location.objects.filter(is_active=True)
+
+        company = getattr(request, 'current_company', None)
+        if not company and obj is not None:
+            company = getattr(obj, 'company', None)
+
+        product_qs = Product.objects.filter(is_active=True)
+        location_qs = Location.objects.filter(is_active=True)
+        if company:
+            location_qs = location_qs.filter(company=company)
+
+        formset.form.base_fields['product'].queryset = product_qs
+        formset.form.base_fields['location'].queryset = location_qs
+        formset.form.base_fields['product'].widget.attrs['autocomplete'] = 'off'
+        formset.form.base_fields['location'].widget.attrs['autocomplete'] = 'off'
         return formset
 
 

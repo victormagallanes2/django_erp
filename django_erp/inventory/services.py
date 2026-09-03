@@ -369,14 +369,14 @@ class InventoryService:
             logger.warning(f"⚠️ Nota en estado '{note.get_status_display()}', no se puede confirmar")
             raise ValidationError(f"No se puede confirmar una nota en estado '{note.get_status_display()}'.")
         
-        if not note.lines.exists():
+        if not note.delivery_lines.exists():
             logger.warning("⚠️ Nota sin líneas")
             raise ValidationError("No se puede confirmar una nota sin líneas.")
         
-        logger.info(f"   📊 Líneas a procesar: {note.lines.count()}")
+        logger.info(f"   📊 Líneas a procesar: {note.delivery_lines.count()}")
         
         # ✅ Procesar cada línea y crear movimientos de salida
-        for idx, line in enumerate(note.lines.all(), 1):
+        for idx, line in enumerate(note.delivery_lines.all(), 1):
             logger.info(f"   📝 Procesando línea {idx}:")
             logger.info(f"      - Producto: {line.product.name}")
             logger.info(f"      - Cantidad: {line.quantity}")
@@ -417,8 +417,8 @@ class InventoryService:
         sale_order = None
         
         # Intentar encontrar la orden por la referencia en las líneas
-        if note.lines.exists():
-            first_line = note.lines.first()
+        if note.delivery_lines.exists():
+            first_line = note.delivery_lines.first()
             # Buscar movimientos con source_reference = note.number
             from .models import Movement
             movement = Movement.objects.filter(
@@ -497,13 +497,13 @@ class InventoryService:
             logger.warning(f"⚠️ Nota en estado '{note.get_status_display()}', no se puede confirmar")
             raise ValidationError(f"No se puede confirmar una nota en estado '{note.get_status_display()}'.")
         
-        if not note.lines.exists():
+        if not note.receipt_lines.exists():
             logger.warning("⚠️ Nota sin líneas")
             raise ValidationError("No se puede confirmar una nota sin líneas.")
         
-        logger.info(f"   📊 Líneas a procesar: {note.lines.count()}")
+        logger.info(f"   📊 Líneas a procesar: {note.receipt_lines.count()}")
         
-        for idx, line in enumerate(note.lines.all(), 1):
+        for idx, line in enumerate(note.receipt_lines.all(), 1):
             logger.info(f"   📝 Procesando línea {idx}:")
             logger.info(f"      - Producto: {line.product.name}")
             logger.info(f"      - Cantidad: {line.quantity}")

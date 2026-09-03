@@ -1652,7 +1652,7 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 for line in obj.lines.all():
                     if line.product and not line.location:
                         from django_erp.inventory.models import Inventory
-                        inventory = Inventory.objects.filter(product=line.product).first()
+                        inventory = Inventory.objects.filter(product=line.product, company=company).first()
                         if inventory and inventory.location:
                             line.location = inventory.location
                             line.save()
@@ -1677,7 +1677,7 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         for line in obj.lines.all():
             if line.product and not line.location:
                 from django_erp.inventory.models import Inventory
-                inventory = Inventory.objects.filter(product=line.product).first()
+                inventory = Inventory.objects.filter(product=line.product, company=company).first()
                 if inventory and inventory.location:
                     line.location = inventory.location
                     line.save()

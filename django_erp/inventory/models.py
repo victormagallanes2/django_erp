@@ -506,7 +506,7 @@ class DeliveryNoteLine(models.Model):
     note = models.ForeignKey(
         DeliveryNote,
         on_delete=models.CASCADE,
-        related_name='lines',
+        related_name='delivery_lines',
         verbose_name="Nota de Entrega"
     )
     product = models.ForeignKey(
@@ -616,7 +616,7 @@ class ReceiptNoteLine(models.Model):
     note = models.ForeignKey(
         ReceiptNote,
         on_delete=models.CASCADE,
-        related_name='lines',
+        related_name='receipt_lines',
         verbose_name="Nota de Recibo"
     )
     product = models.ForeignKey(
