@@ -10,7 +10,7 @@ from decimal import Decimal
 from datetime import timedelta, datetime
 from django_erp.configuration.models import Company
 import logging
-
+from .models import SaleOrder, SaleInvoice
 logger = logging.getLogger(__name__)
 
 
@@ -470,29 +470,27 @@ class SaleReportService:
         """
         Obtiene el total de ventas agrupadas por un período específico.
         """
-        queryset = SaleOrder.objects.filter(status__in=['CONFIRMED', 'DELIVERED'])
-
+        queryset = SaleInvoice.objects.filter(status__in=['ISSUED', 'PAID'])
         if company:
             queryset = queryset.filter(company=company)
         else:
             company = Company.get_active()
             if company:
                 queryset = queryset.filter(company=company)
-
         if period_type == 'day':
             start_date = timezone.now() - timedelta(days=days_back)
-            queryset = queryset.filter(date__gte=start_date)
-            trunc_function = TruncDay('date')
+            queryset = queryset.filter(date_issued__gte=start_date)
+            trunc_function = TruncDay('date_issued')
             label_format = '%d-%m'
         elif period_type == 'month':
             start_date = timezone.now() - timedelta(days=365)
-            queryset = queryset.filter(date__gte=start_date)
-            trunc_function = TruncMonth('date')
+            queryset = queryset.filter(date_issued__gte=start_date)
+            trunc_function = TruncMonth('date_issued')
             label_format = 'b Y'
         elif period_type == 'year':
             start_date = timezone.now() - timedelta(days=3650)
-            queryset = queryset.filter(date__gte=start_date)
-            trunc_function = TruncYear('date')
+            queryset = queryset.filter(date_issued__gte=start_date)
+            trunc_function = TruncYear('date_issued')
             label_format = 'Y'
         else:
             raise ValueError("Tipo de período no soportado")
@@ -527,7 +525,7 @@ class SaleReportService:
         first_day_of_month = today.replace(day=1)
         first_day_of_year = today.replace(month=1, day=1)
 
-        queryset = SaleOrder.objects.filter(status__in=['CONFIRMED', 'DELIVERED'])
+        queryset = SaleInvoice.objects.filter(status__in=['ISSUED', 'PAID'])
 
         if company:
             queryset = queryset.filter(company=company)
@@ -536,9 +534,9 @@ class SaleReportService:
             if company:
                 queryset = queryset.filter(company=company)
 
-        sales_today = queryset.filter(date=today).aggregate(Sum('total'))['total__sum'] or Decimal('0.00')
-        sales_this_month = queryset.filter(date__gte=first_day_of_month).aggregate(Sum('total'))['total__sum'] or Decimal('0.00')
-        sales_this_year = queryset.filter(date__gte=first_day_of_year).aggregate(Sum('total'))['total__sum'] or Decimal('0.00')
+        sales_today = queryset.filter(date_issued=today).aggregate(Sum('total'))['total__sum'] or Decimal('0.00')
+        sales_this_month = queryset.filter(date_issued__gte=first_day_of_month).aggregate(Sum('total'))['total__sum'] or Decimal('0.00')
+        sales_this_year = queryset.filter(date_issued__gte=first_day_of_year).aggregate(Sum('total'))['total__sum'] or Decimal('0.00')
 
         return {
             'today': float(sales_today),

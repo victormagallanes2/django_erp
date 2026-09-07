@@ -541,6 +541,15 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                     del request.session[key]
         return super().get_form(request, obj, **kwargs)
 
+
+    def get_urls(self):
+        custom_view = self.admin_site.admin_view(SalesReportView.as_view(model_admin=self))
+        urls = super().get_urls()
+        custom_urls = [
+            path('sales-report/', custom_view, name='sales_salesreport'),
+        ]
+        return custom_urls + urls
+
     def save_model(self, request, obj, form, change):
         """
         Guardar la factura y enviar señal si cambia a PAID
@@ -1575,13 +1584,6 @@ class SaleOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         
         super().save_model(request, obj, form, change)
 
-    def get_urls(self):
-        custom_view = self.admin_site.admin_view(SalesReportView.as_view(model_admin=self))
-        urls = super().get_urls()
-        custom_urls = [
-            path('sales-report/', custom_view, name='sales_salesreport'),
-        ]
-        return custom_urls + urls
 
     def save_formset(self, request, form, formset, change):
         from .services import SaleService
