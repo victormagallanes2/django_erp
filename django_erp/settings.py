@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'django_erp.sales',
     'django_erp.purchasing',
     'django_erp.accounting',
+    'django_erp.rrhh',
 ]
 
 MIDDLEWARE = [
@@ -336,7 +337,26 @@ def get_menu_items(request):
                 "items": accounting_items,
             })
 
-    
+
+    if user.has_perm('rrhh.view_employee') or user.has_perm('rrhh.view_commission'):
+        rrhh_items = []
+        
+        # ✅ Empleados
+        if user.has_perm('rrhh.view_employee'):
+            rrhh_items.append({
+                "title": "Empleados",
+                "icon": "badge",
+                "link": "/admin/rrhh/employee/",
+            })
+        
+        if rrhh_items:
+            navigation.append({
+                "title": "Recursos Humanos",
+                "separator": True,
+                "collapsible": True,
+                "items": rrhh_items,
+            })
+
     # ✅ Configuración (solo administradores)
     if user.is_superuser:
         navigation.append({

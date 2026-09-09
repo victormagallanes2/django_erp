@@ -15,8 +15,11 @@ class User(AbstractUser):
         help_text="Compañías a las que el usuario tiene acceso"
     )
     
-    # ✅ NUEVO: Compañía activa (se usa el middleware para establecerla)
-    # No guardamos este campo en la BD, se maneja por sesión
+    is_employee = models.BooleanField(
+        default=False,
+        verbose_name="¿Es empleado?",
+        help_text="Indica si el usuario es un empleado de la empresa"
+    )
     
     class Meta:
         verbose_name = "Usuario"
