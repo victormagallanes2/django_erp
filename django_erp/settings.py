@@ -146,6 +146,9 @@ STATICFILES_DIRS = [
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 AUTH_USER_MODEL = 'users.User'
+AUTHENTICATION_BACKENDS = [
+    'django_erp.users.backends.EmailOrUsernameBackend',
+]
 
 
 MEDIA_URL = '/media/'

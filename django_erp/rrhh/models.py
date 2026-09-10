@@ -32,10 +32,6 @@ class Employee(models.Model):
         blank=True
     )
     
-    is_active_employee = models.BooleanField(
-        default=True,
-        verbose_name=_("Empleado activo")
-    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

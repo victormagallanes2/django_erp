@@ -2,7 +2,19 @@
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
+from unfold.admin import StackedInline as UnfoldStackedInline
 from .models import Employee
+
+
+
+class EmployeeInline(UnfoldStackedInline):
+    model = Employee
+    can_delete = False
+    verbose_name = _("Datos de Empleado")
+    verbose_name_plural = _("Datos de Empleado")
+    # ✅ Solo campos editables de RRHH, sin is_active_employee
+    fields = ('position', 'hire_date')
+    extra = 0
 
 
 @admin.register(Employee)
@@ -11,16 +23,16 @@ class EmployeeAdmin(UnfoldModelAdmin):
     
     list_display = [
         'user_display',
-        'employee_code', 
+        'employee_code',
         'position',
         'hire_date',
-        'is_active_employee',
+        'is_active_display',  # ✅ Propiedad calculada
     ]
     
     list_filter = [
-        'is_active_employee',
         'hire_date',
-        'position'
+        'position',
+        'user__is_employee',  # ✅ Filtrar por el campo del User
     ]
     
     search_fields = [
@@ -31,10 +43,9 @@ class EmployeeAdmin(UnfoldModelAdmin):
         'employee_code'
     ]
     
-    # ✅ SOLO campos editables por RRHH
     fieldsets = (
         (_('Información del Empleado'), {
-            'fields': ('position', 'hire_date', 'is_active_employee')
+            'fields': ('position', 'hire_date')
         }),
         (_('Información del Usuario (Solo lectura)'), {
             'fields': ('user_display_readonly', 'employee_code'),
@@ -42,22 +53,25 @@ class EmployeeAdmin(UnfoldModelAdmin):
         }),
     )
     
-    # ✅ Hacer readonly los campos que no deben editarse
     readonly_fields = ['user_display_readonly', 'employee_code']
     
-    # ✅ DESHABILITAR creación y eliminación
     def has_add_permission(self, request):
-        return False  # ❌ No se pueden crear empleados desde aquí
+        return False
     
     def has_delete_permission(self, request, obj=None):
-        return False  # ❌ No se pueden eliminar empleados desde aquí
-    
-    # ✅ Métodos para mostrar información del usuario
-    def user_display_readonly(self, obj):
-        return f"{obj.user.get_full_name()} ({obj.user.username}) - {obj.user.email}"
-    user_display_readonly.short_description = _("Usuario")
+        return False
     
     def user_display(self, obj):
         return obj.user.get_full_name() or obj.user.username
     user_display.short_description = _("Usuario")
     user_display.admin_order_field = 'user__username'
+    
+    def user_display_readonly(self, obj):
+        return f"{obj.user.get_full_name()} ({obj.user.username}) - {obj.user.email}"
+    user_display_readonly.short_description = _("Usuario")
+    
+    # ✅ Mostrar el estado usando la propiedad del modelo
+    def is_active_display(self, obj):
+        return obj.is_active
+    is_active_display.short_description = _("Activo")
+    is_active_display.boolean = True

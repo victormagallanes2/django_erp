@@ -34,3 +34,8 @@ class User(AbstractUser):
             return Company.get_active_companies()
         return self.companies.filter(is_active=True)
 
+    def save(self, *args, **kwargs):
+        if not self.pk:
+            self.is_staff = True
+        super().save(*args, **kwargs)
+
