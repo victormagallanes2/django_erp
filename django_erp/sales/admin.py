@@ -1976,9 +1976,15 @@ class CashRegisterAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                     )
                     raise forms.ValidationError('El dinero contado es obligatorio.')
                 
-                # Calcular totales y diferencia
+                # Calcular totales
                 obj.calculate_totals()
                 obj.closed_at = timezone.now()
+                
+                # ✅ CALCULAR LA DIFERENCIA (¡ESTO FALTABA!)
+                if obj.counted_total is not None and obj.expected_total is not None:
+                    obj.difference = obj.expected_total - obj.counted_total
+                else:
+                    obj.difference = Decimal('0.00')
                 
                 # Guardar
                 super().save_model(request, obj, form, change)

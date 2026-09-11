@@ -341,6 +341,7 @@ def get_menu_items(request):
             })
 
 
+    # ✅ RECURSOS HUMANOS
     if user.has_perm('rrhh.view_employee') or user.has_perm('rrhh.view_commission'):
         rrhh_items = []
         
@@ -350,6 +351,14 @@ def get_menu_items(request):
                 "title": "Empleados",
                 "icon": "badge",
                 "link": "/admin/rrhh/employee/",
+            })
+        
+        # ✅ Comisiones
+        if user.has_perm('rrhh.view_commission'):
+            rrhh_items.append({
+                "title": "Comisiones",
+                "icon": "payments",
+                "link": "/admin/rrhh/commission/",
             })
         
         if rrhh_items:
