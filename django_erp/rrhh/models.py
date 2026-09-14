@@ -40,6 +40,18 @@ class Employee(models.Model):
         verbose_name=_("Cargo"),
         blank=True
     )
+
+    pin = models.CharField(
+        max_length=6,
+        blank=True,
+        null=True,
+        unique=True,
+        verbose_name="PIN de acceso",
+        help_text=(
+            "PIN numérico de 4 a 6 dígitos para identificar al empleado "
+            "al momento de facturar. Debe ser único entre empleados activos."
+        )
+    )
     
     
     created_at = models.DateTimeField(auto_now_add=True)
@@ -69,6 +81,22 @@ class Employee(models.Model):
     def is_active(self):
         """El empleado está activo si su usuario lo está"""
         return self.user.is_employee and self.user.is_active
+
+    def clean(self):
+        super().clean()
+        if self.pin:
+            # Solo dígitos
+            if not self.pin.isdigit():
+                raise ValidationError("El PIN debe contener solo números.")
+            if len(self.pin) < 4 or len(self.pin) > 6:
+                raise ValidationError("El PIN debe tener entre 4 y 6 dígitos.")
+            # ✅ Unicidad entre empleados activos (por si el unique=True no basta con nulls)
+            if self.pk:
+                qs = Employee.objects.filter(pin=self.pin).exclude(pk=self.pk)
+            else:
+                qs = Employee.objects.filter(pin=self.pin)
+            if qs.exists():
+                raise ValidationError(f"El PIN '{self.pin}' ya está asignado a otro empleado.")
 
 
 class Commission(models.Model):

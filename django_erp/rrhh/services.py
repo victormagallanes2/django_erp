@@ -9,31 +9,48 @@ logger = logging.getLogger(__name__)
 
 class CommissionService:
     """Servicio para el cálculo y registro de comisiones"""
-    
+
     @staticmethod
     def create_commission_for_invoice(invoice):
         """
         Crear una comisión para la factura pagada.
-        Se basa en el empleado del usuario que generó la factura.
-        Retorna la Commission creada o None si no aplica.
+
+        Reglas:
+        - Solo si la compañía tiene commission_enabled = True
+        - Solo si la factura tiene salesperson asignado
+        - Solo si el empleado tiene commission_rate > 0
+        - Solo si el subtotal > 0
+        - No duplica comisiones para la misma factura/empleado
+
+        Retorna la Commission creada, la existente, o None.
         """
-        # ✅ Validaciones básicas
-        if not invoice.user_id:
-            logger.info(f"   ℹ️ Factura {invoice.number} sin usuario, no genera comisión")
+        logger.info("=" * 80)
+        logger.info(f"🔍 [create_commission_for_invoice] Factura {invoice.number}")
+
+        # ✅ 1. ¿La compañía tiene comisiones habilitadas?
+        company = invoice.company
+        if not company:
+            logger.info("   ❌ Factura sin compañía → no genera comisión")
             return None
-        
-        # ✅ El usuario debe tener un Employee asociado
-        employee = getattr(invoice.user, 'employee', None)
-        if not employee:
-            logger.info(f"   ℹ️ Usuario {invoice.user.username} no es empleado, no genera comisión")
+
+        if not company.commission_enabled:
+            logger.info(f"   ℹ️ Compañía {company.code} no tiene comisiones habilitadas")
             return None
-        
-        # ✅ El empleado debe tener comisión > 0
+
+
+        if not invoice.salesperson_id:
+            logger.info(f"   ℹ️ Factura {invoice.number} sin vendedor asignado")
+            return None
+
+        employee = invoice.salesperson
+        logger.info(f"   - Vendedor: {employee}")
+
+        # ✅ 3. ¿El empleado tiene tasa de comisión?
         if not employee.commission_rate or employee.commission_rate <= 0:
             logger.info(f"   ℹ️ Empleado {employee} sin comisión configurada")
             return None
-        
-        # ✅ Evitar duplicados
+
+        # ✅ 4. Evitar duplicados
         existing = Commission.objects.filter(
             employee=employee,
             sale_invoice=invoice
@@ -41,18 +58,18 @@ class CommissionService:
         if existing:
             logger.info(f"   ℹ️ Comisión ya existe para factura {invoice.number}")
             return existing
-        
-        # ✅ Calcular sobre el SUBTOTAL (sin IVA)
+
+        # ✅ 5. Calcular sobre el subtotal (sin IVA)
         base_amount = invoice.subtotal or Decimal('0.00')
         if base_amount <= 0:
-            logger.info(f"   ℹ️ Factura {invoice.number} sin subtotal, no genera comisión")
+            logger.info(f"   ℹ️ Factura {invoice.number} sin subtotal → no genera comisión")
             return None
-        
+
         rate = employee.commission_rate
         amount = (base_amount * rate / Decimal('100')).quantize(
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )
-        
+
         commission = Commission.objects.create(
             employee=employee,
             sale_invoice=invoice,
@@ -61,6 +78,10 @@ class CommissionService:
             amount=amount,
             status='PENDING',
         )
-        
-        logger.info(f"   ✅ Comisión creada: {employee} → ${amount} ({rate}% de ${base_amount})")
+
+        logger.info(
+            f"   ✅ Comisión creada: {employee} → ${amount} "
+            f"({rate}% de ${base_amount})"
+        )
+        logger.info("=" * 80)
         return commission

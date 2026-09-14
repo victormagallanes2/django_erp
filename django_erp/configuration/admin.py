@@ -37,6 +37,9 @@ class CompanyAdmin(UnfoldModelAdmin):
         ('Estado', {
             'fields': ('is_main', 'is_active')
         }),
+        ('Configuración de Ventas', {
+            'fields': ('commission_enabled', 'require_salesperson_pin')
+        }),
     )
     
     readonly_fields = ['created_at', 'updated_at']

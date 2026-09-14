@@ -76,6 +76,25 @@ class Company(models.Model):
         verbose_name="¿Es compañía principal?",
         help_text="Solo una compañía puede ser la principal (matriz)"
     )
+
+    require_salesperson_pin = models.BooleanField(
+        default=False,
+        verbose_name="Requerir PIN de vendedor al facturar",
+        help_text=(
+            "Si está activo, el sistema pedirá un PIN para asignar la venta "
+            "a un empleado."
+        )
+    )
+    
+    commission_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Habilitar comisiones",
+        help_text=(
+            "Si está activo, las ventas atribuidas a un empleado generan "
+            "una comisión según su tasa configurada."
+        )
+    )
+
     # Activo
     is_active = models.BooleanField(default=True, verbose_name="Activo")
     

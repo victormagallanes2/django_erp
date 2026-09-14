@@ -30,6 +30,7 @@ from django_erp.inventory.services import WarehouseService, InventoryService
 import logging
 logger = logging.getLogger(__name__)
 from django_erp.accounting.services import TaxService
+from unfold.widgets import UnfoldAdminTextInputWidget
 
 
 # ============================================================
@@ -38,6 +39,21 @@ from django_erp.accounting.services import TaxService
 
 class SaleInvoiceForm(forms.ModelForm):
     """Formulario personalizado para facturas de venta independientes"""
+
+    pin = forms.CharField(
+        required=False,
+        max_length=6,
+        label="PIN del Vendedor",
+        help_text="Teclea el PIN del vendedor que realizó la venta.",
+        widget=UnfoldAdminTextInputWidget(attrs={
+            'autocomplete': 'off',
+            'inputmode': 'numeric',
+            'pattern': '[0-9]*',
+            'placeholder': '****',
+            'style': 'letter-spacing: 0.5em; font-size: 1.2em;',
+        })
+    )
+
     stock_display = forms.CharField(
         required=False,
         disabled=True,
@@ -98,7 +114,7 @@ class SaleInvoiceForm(forms.ModelForm):
     
     class Meta:
         model = SaleInvoice
-        fields = ['number', 'customer', 'sale_order', 'status', 'date_due', 'note']
+        fields = ['number', 'customer', 'salesperson', 'sale_order', 'status', 'date_due', 'note']
         widgets = {
             'number': forms.TextInput(attrs={'readonly': 'readonly'}),
         }
@@ -107,7 +123,34 @@ class SaleInvoiceForm(forms.ModelForm):
         self._request = kwargs.pop('request', None)
         instance = kwargs.get('instance')
         super().__init__(*args, **kwargs)
+
+        company = None
+        if instance and instance.company_id:
+            company = instance.company
+        elif self._request:
+            company = getattr(self._request, 'current_company', None)
+        if not company:
+            company = Company.get_active()
+
+        if company and company.require_salesperson_pin:
+            if 'salesperson' in self.fields:
+                self.fields['salesperson'].widget.attrs.update({
+                    'readonly': 'readonly',
+                    'style': 'background-color: #f0f0f0; cursor: not-allowed;'
+                })
+                self.fields['salesperson'].required = False
+
+        if 'salesperson' in self.fields:
+            self.fields['salesperson'].widget.attrs.update({
+                'readonly': 'readonly',
+                'style': 'background-color: #f0f0f0; cursor: not-allowed;'
+            })
+            self.fields['salesperson'].required = False
         
+        # ✅ Si es una factura existente con salesperson, mostrar su nombre
+        if instance and instance.pk and instance.salesperson_id:
+            self.initial['salesperson'] = instance.salesperson_id
+
         # ✅ Obtener tasa de cambio
         rate = ExchangeRate.get_today_rate('USD', 'BS')
         if rate:
@@ -162,10 +205,64 @@ class SaleInvoiceForm(forms.ModelForm):
         self.fields['sale_order'].required = False
         self.fields['sale_order'].help_text = "Opcional: Si la factura proviene de una orden de venta"
         self.fields['status'].choices = SaleInvoice.STATUS_CHOICES
-    
+
+
+    def clean(self):
+        """
+        ✅ Resolver el PIN a un Employee y asignarlo a salesperson.
+        Solo si la compañía requiere PIN.
+        """
+        cleaned_data = super().clean()
+        pin = cleaned_data.get('pin', '').strip()
+        salesperson = cleaned_data.get('salesperson')
+        
+        # ✅ Determinar la compañía
+        company = None
+        if self.instance and self.instance.company_id:
+            company = self.instance.company
+        elif self._request:
+            company = getattr(self._request, 'current_company', None)
+        if not company:
+            company = Company.get_active()
+        
+        # ✅ Si la compañía NO requiere PIN, no hacemos nada especial
+        if not company or not company.require_salesperson_pin:
+            return cleaned_data
+        
+        # ✅ Si la compañía SÍ requiere PIN y el usuario tecleó uno, resolverlo
+        if pin:
+            from django_erp.rrhh.models import Employee
+            try:
+                employee = Employee.objects.get(pin=pin)
+                cleaned_data['salesperson'] = employee
+                self.instance.salesperson = employee
+            except Employee.DoesNotExist:
+                self.add_error(
+                    'pin',
+                    f'❌ PIN "{pin}" no corresponde a ningún empleado.'
+                )
+            except Employee.MultipleObjectsReturned:
+                self.add_error(
+                    'pin',
+                    f'❌ El PIN "{pin}" está duplicado. Contacta al administrador.'
+                )
+        else:
+            # ✅ Si no tecleó PIN pero la compañía lo requiere, error
+            if not salesperson:
+                self.add_error(
+                    'pin',
+                    '❌ Esta compañía requiere PIN del vendedor para facturar.'
+                )
+        
+        return cleaned_data
+
     def save(self, commit=True):
         instance = super().save(commit=False)
-        
+
+        # ✅ Asignar salesperson resuelto del PIN
+        if 'salesperson' in self.cleaned_data and self.cleaned_data['salesperson']:
+            instance.salesperson = self.cleaned_data['salesperson']
+
         if not instance.company_id:
             if self._request:
                 company = getattr(self._request, 'current_company', None)
@@ -447,7 +544,14 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         }),
         ('Orden de Venta (opcional)', {
             'fields': ('sale_order',),
-            'description': 'Si esta factura proviene de una orden de venta, selecciónala aquí.'
+        }),
+
+        ('Vendedor', {
+            'fields': ('pin', 'salesperson'),
+            'description': (
+                'Teclea el PIN del vendedor que realizó el servicio. '
+                'El campo "Vendedor" se llena automáticamente.'
+            ),
         }),
 
         # ✅ Totales en Tiempo Real - Igual que en órdenes de venta
@@ -461,10 +565,6 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             'classes': ('tab', 'wide'),
             'description': 'Los totales se actualizan automáticamente al modificar las líneas'
         }),
-        ('Información Adicional', {
-            'fields': ('note',),
-            'classes': ('collapse',),
-        }),
     )
     
     readonly_fields = ['date_issued', 'user', 'created_at', 'updated_at', 'subtotal', 'tax', 'total']
@@ -472,6 +572,7 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     class Media:
         js = ('admin/js/sale_invoice_admin.js',)
     
+
     @admin.display(description='Compañía', ordering='company__name')
     def company_display(self, obj):
         if obj.company:
@@ -481,7 +582,104 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
                 obj.company.name
             )
         return "Sin compañía"
-    
+
+    def get_fieldsets(self, request, obj=None):
+        """
+        Ajustar el fieldset 'Vendedor' según configuración de la compañía.
+        
+        - Sin PIN y sin comisiones: ocultar el fieldset completo.
+        - Sin PIN y con comisiones: mostrar solo 'salesperson' (editable).
+        - Con PIN (con o sin comisiones): mostrar solo 'pin'.
+          El campo 'salesperson' se llena automáticamente al validar el PIN.
+        """
+        fieldsets = super().get_fieldsets(request, obj)
+        
+        company = None
+        if obj and obj.company_id:
+            company = obj.company
+        else:
+            company = getattr(request, 'current_company', None)
+        if not company:
+            company = Company.get_active()
+        
+        if not company:
+            return fieldsets
+        
+        # Caso 1: nada activado → ocultar fieldset completo
+        if not company.require_salesperson_pin and not company.commission_enabled:
+            return tuple(
+                fs for fs in fieldsets
+                if fs[0] != 'Vendedor'
+            )
+        
+        # Caso 2: comisiones sin PIN → solo salesperson (editable)
+        if company.commission_enabled and not company.require_salesperson_pin:
+            new_fieldsets = []
+            for fs in fieldsets:
+                if fs[0] == 'Vendedor':
+                    new_fieldsets.append((
+                        'Vendedor',
+                        {
+                            'fields': ('salesperson',),
+                            
+                        }
+                    ))
+                else:
+                    new_fieldsets.append(fs)
+            return tuple(new_fieldsets)
+        
+        # Caso 3 y 4: PIN activado (con o sin comisiones) → solo pin
+        # El salesperson se llena automáticamente y no debe ser editable.
+        new_fieldsets = []
+        for fs in fieldsets:
+            if fs[0] == 'Vendedor':
+                new_fieldsets.append((
+                    'Vendedor',
+                    {
+                        'fields': ('pin',),
+                    }
+                ))
+            else:
+                new_fieldsets.append(fs)
+        return tuple(new_fieldsets)
+
+
+    def get_form(self, request, obj=None, **kwargs):
+        """Pasar request al form y ocultar el PIN si la compañía no lo requiere."""
+        form_class = super().get_form(request, obj, **kwargs)
+        
+        # ✅ Determinar compañía
+        company = None
+        if obj and obj.company_id:
+            company = obj.company
+        else:
+            company = getattr(request, 'current_company', None)
+        if not company:
+            company = Company.get_active()
+
+        if 'salesperson' in self.fields:
+            if company and company.require_salesperson_pin:
+                self.fields['salesperson'].widget.attrs.update({
+                    'readonly': 'readonly',
+                    'style': 'background-color: #f0f0f0; cursor: not-allowed;'
+                })
+                self.fields['salesperson'].required = False
+            else:
+                # ✅ Editable manualmente
+                self.fields['salesperson'].required = False
+        
+        def form_with_request(*args, **kwargs):
+            kwargs['request'] = request
+            form = form_class(*args, **kwargs)
+            # ✅ Ocultar PIN si no se requiere
+            if company and not company.require_salesperson_pin:
+                if 'pin' in form.fields:
+                    form.fields['pin'].widget = forms.HiddenInput()
+                    form.fields['pin'].required = False
+            return form
+        
+        return form_with_request
+
     @admin.display(description='Subtotal', ordering='subtotal')
     def subtotal_display(self, obj):
         # Calcular subtotal sumando las líneas
@@ -552,7 +750,12 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
 
     def save_model(self, request, obj, form, change):
         """
-        Guardar la factura y enviar señal si cambia a PAID
+        Guardar la factura y enviar señal si cambia a PAID.
+        
+        Nota sobre el PIN: el campo 'pin' del formulario es temporal y NO se
+        persiste en el modelo. Solo se usa en SaleInvoiceForm.clean() para
+        resolver el Employee y asignarlo a obj.salesperson. Aquí no hay nada
+        que limpiar porque el PIN nunca llega a la instancia.
         """
         # ✅ Asignar compañía
         company = self._get_active_company(request)
@@ -567,6 +770,10 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         
         if not obj.user:
             obj.user = request.user
+        
+        # ✅ Re-sincronizar salesperson desde cleaned_data (por si el PIN lo resolvió)
+        if 'salesperson' in form.cleaned_data:
+            obj.salesperson = form.cleaned_data['salesperson']
         
         # ✅ Obtener el estado anterior (si existe)
         old_status = None
@@ -858,6 +1065,21 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             
             logger.info(f"   ✅ Totales recalculados: Subtotal={invoice.subtotal}, IVA={invoice.tax}, Total={invoice.total}")
         
+        if invoice.status == 'PAID' and invoice.total > 0:
+            try:
+                from django_erp.rrhh.services import CommissionService
+                commission = CommissionService.create_commission_for_invoice(invoice)
+                if commission:
+                    self.message_user(
+                        request,
+                        f'✅ Comisión generada: ${commission.amount:.2f} '
+                        f'para {commission.employee}',
+                        messages.SUCCESS
+                    )
+            except Exception as e:
+                logger.error(f"   ❌ Error al generar comisión: {e}")
+                import traceback
+                logger.error(f"   Traceback: {traceback.format_exc()}")
         # ✅ PROCESAR REGISTRO EN CAJA Y REDUCCIÓN DE INVENTARIO
         is_new_paid = new_status == 'PAID' and (old_status is None or old_status != 'PAID')
         

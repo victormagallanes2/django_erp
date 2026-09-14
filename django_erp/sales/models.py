@@ -923,6 +923,20 @@ class SaleInvoice(models.Model):
         verbose_name="Compañía/Sucursal",
         related_name='sale_invoices'
     )
+
+    salesperson = models.ForeignKey(
+        'rrhh.Employee',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sale_invoices',
+        verbose_name="Vendedor",
+        help_text=(
+            "Empleado que realizó la venta o el servicio. "
+            "Opcional: si está vacío, la factura no genera comisión."
+        )
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
     history = HistoricalRecords()

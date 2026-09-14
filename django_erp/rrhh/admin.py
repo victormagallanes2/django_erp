@@ -124,7 +124,8 @@ class EmployeeAdmin(UnfoldModelAdmin):
         'position',
         'hire_date',
         'is_active_display',
-        'commission_rate',  # ✅ Propiedad calculada
+        'commission_rate',
+        'pin',  # ✅ Propiedad calculada
     ]
     
     list_filter = [
@@ -138,16 +139,20 @@ class EmployeeAdmin(UnfoldModelAdmin):
         'user__first_name',
         'user__last_name',
         'user__email',
-        'employee_code'
+        'employee_code',
+        'pin',
     ]
     
     fieldsets = (
         (_('Información del Empleado'), {
-            'fields': ('position', 'hire_date', 'commission_rate')
+            'fields': ('position', 'hire_date')
         }),
         (_('Información del Usuario (Solo lectura)'), {
             'fields': ('user_display_readonly', 'employee_code'),
             'classes': ('collapse',)
+        }),
+        ('Acceso y Comisiones', {
+            'fields': ('pin', 'commission_rate'),
         }),
     )
     

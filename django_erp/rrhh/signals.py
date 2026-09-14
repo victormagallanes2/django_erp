@@ -19,19 +19,28 @@ def handle_employee_on_user_change(sender, instance, **kwargs):
 @receiver(post_save, sender='sales.SaleInvoice')
 def create_commission_on_invoice_paid(sender, instance, **kwargs):
     """
-    ✅ Cuando una factura se marca como PAID, generar comisión.
+    ✅ Cuando una factura pasa a PAID, generar comisión.
+    El servicio decide si aplica o no según la configuración de la compañía.
     """
     if instance.status != 'PAID':
         return
-    
+
+    # ✅ Ignorar si aún no tiene líneas (el subtotal se recalcula en save_formset)
+    if not instance.lines.exists():
+        logger.info(
+            f"   ℹ️ Factura {instance.number} aún sin líneas, "
+            f"se omite generación de comisión"
+        )
+        return
+
     logger.info("=" * 80)
     logger.info(f"🔴 [create_commission_on_invoice_paid] Factura {instance.number} PAGADA")
-    
+
     try:
         CommissionService.create_commission_for_invoice(instance)
     except Exception as e:
         logger.error(f"   ❌ Error creando comisión: {e}")
         import traceback
         logger.error(f"   Traceback: {traceback.format_exc()}")
-    
+
     logger.info("=" * 80)
