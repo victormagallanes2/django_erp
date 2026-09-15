@@ -11,6 +11,46 @@ class CommissionService:
     """Servicio para el cálculo y registro de comisiones"""
 
     @staticmethod
+    def _calculate_commission_base(invoice):
+        """
+        Calcular la base sobre la que se aplica la comisión, según configuración
+        de la compañía.
+
+        - Si commission_by_service_only = False → subtotal completo de la factura.
+        - Si commission_by_service_only = True → suma de subtotales de líneas
+          consideradas "servicio". Se considera servicio a:
+            * Líneas cuyo product.is_service = True
+            * Líneas sin product pero con product_name (servicios manuales)
+        """
+        company = invoice.company
+        if not company:
+            return Decimal('0.00')
+
+        if not company.commission_by_service_only:
+            # ✅ Comisión sobre el total de la factura
+            return invoice.subtotal or Decimal('0.00')
+
+        # ✅ Comisión solo sobre servicios
+        total_services = Decimal('0.00')
+        for line in invoice.lines.all():
+            subtotal = Decimal(str(line.subtotal or 0))
+
+            # Caso 1: producto marcado como servicio
+            if line.product and line.product.is_service:
+                total_services += subtotal
+                continue
+
+            # Caso 2: línea sin producto pero con nombre → servicio manual
+            if not line.product and line.product_name:
+                total_services += subtotal
+                continue
+
+            # Caso 3: cualquier otra línea → no comisionable
+            # (productos físicos con product.is_service = False)
+
+        return total_services
+
+    @staticmethod
     def create_commission_for_invoice(invoice):
         """
         Crear una comisión para la factura pagada.
@@ -19,10 +59,8 @@ class CommissionService:
         - Solo si la compañía tiene commission_enabled = True
         - Solo si la factura tiene salesperson asignado
         - Solo si el empleado tiene commission_rate > 0
-        - Solo si el subtotal > 0
+        - Solo si la base comisionable > 0
         - No duplica comisiones para la misma factura/empleado
-
-        Retorna la Commission creada, la existente, o None.
         """
         logger.info("=" * 80)
         logger.info(f"🔍 [create_commission_for_invoice] Factura {invoice.number}")
@@ -37,7 +75,7 @@ class CommissionService:
             logger.info(f"   ℹ️ Compañía {company.code} no tiene comisiones habilitadas")
             return None
 
-
+        # ✅ 2. ¿Hay vendedor asignado?
         if not invoice.salesperson_id:
             logger.info(f"   ℹ️ Factura {invoice.number} sin vendedor asignado")
             return None
@@ -59,10 +97,14 @@ class CommissionService:
             logger.info(f"   ℹ️ Comisión ya existe para factura {invoice.number}")
             return existing
 
-        # ✅ 5. Calcular sobre el subtotal (sin IVA)
-        base_amount = invoice.subtotal or Decimal('0.00')
+        # ✅ 5. Calcular la base comisionable
+        base_amount = CommissionService._calculate_commission_base(invoice)
+        modo = 'servicios' if company.commission_by_service_only else 'factura completa'
+        logger.info(f"   - Modo: {modo}")
+        logger.info(f"   - Base comisionable: {base_amount}")
+
         if base_amount <= 0:
-            logger.info(f"   ℹ️ Factura {invoice.number} sin subtotal → no genera comisión")
+            logger.info(f"   ℹ️ Factura {invoice.number} sin base comisionable → no genera comisión")
             return None
 
         rate = employee.commission_rate
@@ -81,7 +123,7 @@ class CommissionService:
 
         logger.info(
             f"   ✅ Comisión creada: {employee} → ${amount} "
-            f"({rate}% de ${base_amount})"
+            f"({rate}% de ${base_amount}, modo={modo})"
         )
         logger.info("=" * 80)
         return commission

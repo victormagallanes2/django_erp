@@ -95,6 +95,17 @@ class Company(models.Model):
         )
     )
 
+
+    commission_by_service_only = models.BooleanField(
+        default=False,
+        verbose_name="Comisionar solo servicios",
+        help_text=(
+            "Si está activo, la comisión se calcula solo sobre el subtotal de "
+            "los servicios (no sobre productos). Si está desactivado, se "
+            "calcula sobre el subtotal completo de la factura."
+        )
+    )
+
     # Activo
     is_active = models.BooleanField(default=True, verbose_name="Activo")
     
@@ -126,6 +137,14 @@ class Company(models.Model):
         
         if self.parent and self.parent.pk == self.pk:
             raise ValidationError("Una compañía no puede ser su propio padre.")
+            
+        if self.commission_by_service_only and not self.commission_enabled:
+            raise ValidationError({
+                'commission_by_service_only': (
+                    'No puedes comisionar solo servicios si las comisiones '
+                    'están deshabilitadas.'
+                )
+            })
 
 
     def save(self, *args, **kwargs):

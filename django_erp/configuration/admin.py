@@ -38,7 +38,7 @@ class CompanyAdmin(UnfoldModelAdmin):
             'fields': ('is_main', 'is_active')
         }),
         ('Configuración de Ventas', {
-            'fields': ('commission_enabled', 'require_salesperson_pin')
+            'fields': ('commission_enabled', 'require_salesperson_pin', 'commission_by_service_only')
         }),
     )
     
