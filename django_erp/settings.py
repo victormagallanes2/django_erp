@@ -137,7 +137,6 @@ USE_I18N = True
 
 USE_TZ = True
 
-STATIC_URL = 'static/'
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [
@@ -285,6 +284,12 @@ def get_menu_items(request):
                 "title": "Facturas de Ventas",
                 "icon": "fact_check",
                 "link": "/admin/sales/saleinvoice/",
+            })
+        if user.has_perm('sales.view_saleorder'):
+            sales_items.append({
+                "title": "Pos",
+                "icon": "fact_check",
+                "link": "/admin/sales/saleinvoice/pos/",
             })
         if user.has_perm('sales.view_cashregister'):
             sales_items.append({

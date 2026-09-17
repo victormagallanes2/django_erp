@@ -1,0 +1,163 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'admin/css/sale_invoice_pos.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pos-container"
+     data-search-url="{{ search_url }}"
+     data-checkout-url="{{ checkout_url }}"
+     data-customer-search-url="{{ customer_search_url }}"
+     data-exchange-rate="{{ exchange_rate }}">
+
+    <!-- ============================================================ -->
+    <!-- COLUMNA IZQUIERDA: Búsqueda, grid de productos, pagos        -->
+    <!-- ============================================================ -->
+    <div class="pos-left">
+
+        <!-- Barra de búsqueda -->
+        <div class="pos-search-bar">
+            <input type="text" id="pos-search-input"
+                   placeholder="🔍 Buscar producto o escanear código de barras..."
+                   autocomplete="off" autofocus>
+            <div id="pos-search-results" class="pos-search-results"></div>
+        </div>
+
+        <!-- Grid de productos -->
+        <div class="pos-products-grid" id="pos-products-grid">
+            <div class="pos-products-empty">
+                <div class="pos-products-empty-icon">🔍</div>
+                <p>Busca un producto para agregarlo al carrito</p>
+            </div>
+        </div>
+
+        <!-- Métodos de pago -->
+        <div class="pos-payment-section">
+            <div class="pos-payment-section-title">💳 Método de Pago</div>
+            <div class="pos-payment-buttons" id="pos-payment-buttons">
+                {% for pm in payment_methods %}
+                    <button type="button" class="pos-payment-btn" data-method-id="{{ pm.id }}">
+                        {{ pm.name }}
+                    </button>
+                {% empty %}
+                    <div class="pos-payment-empty">No hay métodos de pago configurados</div>
+                {% endfor %}
+            </div>
+            <input type="hidden" id="pos-payment-method-id">
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- COLUMNA DERECHA: Cliente, carrito, totales, acciones         -->
+    <!-- ============================================================ -->
+    <div class="pos-right">
+
+        <!-- Selector de cliente (autocomplete propio) -->
+        <div class="pos-customer-bar">
+<div class="pos-customer-bar">
+    <label>👤 Cliente</label>
+    <div class="pos-customer-row">
+        <div class="pos-customer-autocomplete">
+            <div class="pos-customer-input-wrap">
+                <input type="text"
+                       id="pos-customer-input"
+                       class="pos-customer-select"
+                       placeholder="🔍 Buscar cliente por nombre o cédula..."
+                       autocomplete="off">
+                <button type="button"
+                        id="pos-customer-lupa-btn"
+                        class="pos-customer-lupa-btn"
+                        title="Mostrar todos los clientes">
+                    🔍
+                </button>
+            </div>
+            <input type="hidden" id="pos-customer" value="">
+            <div id="pos-customer-results" class="pos-customer-results"></div>
+        </div>
+        <button type="button"
+                class="pos-add-customer-btn"
+                id="pos-open-customer-modal-btn"
+                data-customer-add-url="{% url 'admin:sales_pos_customer_form' %}">
+            ➕
+        </button>
+    </div>
+</div>
+        </div>
+
+        <!-- Lista del carrito -->
+        <div class="pos-cart" id="pos-cart">
+            <div class="pos-cart-empty" id="pos-cart-empty">
+                <span>🛒</span>
+                <p>El carrito está vacío</p>
+            </div>
+            <div class="pos-cart-items" id="pos-cart-items"></div>
+        </div>
+
+        <!-- Totales -->
+        <div class="pos-totals">
+            <div class="pos-total-row">
+                <span>Subtotal</span>
+                <span id="pos-subtotal">$ 0.00</span>
+            </div>
+            <div class="pos-total-row">
+                <span>IVA</span>
+                <span id="pos-tax">$ 0.00</span>
+            </div>
+            <div class="pos-total-row pos-total-grand">
+                <span>TOTAL</span>
+                <span id="pos-total">$ 0.00</span>
+            </div>
+            <div class="pos-total-row pos-total-bs">
+                <span>Total Bs.</span>
+                <span id="pos-total-bs">Bs. 0.00</span>
+            </div>
+            <div class="pos-rate-info">
+                Tasa: 1 USD = Bs. {{ exchange_rate }}
+            </div>
+        </div>
+
+        <!-- Acciones -->
+        <div class="pos-actions">
+            <button id="pos-clear-btn" class="pos-btn pos-btn-secondary" type="button">
+                🗑️ Limpiar
+            </button>
+            <button id="pos-checkout-btn" class="pos-btn pos-btn-primary" type="button">
+                ✅ Cobrar
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- MODAL PARA AGREGAR CLIENTE                                    -->
+<!-- ============================================================ -->
+<div id="pos-customer-modal" class="pos-modal-overlay" style="display:none;">
+    <div class="pos-modal-box">
+        <div class="pos-modal-header">
+            <h3>➕ Nuevo Cliente</h3>
+            <button type="button" class="pos-modal-close" id="pos-customer-modal-close-btn">✕</button>
+        </div>
+        <div id="pos-customer-modal-body" class="pos-modal-body"></div>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- MODAL DE ÉXITO                                                -->
+<!-- ============================================================ -->
+<div id="pos-success-modal" class="pos-modal" style="display:none;">
+    <div class="pos-modal-content">
+        <h2>✅ Venta registrada</h2>
+        <p><strong>Factura:</strong> <span id="pos-success-number"></span></p>
+        <p><strong>Total:</strong> <span id="pos-success-total"></span></p>
+        <div class="pos-modal-actions">
+            <button id="pos-new-sale-btn" class="pos-btn pos-btn-primary">🆕 Nueva venta</button>
+            <a id="pos-print-btn" class="pos-btn pos-btn-secondary" target="_blank">🖨️ Imprimir</a>
+        </div>
+    </div>
+</div>
+
+<script src="{% static 'admin/js/sale_invoice_pos.js' %}"></script>
+{% endblock %}

@@ -31,6 +31,8 @@ import logging
 logger = logging.getLogger(__name__)
 from django_erp.accounting.services import TaxService
 from unfold.widgets import UnfoldAdminTextInputWidget
+from .views import POSView, pos_search_products, pos_checkout, pos_customer_form, pos_customer_search
+
 
 
 # ============================================================
@@ -522,6 +524,7 @@ class SaleInvoicePaymentInline(UnfoldTabularInline):
 @admin.register(SaleInvoice)
 class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     """Admin de facturas de venta - INDEPENDIENTE DE ORDENES"""
+    change_list_template = "admin/sales/change_list.html"
     
     form = SaleInvoiceForm
     
@@ -745,10 +748,29 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
 
 
     def get_urls(self):
-        custom_view = self.admin_site.admin_view(SalesReportView.as_view(model_admin=self))
+        # Vista de reporte (ya existente)
+        report_view = self.admin_site.admin_view(
+            SalesReportView.as_view(model_admin=self)
+        )
+        # ✅ NUEVA: Vista POS
+        pos_view = self.admin_site.admin_view(
+            POSView.as_view(model_admin=self)
+        )
+        # ✅ NUEVOS: Endpoints del POS
+        search_view = self.admin_site.admin_view(pos_search_products)
+        checkout_view = self.admin_site.admin_view(pos_checkout)
+        customer_form_view = self.admin_site.admin_view(pos_customer_form)
+        customer_search_view = self.admin_site.admin_view(pos_customer_search)
+
+
         urls = super().get_urls()
         custom_urls = [
-            path('sales-report/', custom_view, name='sales_salesreport'),
+            path('sales-report/', report_view, name='sales_salesreport'),
+            path('pos/', pos_view, name='sales_saleinvoice_pos'),
+            path('pos/search/', search_view, name='sales_pos_search'),
+            path('pos/checkout/', checkout_view, name='sales_pos_checkout'),
+            path('pos/customer-form/', customer_form_view, name='sales_pos_customer_form'),
+            path('pos/customer-search/', customer_search_view, name='sales_pos_customer_search'),
         ]
         return custom_urls + urls
 
