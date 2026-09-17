@@ -49,6 +49,7 @@
         const successModal = document.getElementById('pos-success-modal');
 
         let cart = [];
+        let productsCache = [];  // ✅ Caché de productos para evitar JSON en atributos
         let searchTimeout = null;
         let customerTimeout = null;
 
@@ -205,8 +206,9 @@
             searchInput.addEventListener('input', function () {
                 clearTimeout(searchTimeout);
                 const q = this.value.trim();
-                if (q.length < 2) {
-                    renderProductsGrid([]);
+                // ✅ Mostrar todos si está vacío
+                if (q.length === 0) {
+                    doSearch('');
                     return;
                 }
                 searchTimeout = setTimeout(() => doSearch(q), 250);
@@ -217,20 +219,23 @@
                     e.preventDefault();
                     const firstCard = productsGrid.querySelector('.pos-product-card');
                     if (firstCard) {
-                        addToCart(JSON.parse(firstCard.dataset.product));
-                        searchInput.value = '';
-                        renderProductsGrid([]);
+                        const idx = parseInt(firstCard.dataset.productIndex);
+                        if (!isNaN(idx) && productsCache[idx]) {
+                            addToCart(productsCache[idx]);
+                            searchInput.value = '';
+                            doSearch('');
+                        }
                     }
                 }
                 if (e.key === 'Escape') {
                     searchInput.value = '';
-                    renderProductsGrid([]);
+                    doSearch('');
                 }
             });
         }
 
         function doSearch(q) {
-            fetch(SEARCH_URL + '?q=' + encodeURIComponent(q))
+            fetch(SEARCH_URL + '?q=' + encodeURIComponent(q || ''))
                 .then(r => r.json())
                 .then(data => renderProductsGrid(data.results || []))
                 .catch(err => console.error('Error buscando:', err));
@@ -239,20 +244,30 @@
         function renderProductsGrid(results) {
             if (!productsGrid) return;
 
+            // ✅ Guardar en caché
+            productsCache = results;
+
             if (results.length === 0) {
                 productsGrid.innerHTML =
                     '<div class="pos-products-empty">' +
                     '<div class="pos-products-empty-icon">🔍</div>' +
-                    '<p>Busca un producto para agregarlo al carrito</p>' +
+                    '<p>No se encontraron productos</p>' +
                     '</div>';
                 return;
             }
 
-            productsGrid.innerHTML = results.map(p => {
+            productsGrid.innerHTML = results.map((p, idx) => {
                 const stockClass = p.stock <= 0 ? 'out' : (p.stock < 5 ? 'low' : '');
                 const stockLabel = p.is_service ? 'Servicio' : ('Stock: ' + p.stock);
+
+                // ✅ NUEVO: imagen o placeholder
+                const imageHtml = p.image_url
+                    ? '<img src="' + escapeHtml(p.image_url) + '" alt="' + escapeHtml(p.name) + '" class="card-image" loading="lazy">'
+                    : '<div class="card-image-placeholder">📦</div>';
+
                 return (
-                    '<div class="pos-product-card" data-product=\'' + JSON.stringify(p).replace(/'/g, "&apos;") + '\'>' +
+                    '<div class="pos-product-card" data-product-index="' + idx + '">' +
+                        '<div class="card-image-wrap">' + imageHtml + '</div>' +
                         '<div class="card-code">' + escapeHtml(p.code) + '</div>' +
                         '<div class="card-name">' + escapeHtml(p.name) + '</div>' +
                         '<div class="card-footer">' +
@@ -267,8 +282,10 @@
         if (productsGrid) {
             productsGrid.addEventListener('click', function (e) {
                 const card = e.target.closest('.pos-product-card');
-                if (!card || !card.dataset.product) return;
-                addToCart(JSON.parse(card.dataset.product));
+                if (!card) return;
+                const idx = parseInt(card.dataset.productIndex);
+                if (isNaN(idx) || !productsCache[idx]) return;
+                addToCart(productsCache[idx]);
             });
         }
 
@@ -421,7 +438,7 @@
                     searchInput.value = '';
                     searchInput.focus();
                 }
-                renderProductsGrid([]);
+                doSearch('');
             });
         }
 
@@ -502,7 +519,7 @@
                     searchInput.value = '';
                     searchInput.focus();
                 }
-                renderProductsGrid([]);
+                doSearch('');
             });
         }
 
@@ -624,6 +641,9 @@
         // ============================================================
         renderCart();
         updateCheckoutButton();
+
+        // ✅ Cargar productos al iniciar (los primeros 20)
+        doSearch('');
 
         console.log('[POS] Inicializado correctamente');
     });

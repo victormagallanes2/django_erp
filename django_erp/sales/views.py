@@ -28,18 +28,70 @@ from django.contrib.admin.widgets import AutocompleteSelect
 from django.contrib import admin
 import json
 import logging
-from django.db.models import Q
+from django.db.models import Sum, Q
 
 logger = logging.getLogger(__name__)
 
-# ============================================================
-# ✅ VISTA POS (interfaz)
-# ============================================================
 
 
+@staff_member_required
+@require_GET
+def pos_search_products(request):
+    """Busca productos por código o nombre para el POS"""
+    query = request.GET.get('q', '').strip()
+    company = getattr(request, 'current_company', None)
+    if not company:
+        company = Company.get_active()
 
-# views.py
-from django.db.models import Q
+    if not company:
+        return JsonResponse({'results': []})
+
+    qs = Product.objects.filter(company=company, is_active=True)
+
+    if query:
+        qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query))
+
+    qs = qs[:20]
+
+    rate = ExchangeRate.get_today_rate('USD', 'BS') or Decimal('0')
+
+    results = []
+    for p in qs:
+        stock = Inventory.objects.filter(
+            product=p, company=company
+        ).aggregate(total=Sum('quantity'))['total'] or 0
+
+        inventory_rec = Inventory.objects.filter(
+            product=p, company=company, quantity__gt=0
+        ).first()
+        location_id = inventory_rec.location_id if inventory_rec and inventory_rec.location else None
+
+        price_usd = Decimal(str(p.sale_price)) if p.sale_price else Decimal('0')
+        price_bs = price_usd * rate
+
+        # ✅ IMPORTANTE: obtener la URL de la imagen
+        image_url = ''
+        if p.image:
+            try:
+                image_url = p.image.url
+            except Exception:
+                image_url = ''
+
+        results.append({
+            'id': p.id,
+            'code': p.code,
+            'name': p.name,
+            'price_usd': float(price_usd),
+            'price_bs': float(price_bs),
+            'stock': stock,
+            'location_id': location_id,
+            'is_service': getattr(p, 'is_service', False),
+            'image_url': image_url,
+        })
+
+    return JsonResponse({'results': results})
+
+
 
 @staff_member_required
 @require_GET
@@ -106,55 +158,6 @@ class POSView(UnfoldModelAdminViewMixin, TemplateView):
 # ✅ ENDPOINT: Buscar productos (para el POS)
 # ============================================================
 
-@staff_member_required
-@require_GET
-def pos_search_products(request):
-    """Busca productos por código o nombre para el POS"""
-    query = request.GET.get('q', '').strip()
-    company = getattr(request, 'current_company', None)
-    if not company:
-        company = Company.get_active()
-
-    if not company:
-        return JsonResponse({'results': []})
-
-    qs = Product.objects.filter(company=company, is_active=True)
-
-    if query:
-        qs = qs.filter(code__icontains=query) | qs.filter(name__icontains=query)
-
-    qs = qs[:20]  # Limitar resultados
-
-    rate = ExchangeRate.get_today_rate('USD', 'BS') or Decimal('0')
-
-    results = []
-    for p in qs:
-        # Stock total
-        stock = Inventory.objects.filter(
-            product=p, company=company
-        ).aggregate(total=__import__('django.db.models', fromlist=['Sum']).Sum('quantity'))['total'] or 0
-
-        # Primera ubicación con stock
-        inventory_rec = Inventory.objects.filter(
-            product=p, company=company, quantity__gt=0
-        ).first()
-        location_id = inventory_rec.location_id if inventory_rec and inventory_rec.location else None
-
-        price_usd = Decimal(str(p.sale_price)) if p.sale_price else Decimal('0')
-        price_bs = price_usd * rate
-
-        results.append({
-            'id': p.id,
-            'code': p.code,
-            'name': p.name,
-            'price_usd': float(price_usd),
-            'price_bs': float(price_bs),
-            'stock': stock,
-            'location_id': location_id,
-            'is_service': getattr(p, 'is_service', False),
-        })
-
-    return JsonResponse({'results': results})
 
 
 # ============================================================
