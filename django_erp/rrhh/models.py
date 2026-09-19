@@ -114,7 +114,17 @@ class Commission(models.Model):
         related_name='commissions',
         verbose_name=_("Empleado")
     )
-    
+
+    # ✅ NUEVO: FK a Company
+    company = models.ForeignKey(
+        'configuration.Company',
+        on_delete=models.CASCADE,
+        related_name='commissions',
+        verbose_name=_("Compañía"),
+        null=True,      # Temporalmente nullable para migración
+        blank=True,
+    )
+
     sale_invoice = models.ForeignKey(
         'sales.SaleInvoice',
         on_delete=models.CASCADE,

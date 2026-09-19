@@ -115,6 +115,7 @@ class CommissionService:
         commission = Commission.objects.create(
             employee=employee,
             sale_invoice=invoice,
+            company=invoice.company,
             base_amount=base_amount,
             rate=rate,
             amount=amount,
