@@ -287,7 +287,7 @@ def get_menu_items(request):
             })
         if user.has_perm('sales.view_saleorder'):
             sales_items.append({
-                "title": "Pos",
+                "title": "Punto de Venta",
                 "icon": "fact_check",
                 "link": "/admin/sales/saleinvoice/pos/",
             })

@@ -31,7 +31,7 @@ import logging
 logger = logging.getLogger(__name__)
 from django_erp.accounting.services import TaxService
 from unfold.widgets import UnfoldAdminTextInputWidget
-from .views import POSView, pos_search_products, pos_checkout, pos_customer_form, pos_customer_search
+from .views import POSView, pos_search_products, pos_checkout, pos_customer_form, pos_customer_search, pos_salespersons
 
 
 
@@ -761,6 +761,7 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         checkout_view = self.admin_site.admin_view(pos_checkout)
         customer_form_view = self.admin_site.admin_view(pos_customer_form)
         customer_search_view = self.admin_site.admin_view(pos_customer_search)
+        salespersons_view = self.admin_site.admin_view(pos_salespersons)
 
 
         urls = super().get_urls()
@@ -771,6 +772,7 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             path('pos/checkout/', checkout_view, name='sales_pos_checkout'),
             path('pos/customer-form/', customer_form_view, name='sales_pos_customer_form'),
             path('pos/customer-search/', customer_search_view, name='sales_pos_customer_search'),
+            path('pos/salespersons/', salespersons_view, name='sales_pos_salespersons'),
         ]
         return custom_urls + urls
 
@@ -1001,277 +1003,104 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         return movements_created
 
 
+
     def save_formset(self, request, form, formset, change):
         """
         Guardar líneas y pagos de la factura.
-        Después de guardar, procesar reducción de inventario y registro en caja.
+        Después de guardar, procesar mediante el servicio centralizado.
         """
         logger.info("=" * 80)
         logger.info("🔴 [SaleInvoiceAdmin.save_formset] INICIANDO")
         
-        # ✅ USAR BANDERA EN SESIÓN PARA EVITAR DUPLICADOS
-        session_key = f'invoice_reduced_{form.instance.pk or "new"}'
-        
-        # Si ya se procesó esta factura en esta sesión, saltar
+        # ✅ Bandera de sesión para evitar duplicados
+        session_key = f'invoice_processed_{form.instance.pk or "new"}'
         if request.session.get(session_key):
             logger.info(f"   ℹ️ Factura ya procesada en esta sesión, saltando...")
-            logger.info("🔴 [SaleInvoiceAdmin.save_formset] FINALIZADO (duplicado)")
-            logger.info("=" * 80)
             return super().save_formset(request, form, formset, change)
         
         company = getattr(request, 'current_company', None)
         if not company:
             company = Company.get_active()
         
-        logger.info(f"   Compañía para inlines: {company.code if company else 'N/A'}")
-        
-        # ✅ Obtener el estado actual de la factura ANTES de guardar los inlines
         invoice = form.instance
         old_status = None
         if change and invoice.pk:
             try:
                 old_invoice = SaleInvoice.objects.get(pk=invoice.pk)
                 old_status = old_invoice.status
-                logger.info(f"   Estado anterior de la factura: {old_status}")
             except SaleInvoice.DoesNotExist:
                 pass
         
         new_status = invoice.status
-        logger.info(f"   Nuevo estado de la factura: {new_status}")
         
-        # ✅ Guardar los inlines (líneas y pagos)
+        # ✅ Guardar inlines (líneas y pagos)
         instances = formset.save(commit=False)
-        logger.info(f"   Instancias a guardar: {len(instances)}")
-        
         for instance in instances:
             if hasattr(instance, 'company') and not instance.company_id:
                 instance.company = company
-                logger.info(f"   ✅ Compañía asignada a {instance.__class__.__name__}")
-            
             if hasattr(instance, 'product') and instance.product:
                 instance.product_code = instance.product.code
                 instance.product_name = instance.product.name
-            
             instance.save()
         
         formset.save_m2m()
         
         for obj in formset.deleted_objects:
-            logger.info(f"   🗑️ Eliminando objeto: {obj}")
             obj.delete()
         
-        # ✅ RECALCULAR TOTALES DESPUÉS DE GUARDAR LÍNEAS
-        if invoice.pk:
-            # Recargar la instancia desde la base de datos para tener los datos más recientes
-            invoice.refresh_from_db()
-            
-            # Calcular totales desde las líneas
-            subtotal = Decimal('0.00')
-            for line in invoice.lines.all():
-                subtotal += Decimal(str(line.subtotal))
-            
-            # Obtener tasa de IVA de la compañía
-            company = invoice.company or Company.get_active()
-            from django_erp.accounting.services import TaxService
-            tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
-            
-            tax = subtotal * (tax_rate / Decimal('100'))
-            total = subtotal + tax
-            
-            # Asignar los totales calculados
-            invoice.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            invoice.tax = tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            invoice.total = total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            
-            # Guardar solo los campos de totales
-            invoice.save(update_fields=['subtotal', 'tax', 'total'])
-            
-            # ✅ Volver a recargar para asegurar que los valores están actualizados
-            invoice.refresh_from_db()
-            
-            logger.info(f"   ✅ Totales recalculados: Subtotal={invoice.subtotal}, IVA={invoice.tax}, Total={invoice.total}")
+        # ✅ Procesar si cambió a PAID
+        is_new_paid = new_status == 'PAID' and (old_status is None or old_status != 'PAID')
         
-        if invoice.status == 'PAID' and invoice.total > 0:
+        if is_new_paid and invoice.pk:
             try:
-                from django_erp.rrhh.services import CommissionService
-                commission = CommissionService.create_commission_for_invoice(invoice)
-                if commission:
+                from .services import SaleInvoiceProcessingService
+                result = SaleInvoiceProcessingService.process_paid_invoice(
+                    invoice=invoice,
+                    user=request.user,
+                    request=request,
+                )
+                
+                if result.get('errors'):
+                    for err in result['errors']:
+                        self.message_user(request, f'⚠️ {err}', messages.WARNING)
+                
+                if result.get('warnings'):
+                    for warn in result['warnings']:
+                        self.message_user(request, f'ℹ️ {warn}', messages.INFO)
+                
+                if result.get('cash_transaction_created'):
                     self.message_user(
                         request,
-                        f'✅ Comisión generada: ${commission.amount:.2f} '
-                        f'para {commission.employee}',
+                        f'✅ Transacción registrada en caja por ${invoice.total:.2f}',
+                        messages.SUCCESS
+                    )
+                
+                if result.get('inventory_reduced'):
+                    self.message_user(
+                        request,
+                        f'✅ Inventario reducido ({result["movements_created"]} movimientos)',
+                        messages.SUCCESS
+                    )
+                
+                if result.get('commission_created'):
+                    self.message_user(
+                        request,
+                        f'✅ Comisión generada: ${result["commission_created"].amount:.2f}',
                         messages.SUCCESS
                     )
             except Exception as e:
-                logger.error(f"   ❌ Error al generar comisión: {e}")
+                logger.error(f"   ❌ Error procesando factura PAID: {e}")
                 import traceback
-                logger.error(f"   Traceback: {traceback.format_exc()}")
-        # ✅ PROCESAR REGISTRO EN CAJA Y REDUCCIÓN DE INVENTARIO
-        is_new_paid = new_status == 'PAID' and (old_status is None or old_status != 'PAID')
-        
-        if is_new_paid:
-            logger.info(f"   🎯 Factura {invoice.number} cambió a PAID")
-            logger.info(f"   📊 Monto total de la factura: {invoice.total}")
-            
-            # ✅ 1. VERIFICAR Y REGISTRAR EN CAJA
-            from .models import CashTransaction
-            from .helpers import get_open_register
-            from django_erp.configuration.models import PaymentMethod, Currency
-            
-            # Verificar que el monto total sea mayor a 0
-            if invoice.total <= 0:
-                logger.warning(f"   ⚠️ El total de la factura es {invoice.total}, no se registra en caja")
+                logger.error(traceback.format_exc())
                 self.message_user(
                     request,
-                    f'⚠️ La factura tiene total {invoice.total}, no se registra en caja porque el monto es cero o negativo.',
-                    messages.WARNING
+                    f'❌ Error al procesar factura: {str(e)}',
+                    messages.ERROR
                 )
-            else:
-                # Verificar que no exista ya una transacción
-                cash_exists = CashTransaction.objects.filter(
-                    reference=invoice.number,
-                    type='SALE'
-                ).exists()
-                
-                if cash_exists:
-                    logger.info(f"   ℹ️ Transacción de caja ya existe para {invoice.number}")
-                    existing = CashTransaction.objects.filter(
-                        reference=invoice.number,
-                        type='SALE'
-                    ).first()
-                    logger.info(f"   ℹ️ Monto existente: {existing.amount}")
-                else:
-                    try:
-                        register = get_open_register(request.user)
-                        logger.info(f"   ✅ Caja abierta: {register.number}")
-                        
-                        # ✅ CREAR LA TRANSACCIÓN CON EL MONTO CORRECTO
-                        transaction = CashTransaction.objects.create(
-                            register=register,
-                            type='SALE',
-                            amount=invoice.total,  # ✅ Usar el total calculado
-                            description=f"Factura {invoice.number} - {invoice.customer_name}",
-                            reference=invoice.number,
-                            user=request.user,
-                            company=invoice.company,
-                        )
-                        logger.info(f"   ✅ Transacción creada con monto: {transaction.amount}")
-                        
-                        # Recalcular totales de la caja
-                        register.calculate_totals()
-                        logger.info(f"   ✅ Totales de caja recalculados")
-                        
-                        self.message_user(
-                            request,
-                            f'✅ Transacción registrada en caja por ${invoice.total:.2f}',
-                            messages.SUCCESS
-                        )
-                        
-                        # Crear pago si no existe
-                        payment_exists = Payment.objects.filter(
-                            sale_invoice=invoice,
-                            status='COMPLETED'
-                        ).exists()
-                        
-                        if not payment_exists:
-                            default_method = PaymentMethod.objects.filter(
-                                company=invoice.company,
-                                is_active=True
-                            ).first()
-                            
-                            if default_method:
-                                try:
-                                    usd = Currency.objects.get(code='USD')
-                                except Currency.DoesNotExist:
-                                    usd = None
-                                
-                                if usd:
-                                    Payment.objects.create(
-                                        sale_invoice=invoice,
-                                        method=default_method,
-                                        currency=usd,
-                                        amount=invoice.total,
-                                        amount_usd=invoice.total,
-                                        reference=f"Pago factura {invoice.number}",
-                                        status='COMPLETED',
-                                        user=request.user,
-                                        company=invoice.company,
-                                    )
-                                    logger.info(f"   ✅ Pago creado para factura {invoice.number}")
-                        
-                    except ValidationError as e:
-                        logger.warning(f"   ⚠️ No se pudo registrar en caja: {e}")
-                        if not request.session.get(f'invoice_cash_warned_{invoice.pk}'):
-                            self.message_user(
-                                request,
-                                f'⚠️ No se pudo registrar en caja: {str(e)}',
-                                messages.WARNING
-                            )
-                            request.session[f'invoice_cash_warned_{invoice.pk}'] = True
-                    except Exception as e:
-                        logger.error(f"   ❌ Error al registrar en caja: {e}")
-                        import traceback
-                        logger.error(f"   Traceback: {traceback.format_exc()}")
-                        if not request.session.get(f'invoice_cash_error_{invoice.pk}'):
-                            self.message_user(
-                                request,
-                                f'⚠️ Error al registrar en caja: {str(e)}',
-                                messages.ERROR
-                            )
-                            request.session[f'invoice_cash_error_{invoice.pk}'] = True
-            
-            # ✅ 2. VERIFICAR Y REDUCIR INVENTARIO
-            from django_erp.inventory.models import Movement
-            already_reduced = Movement.objects.filter(
-                source_reference=invoice.number,
-                source_type='SALE'
-            ).exists()
-            
-            if already_reduced:
-                logger.info(f"   ℹ️ El inventario ya fue reducido para {invoice.number}")
-            else:
-                if not invoice.lines.exists():
-                    logger.warning(f"   ⚠️ La factura no tiene líneas, no se reduce inventario")
-                    if not request.session.get(f'invoice_warned_{invoice.pk}'):
-                        self.message_user(
-                            request,
-                            f'⚠️ La factura no tiene líneas, no se puede reducir inventario',
-                            messages.WARNING
-                        )
-                        request.session[f'invoice_warned_{invoice.pk}'] = True
-                else:
-                    logger.info(f"   📊 Líneas a procesar: {invoice.lines.count()}")
-                    try:
-                        movements = self._reduce_inventory(request, invoice)
-                        if movements:
-                            logger.info(f"   ✅ {len(movements)} movimientos creados")
-                            if not request.session.get(f'invoice_success_{invoice.pk}'):
-                                self.message_user(
-                                    request,
-                                    f'✅ Inventario reducido para la factura {invoice.number} ({len(movements)} movimientos)',
-                                    messages.SUCCESS
-                                )
-                                request.session[f'invoice_success_{invoice.pk}'] = True
-                    except Exception as e:
-                        logger.error(f"   ❌ Error al reducir inventario: {e}")
-                        import traceback
-                        logger.error(f"   Traceback: {traceback.format_exc()}")
-                        if not request.session.get(f'invoice_error_{invoice.pk}'):
-                            self.message_user(
-                                request,
-                                f'❌ Error al reducir inventario: {str(e)}',
-                                messages.ERROR
-                            )
-                            request.session[f'invoice_error_{invoice.pk}'] = True
-                        # Revertir el estado a ISSUED si no se pudo reducir
-                        invoice.status = 'ISSUED'
-                        invoice.save(update_fields=['status'])
-                        logger.info("   ↩️ Estado revertido a ISSUED")
-                        raise
-        else:
-            logger.info(f"   ℹ️ No se requiere procesamiento (status: {new_status}, old: {old_status})")
+                invoice.status = 'ISSUED'
+                invoice.save(update_fields=['status'])
+                raise
         
-        # ✅ Marcar como procesado en esta sesión
         request.session[session_key] = True
         
         logger.info("🔴 [SaleInvoiceAdmin.save_formset] FINALIZADO")

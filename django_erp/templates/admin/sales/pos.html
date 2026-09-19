@@ -11,6 +11,8 @@
      data-search-url="{{ search_url }}"
      data-checkout-url="{{ checkout_url }}"
      data-customer-search-url="{{ customer_search_url }}"
+     data-salespersons-url="{{ salespersons_url }}"
+     data-require-salesperson="{{ require_salesperson|yesno:'true,false' }}"
      data-exchange-rate="{{ exchange_rate }}">
 
     <!-- ============================================================ -->
@@ -57,36 +59,46 @@
 
         <!-- Selector de cliente (autocomplete propio) -->
         <div class="pos-customer-bar">
-<div class="pos-customer-bar">
-    <label>👤 Cliente</label>
-    <div class="pos-customer-row">
-        <div class="pos-customer-autocomplete">
-            <div class="pos-customer-input-wrap">
-                <input type="text"
-                       id="pos-customer-input"
-                       class="pos-customer-select"
-                       placeholder="🔍 Buscar cliente por nombre o cédula..."
-                       autocomplete="off">
-                <button type="button"
-                        id="pos-customer-lupa-btn"
-                        class="pos-customer-lupa-btn"
-                        title="Mostrar todos los clientes">
-                    🔍
-                </button>
+            <div class="pos-customer-bar">
+                <label>👤 Cliente</label>
+                <div class="pos-customer-row">
+                    <div class="pos-customer-autocomplete">
+                        <div class="pos-customer-input-wrap">
+                            <input type="text"
+                                   id="pos-customer-input"
+                                   class="pos-customer-select"
+                                   placeholder="🔍 Buscar cliente por nombre o cédula..."
+                                   autocomplete="off">
+                            <button type="button"
+                                    id="pos-customer-lupa-btn"
+                                    class="pos-customer-lupa-btn"
+                                    title="Mostrar todos los clientes">
+                                🔍
+                            </button>
+                        </div>
+                        <input type="hidden" id="pos-customer" value="">
+                        <div id="pos-customer-results" class="pos-customer-results"></div>
+                    </div>
+                    <button type="button"
+                            class="pos-add-customer-btn"
+                            id="pos-open-customer-modal-btn"
+                            data-customer-add-url="{% url 'admin:sales_pos_customer_form' %}">
+                        ➕
+                    </button>
+
+                </div>
+
             </div>
-            <input type="hidden" id="pos-customer" value="">
-            <div id="pos-customer-results" class="pos-customer-results"></div>
-        </div>
-        <button type="button"
-                class="pos-add-customer-btn"
-                id="pos-open-customer-modal-btn"
-                data-customer-add-url="{% url 'admin:sales_pos_customer_form' %}">
-            ➕
-        </button>
-    </div>
-</div>
+
         </div>
 
+<div class="pos-salesperson-bar" id="pos-salesperson-bar"
+     {% if not require_salesperson %}style="display:none;"{% endif %}>
+    <label>🧑‍💼 Vendedor que cobra comisión</label>
+    <select id="pos-salesperson" class="pos-salesperson-select">
+        <option value="">— Selecciona un empleado —</option>
+    </select>
+</div>
         <!-- Lista del carrito -->
         <div class="pos-cart" id="pos-cart">
             <div class="pos-cart-empty" id="pos-cart-empty">
@@ -117,6 +129,7 @@
             <div class="pos-rate-info">
                 Tasa: 1 USD = Bs. {{ exchange_rate }}
             </div>
+            
         </div>
 
         <!-- Acciones -->
@@ -128,7 +141,9 @@
                 ✅ Cobrar
             </button>
         </div>
+
     </div>
+
 </div>
 
 <!-- ============================================================ -->

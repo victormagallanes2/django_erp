@@ -1,9 +1,11 @@
-# inventory/services.py - VERSIÓN COMPLETA CON MEJORAS PARA NOTAS DE ENTREGA
 from django.db import transaction
 from django.core.exceptions import ValidationError
+from django.utils import timezone
+from decimal import Decimal
 from .models import Inventory, PhysicalCount, Product, Location, Movement
 from django_erp.configuration.models import Company
 import logging
+
 
 logger = logging.getLogger(__name__)
 
@@ -238,24 +240,33 @@ class InventoryService:
     @staticmethod
     @transaction.atomic
     def update_stock_from_movement(movement):
-        """Actualizar inventario desde un movimiento físico"""
+        """
+        Actualizar inventario desde un movimiento físico.
+
+        ⚠️ IMPORTANTE: usa QuerySet.update() en lugar de instance.save()
+        para evitar disparar la señal post_save de Inventory, que junto con
+        simple_history causaba una recursión infinita (RecursionError).
+        """
         logger.info("=" * 80)
         logger.info("🔴 [update_stock_from_movement] INICIANDO ACTUALIZACIÓN")
         logger.info(f"   Movimiento ID: {movement.id}")
         logger.info(f"   Tipo: {movement.type}")
         logger.info(f"   Producto: {movement.product.name} (ID: {movement.product.id})")
         logger.info(f"   Cantidad: {movement.quantity}")
-        
+
         location = movement.location_to or movement.location_from
-        
+
         if not location:
-            logger.warning(f"⚠️ [update_stock_from_movement] Movimiento {movement.id} sin ubicación, no se actualiza inventario")
+            logger.warning(
+                f"⚠️ Movimiento {movement.id} sin ubicación, no se actualiza inventario"
+            )
             logger.info("=" * 80)
             return None
-        
+
         logger.info(f"   Ubicación: {location.code} (ID: {location.id})")
-        
+
         try:
+            # ✅ get_or_create SIN save() posterior (usamos update() más abajo)
             inventory, created = Inventory.objects.get_or_create(
                 product=movement.product,
                 location=location,
@@ -265,50 +276,84 @@ class InventoryService:
                     'total_value': 0,
                 }
             )
-            
-            logger.info(f"   {'✅ Creado' if created else '✅ Encontrado'} registro de inventario")
+
+            logger.info(
+                f"   {'✅ Creado' if created else '✅ Encontrado'} registro de inventario"
+            )
             logger.info(f"   Cantidad actual: {inventory.quantity}")
-            
+
+            old_quantity = inventory.quantity
+            new_quantity = old_quantity
+            new_total_value = Decimal(str(inventory.total_value or 0))
+
             if movement.type == 'ENTRY':
                 logger.info("   📥 Procesando ENTRADA...")
-                inventory.quantity += movement.quantity
-                # ✅ Actualizar valor total con el precio del movimiento
-                inventory.total_value = inventory.quantity * movement.unit_price
-                logger.info(f"   Nueva cantidad: {inventory.quantity}")
-                    
+                new_quantity = old_quantity + movement.quantity
+                new_total_value = (
+                    Decimal(str(inventory.total_value or 0))
+                    + Decimal(str(movement.quantity))
+                    * Decimal(str(movement.unit_price or 0))
+                )
+                logger.info(f"   Nueva cantidad: {new_quantity}")
+
             elif movement.type == 'EXIT':
                 logger.info("   📤 Procesando SALIDA...")
-                if inventory.quantity < movement.quantity:
-                    logger.error(f"   ❌ Stock insuficiente: {inventory.quantity} < {movement.quantity}")
-                    raise ValidationError(f"Stock insuficiente para {movement.product.name}. "
-                                         f"Disponible: {inventory.quantity}, Solicitado: {movement.quantity}")
-                inventory.quantity -= movement.quantity
-                # ✅ Recalcular valor total con el precio promedio ponderado
-                if inventory.quantity > 0:
-                    # Mantener el valor total proporcional a la cantidad restante
-                    inventory.total_value = inventory.quantity * (inventory.total_value / (inventory.quantity + movement.quantity))
+                if old_quantity < movement.quantity:
+                    logger.error(
+                        f"   ❌ Stock insuficiente: {old_quantity} < {movement.quantity}"
+                    )
+                    raise ValidationError(
+                        f"Stock insuficiente para {movement.product.name}. "
+                        f"Disponible: {old_quantity}, Solicitado: {movement.quantity}"
+                    )
+                new_quantity = old_quantity - movement.quantity
+
+                # Recalcular valor total proporcional (valor promedio ponderado)
+                if new_quantity > 0 and old_quantity > 0:
+                    avg_value = (
+                        Decimal(str(inventory.total_value or 0))
+                        / Decimal(str(old_quantity))
+                    )
+                    new_total_value = avg_value * Decimal(str(new_quantity))
                 else:
-                    inventory.total_value = 0
-                logger.info(f"   Nueva cantidad: {inventory.quantity}")
-                
+                    new_total_value = Decimal('0.00')
+
+                logger.info(f"   Nueva cantidad: {new_quantity}")
+
             elif movement.type == 'TRANSFER':
                 logger.info("   🔄 Procesando TRASLADO...")
-                # Los traslados se manejan en dos pasos
-                # No modificar el inventario aquí, se maneja con dos movimientos separados
-                pass
-            
-            inventory.save()
-            
-            logger.info(f"   ✅ Inventario guardado exitosamente")
+                # Los traslados se manejan con dos movimientos separados
+                # (EXIT en origen + ENTRY en destino). Aquí no modificamos.
+                logger.info("=" * 80)
+                return inventory
+
+            # ✅ CLAVE: usar QuerySet.update() en lugar de inventory.save()
+            # Esto evita disparar post_save → simple_history → recursión infinita
+            Inventory.objects.filter(pk=inventory.pk).update(
+                quantity=new_quantity,
+                total_value=new_total_value,
+                updated_at=timezone.now(),
+            )
+
+            # Refrescar el objeto para devolver los valores reales
+            inventory.refresh_from_db()
+
+            logger.info("   ✅ Inventario actualizado exitosamente (via .update())")
             logger.info(f"   Cantidad final: {inventory.quantity}")
             logger.info(f"   Valor total final: {inventory.total_value}")
             logger.info("🔴 [update_stock_from_movement] FINALIZADO")
             logger.info("=" * 80)
-            
+
             return inventory
-            
+
+        except ValidationError:
+            # Re-lanzar errores de validación tal cual (stock insuficiente, etc.)
+            logger.info("=" * 80)
+            raise
         except Exception as e:
             logger.error(f"❌ [update_stock_from_movement] Error: {e}")
+            import traceback
+            logger.error(f"   Traceback: {traceback.format_exc()}")
             logger.info("=" * 80)
             raise
     

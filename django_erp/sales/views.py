@@ -29,6 +29,7 @@ from django.contrib import admin
 import json
 import logging
 from django.db.models import Sum, Q
+from django_erp.rrhh.models import Employee
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,7 @@ class POSView(UnfoldModelAdminViewMixin, TemplateView):
         company = getattr(self.request, 'current_company', None)
         if not company:
             company = Company.get_active()
+
         context['company'] = company
         context['company_name'] = company.name if company else "Sin compañía"
 
@@ -150,6 +152,14 @@ class POSView(UnfoldModelAdminViewMixin, TemplateView):
         context['search_url'] = self.request.build_absolute_uri('search/')
         context['checkout_url'] = self.request.build_absolute_uri('checkout/')
         context['customer_search_url'] = self.request.build_absolute_uri('customer-search/')
+        context['salespersons_url'] = self.request.build_absolute_uri('salespersons/')
+
+        context['require_salesperson'] = bool(
+            company and (
+                getattr(company, 'commission_enabled', False)
+                or getattr(company, 'require_salesperson_pin', False)
+            )
+        )
 
         return context
 
@@ -167,7 +177,18 @@ class POSView(UnfoldModelAdminViewMixin, TemplateView):
 @staff_member_required
 @require_POST
 def pos_checkout(request):
-    """Crea una factura completa desde el POS"""
+    """
+    Crea una factura completa desde el POS.
+
+    Reutiliza SaleInvoiceProcessingService para que el flujo sea EXACTAMENTE
+    el mismo que cuando se crea una factura desde el admin:
+      - Recalcula totales
+      - Genera comisión si hay salesperson
+      - Registra en caja
+      - Crea pago
+      - Reduce inventario
+      - Envía señal invoice_paid
+    """
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
@@ -176,8 +197,10 @@ def pos_checkout(request):
     customer_id = data.get('customer_id')
     lines_data = data.get('lines', [])
     payment_method_id = data.get('payment_method_id')
+    salesperson_id = data.get('salesperson_id')  # ✅ NUEVO
     note = data.get('note', '')
 
+    # ✅ Validaciones básicas
     if not customer_id:
         return JsonResponse({'error': 'Debes seleccionar un cliente'}, status=400)
     if not lines_data:
@@ -191,12 +214,41 @@ def pos_checkout(request):
     if not company:
         return JsonResponse({'error': 'No hay compañía activa'}, status=400)
 
+    # ✅ Validar vendedor si la compañía lo requiere
+    requires_salesperson = bool(
+        getattr(company, 'commission_enabled', False)
+        or getattr(company, 'require_salesperson_pin', False)
+    )
+    if requires_salesperson and not salesperson_id:
+        return JsonResponse(
+            {'error': 'Debes seleccionar el empleado que cobra la comisión'},
+            status=400
+        )
+
+    # ✅ Resolver el Employee
+    salesperson = None
+    if salesperson_id:
+        from django_erp.rrhh.models import Employee
+        try:
+            salesperson = Employee.objects.select_related('user').get(
+                id=salesperson_id,
+                user__is_employee=True,
+                user__is_active=True,
+            )
+        except Employee.DoesNotExist:
+            return JsonResponse(
+                {'error': 'Empleado no encontrado o inactivo'},
+                status=404
+            )
+
     try:
         with transaction.atomic():
             customer = Customer.objects.get(id=customer_id, company=company)
-            payment_method = PaymentMethod.objects.get(id=payment_method_id, company=company)
+            payment_method = PaymentMethod.objects.get(
+                id=payment_method_id, company=company
+            )
 
-            # ✅ 1. Verificar caja abierta
+            # ✅ 1. Verificar caja abierta ANTES de crear la factura
             try:
                 register = get_open_register(request.user)
             except ValidationError as e:
@@ -216,7 +268,7 @@ def pos_checkout(request):
 
             number = f"FAC-VENTA-{datetime.now().strftime('%Y%m')}-{next_num:04d}"
 
-            # ✅ 3. Crear factura
+            # ✅ 3. Crear factura CON salesperson
             tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
 
             invoice = SaleInvoice.objects.create(
@@ -225,6 +277,7 @@ def pos_checkout(request):
                 customer_name=customer.name,
                 customer_tax_id=customer.tax_id,
                 customer_address=customer.address,
+                salesperson=salesperson,          # ✅ ASIGNAR VENDEDOR
                 status='PAID',
                 tax_rate=tax_rate,
                 note=note,
@@ -237,7 +290,6 @@ def pos_checkout(request):
                 product_id = line_data.get('product_id')
                 quantity = int(line_data.get('quantity', 1))
                 unit_price = Decimal(str(line_data.get('unit_price', 0)))
-                location_id = line_data.get('location_id')
 
                 product = Product.objects.get(id=product_id, company=company)
 
@@ -252,76 +304,30 @@ def pos_checkout(request):
                     company=company,
                 )
 
-                # ✅ 5. Reducir inventario (si no es servicio)
-                if not getattr(product, 'is_service', False):
-                    location = None
-                    if location_id:
-                        location = Location.objects.filter(id=location_id, company=company).first()
-                    if not location:
-                        # Buscar cualquier ubicación con stock
-                        inv = Inventory.objects.filter(
-                            product=product, company=company, quantity__gt=0
-                        ).first()
-                        location = inv.location if inv and inv.location else Location.objects.filter(
-                            company=company, is_active=True
-                        ).first()
-
-                    if not location:
-                        raise ValidationError(
-                            f"No hay ubicación para el producto {product.name}"
-                        )
-
-                    stock = InventoryService.get_stock_by_location(
-                        product.id, location.id, company
-                    )
-                    if stock < quantity:
-                        raise ValidationError(
-                            f"Stock insuficiente para '{product.name}'. "
-                            f"Disponible: {stock}, Requerido: {quantity}"
-                        )
-
-                    WarehouseService.create_exit(
-                        product_id=product.id,
-                        quantity=quantity,
-                        location_from_id=location.id,
-                        unit_price=unit_price,
-                        source_type='SALE',
-                        source_reference=invoice.number,
-                        note=f"Factura POS {invoice.number}",
-                        user=request.user,
-                        company=company,
-                    )
-
-            # ✅ 6. Recalcular totales
-            invoice.calculate_totals()
-            invoice.save()
-
-            # ✅ 7. Registrar transacción en caja
-            CashTransaction.objects.create(
-                register=register,
-                type='SALE',
-                amount=invoice.total,
-                description=f"Factura POS {invoice.number} - {customer.name}",
-                reference=invoice.number,
+            # ✅ 5. Procesar con el servicio centralizado
+            #    Esto recalcula totales, genera comisión, registra caja,
+            #    crea pago, reduce inventario y envía señal invoice_paid.
+            from .services import SaleInvoiceProcessingService
+            result = SaleInvoiceProcessingService.process_paid_invoice(
+                invoice=invoice,
                 user=request.user,
-                company=company,
+                request=request,
             )
-            register.calculate_totals()
 
-            # ✅ 8. Crear pago
-            currency = payment_method.default_currency or Currency.objects.filter(code='USD').first()
-            if currency:
-                Payment.objects.create(
-                    sale_invoice=invoice,
-                    method=payment_method,
-                    currency=currency,
-                    amount=invoice.total,
-                    amount_usd=invoice.total,
-                    reference=f"Pago POS {invoice.number}",
-                    status='COMPLETED',
-                    user=request.user,
-                    company=company,
-                )
+            # ✅ 6. Ajustar el método de pago específico del POS
+            payment = Payment.objects.filter(
+                sale_invoice=invoice,
+                status='COMPLETED'
+            ).first()
+
+            if payment:
+                payment.method = payment_method
+                if payment_method.default_currency:
+                    payment.currency = payment_method.default_currency
+                payment.reference = f"Pago POS {invoice.number}"
+                payment.save()
+
+            invoice.refresh_from_db()
 
             return JsonResponse({
                 'success': True,
@@ -331,7 +337,20 @@ def pos_checkout(request):
                 'tax': float(invoice.tax),
                 'total': float(invoice.total),
                 'customer_name': customer.name,
+                'salesperson_name': (
+                    salesperson.user.get_full_name() if salesperson else ''
+                ),
+                'salesperson_code': (
+                    salesperson.employee_code if salesperson else ''
+                ),
                 'print_url': f'/admin/sales/saleinvoice/{invoice.id}/change/',
+                'processing_result': {
+                    'cash_transaction_created': result.get('cash_transaction_created', False),
+                    'payment_created': result.get('payment_created', False),
+                    'inventory_reduced': result.get('inventory_reduced', False),
+                    'movements_created': result.get('movements_created', 0),
+                    'commission_created': result.get('commission_created') is not None,
+                }
             })
 
     except Customer.DoesNotExist:
@@ -462,3 +481,69 @@ def pos_customer_form(request):
 
     form = POSCustomerForm()
     return render(request, 'admin/sales/customer_form.html', {'form': form})
+
+
+@staff_member_required
+@require_GET
+def pos_salespersons(request):
+    """
+    Devuelve la lista de empleados elegibles como vendedores para el POS.
+    El modelo Employee NO tiene FK a Company, se filtra por User.is_employee
+    e User.is_active (que es lo que evalúa la property Employee.is_active).
+    """
+    from django_erp.rrhh.models import Employee
+
+    qs = (
+        Employee.objects
+        .filter(user__is_employee=True, user__is_active=True)
+        .select_related('user')
+        .order_by('user__first_name', 'user__last_name')
+    )
+
+    results = []
+    for e in qs:
+        full_name = e.user.get_full_name() or e.user.username
+        results.append({
+            'id': e.id,
+            'name': full_name,
+            'code': e.employee_code,
+            'position': e.position or '',
+            'commission_rate': float(e.commission_rate or 0),
+            'has_pin': bool(e.pin),
+            'text': full_name,
+        })
+
+    return JsonResponse({'results': results})
+
+
+@staff_member_required
+@require_GET
+def pos_salespersons(request):
+    """
+    Devuelve la lista de empleados elegibles como vendedores para el POS.
+    El modelo Employee NO tiene FK a Company, se filtra por User.is_employee
+    e User.is_active (que es lo que evalúa la property Employee.is_active).
+    """
+    from django_erp.rrhh.models import Employee
+
+    qs = (
+        Employee.objects
+        .filter(user__is_employee=True, user__is_active=True)
+        .select_related('user')
+        .order_by('user__first_name', 'user__last_name')
+    )
+
+    results = []
+    for e in qs:
+        full_name = e.user.get_full_name() or e.user.username
+        results.append({
+            'id': e.id,
+            'name': full_name,
+            'code': e.employee_code,
+            'position': e.position or '',
+            'commission_rate': float(e.commission_rate or 0),
+            'has_pin': bool(e.pin),
+            'text': full_name,
+        })
+
+    return JsonResponse({'results': results})

@@ -233,7 +233,7 @@ class Movement(models.Model):
         related_name='movements'
     )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
-    history = HistoricalRecords()
+    # history = HistoricalRecords()
 
     class Meta:
         verbose_name = "Movimiento"
@@ -296,7 +296,7 @@ class Inventory(models.Model):
         related_name='inventory'
     )
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
-    history = HistoricalRecords()
+    # history = HistoricalRecords()
     
     class Meta:
         verbose_name = "Inventario"

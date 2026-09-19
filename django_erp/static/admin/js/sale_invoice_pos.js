@@ -18,11 +18,15 @@
         const SEARCH_URL = container.dataset.searchUrl;
         const CHECKOUT_URL = container.dataset.checkoutUrl;
         const CUSTOMER_SEARCH_URL = container.dataset.customerSearchUrl;
+        const SALESPERSONS_URL = container.dataset.salespersonsUrl || '';
+        const REQUIRE_SALESPERSON = container.dataset.requireSalesperson === 'true';
         const EXCHANGE_RATE = parseFloat(container.dataset.exchangeRate) || 0;
 
         console.log('[POS] SEARCH_URL:', SEARCH_URL);
         console.log('[POS] CHECKOUT_URL:', CHECKOUT_URL);
         console.log('[POS] CUSTOMER_SEARCH_URL:', CUSTOMER_SEARCH_URL);
+        console.log('[POS] SALESPERSONS_URL:', SALESPERSONS_URL);
+        console.log('[POS] REQUIRE_SALESPERSON:', REQUIRE_SALESPERSON);
 
         const searchInput = document.getElementById('pos-search-input');
         const productsGrid = document.getElementById('pos-products-grid');
@@ -34,9 +38,13 @@
         const customerResults = document.getElementById('pos-customer-results');
         const customerLupaBtn = document.getElementById('pos-customer-lupa-btn');
 
+        const salespersonSelect = document.getElementById('pos-salesperson');
+        const salespersonBar = document.getElementById('pos-salesperson-bar');
+
         console.log('[POS] customerInput:', customerInput);
         console.log('[POS] customerResults:', customerResults);
         console.log('[POS] customerLupaBtn:', customerLupaBtn);
+        console.log('[POS] salespersonSelect:', salespersonSelect);
 
         const paymentButtons = document.querySelectorAll('.pos-payment-btn');
         const paymentMethodInput = document.getElementById('pos-payment-method-id');
@@ -49,7 +57,7 @@
         const successModal = document.getElementById('pos-success-modal');
 
         let cart = [];
-        let productsCache = [];  // ✅ Caché de productos para evitar JSON en atributos
+        let productsCache = [];
         let searchTimeout = null;
         let customerTimeout = null;
 
@@ -139,7 +147,7 @@
             updateCheckoutButton();
         }
 
-        // ✅ Evento: clic en la lupa
+        // Evento: clic en la lupa
         if (customerLupaBtn) {
             customerLupaBtn.addEventListener('click', function (e) {
                 e.preventDefault();
@@ -152,7 +160,7 @@
             console.warn('[POS] No se encontró el botón de lupa (#pos-customer-lupa-btn)');
         }
 
-        // ✅ Evento: clic en el input → mostrar todos
+        // Evento: clic en el input → mostrar todos
         if (customerInput) {
             customerInput.addEventListener('focus', function () {
                 console.log('[POS] Input de cliente enfocado');
@@ -182,7 +190,7 @@
             });
         }
 
-        // ✅ Evento: clic en un resultado
+        // Evento: clic en un resultado
         if (customerResults) {
             customerResults.addEventListener('click', function (e) {
                 const item = e.target.closest('.pos-customer-result-item');
@@ -192,12 +200,42 @@
             });
         }
 
-        // ✅ Cerrar resultados al hacer clic fuera
+        // Cerrar resultados al hacer clic fuera
         document.addEventListener('click', function (e) {
             if (!e.target.closest('.pos-customer-autocomplete')) {
                 closeCustomerResults();
             }
         });
+
+        // ============================================================
+        // SELECTOR DE VENDEDOR (COMISIÓN)
+        // ============================================================
+        function loadSalespersons() {
+            if (!SALESPERSONS_URL || !salespersonSelect) return;
+
+            fetch(SALESPERSONS_URL)
+                .then(r => r.json())
+                .then(data => {
+                    const results = data.results || [];
+                    salespersonSelect.innerHTML =
+                        '<option value="">— Selecciona un empleado —</option>' +
+                        results.map(e =>
+                            '<option value="' + e.id + '">' +
+                                escapeHtml(e.text) +
+                                (e.position ? ' — ' + escapeHtml(e.position) : '') +
+                            '</option>'
+                        ).join('');
+                    console.log('[POS] Vendedores cargados:', results.length);
+                })
+                .catch(err => console.error('[POS] Error cargando vendedores:', err));
+        }
+
+        if (salespersonSelect) {
+            salespersonSelect.addEventListener('change', function () {
+                console.log('[POS] Vendedor seleccionado:', this.value);
+                updateCheckoutButton();
+            });
+        }
 
         // ============================================================
         // BÚSQUEDA DE PRODUCTOS
@@ -206,7 +244,6 @@
             searchInput.addEventListener('input', function () {
                 clearTimeout(searchTimeout);
                 const q = this.value.trim();
-                // ✅ Mostrar todos si está vacío
                 if (q.length === 0) {
                     doSearch('');
                     return;
@@ -244,7 +281,6 @@
         function renderProductsGrid(results) {
             if (!productsGrid) return;
 
-            // ✅ Guardar en caché
             productsCache = results;
 
             if (results.length === 0) {
@@ -260,7 +296,6 @@
                 const stockClass = p.stock <= 0 ? 'out' : (p.stock < 5 ? 'low' : '');
                 const stockLabel = p.is_service ? 'Servicio' : ('Stock: ' + p.stock);
 
-                // ✅ NUEVO: imagen o placeholder
                 const imageHtml = p.image_url
                     ? '<img src="' + escapeHtml(p.image_url) + '" alt="' + escapeHtml(p.name) + '" class="card-image" loading="lazy">'
                     : '<div class="card-image-placeholder">📦</div>';
@@ -414,10 +449,27 @@
         // ============================================================
         function updateCheckoutButton() {
             if (!checkoutBtn) return;
-            const hasCustomer = customerHidden && customerHidden.value !== '';
-            const hasPayment = paymentMethodInput && paymentMethodInput.value !== '';
-            const hasItems = cart.length > 0;
-            checkoutBtn.disabled = !(hasCustomer && hasPayment && hasItems);
+
+            const customerValue    = customerHidden ? String(customerHidden.value || '').trim() : '';
+            const paymentValue     = paymentMethodInput ? String(paymentMethodInput.value || '').trim() : '';
+            const salespersonValue = salespersonSelect ? String(salespersonSelect.value || '').trim() : '';
+
+            const hasCustomer    = customerValue !== '';
+            const hasPayment     = paymentValue !== '';
+            const hasItems       = Array.isArray(cart) && cart.length > 0;
+            const hasSalesperson = !REQUIRE_SALESPERSON || salespersonValue !== '';
+
+            const shouldEnable = hasCustomer && hasPayment && hasItems && hasSalesperson;
+            checkoutBtn.disabled = !shouldEnable;
+
+            const missing = [];
+            if (!hasItems)        missing.push('agregar productos');
+            if (!hasCustomer)     missing.push('seleccionar cliente');
+            if (!hasPayment)      missing.push('seleccionar método de pago');
+            if (!hasSalesperson)  missing.push('seleccionar vendedor');
+            checkoutBtn.title = missing.length
+                ? 'Falta: ' + missing.join(', ')
+                : 'Procesar venta';
         }
 
         // ============================================================
@@ -432,6 +484,7 @@
                 if (customerHidden) customerHidden.value = '';
                 if (customerInput) customerInput.value = '';
                 if (paymentMethodInput) paymentMethodInput.value = '';
+                if (salespersonSelect) salespersonSelect.value = '';
                 paymentButtons.forEach(b => b.classList.remove('active'));
                 updateCheckoutButton();
                 if (searchInput) {
@@ -452,6 +505,9 @@
                 const payload = {
                     customer_id: parseInt(customerHidden.value),
                     payment_method_id: parseInt(paymentMethodInput.value),
+                    salesperson_id: (salespersonSelect && salespersonSelect.value)
+                        ? parseInt(salespersonSelect.value)
+                        : null,
                     note: '',
                     lines: cart.map(item => ({
                         product_id: item.product_id,
@@ -513,6 +569,7 @@
                 if (customerHidden) customerHidden.value = '';
                 if (customerInput) customerInput.value = '';
                 if (paymentMethodInput) paymentMethodInput.value = '';
+                if (salespersonSelect) salespersonSelect.value = '';
                 paymentButtons.forEach(b => b.classList.remove('active'));
                 resetCheckoutButton();
                 if (searchInput) {
@@ -641,8 +698,7 @@
         // ============================================================
         renderCart();
         updateCheckoutButton();
-
-        // ✅ Cargar productos al iniciar (los primeros 20)
+        loadSalespersons();
         doSearch('');
 
         console.log('[POS] Inicializado correctamente');

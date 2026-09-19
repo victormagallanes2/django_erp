@@ -73,110 +73,19 @@ def create_delivery_note_on_confirm(sender, instance, created, **kwargs):
 @receiver(post_save, sender=SaleInvoice)
 def register_cash_on_invoice_paid(sender, instance, created, **kwargs):
     """
-    ✅ Cuando una factura cambia a PAID, registrar en caja.
+    ⚠️ DESACTIVADA TEMPORALMENTE.
+    
+    El flujo de procesamiento de facturas PAID se maneja exclusivamente
+    a través de SaleInvoiceProcessingService.process_paid_invoice(), que
+    se llama explícitamente desde:
+      - SaleInvoiceAdmin.save_formset()
+      - pos_checkout()
+    
+    Esta señal se desactiva porque causaba un bucle infinito: al guardar
+    la factura dentro de process_paid_invoice, la señal se disparaba y
+    volvía a llamar a process_paid_invoice, que volvía a guardar, etc.
+    
+    TODO: Si se necesita una red de seguridad, implementarla con una
+    bandera en el request o en thread-local para evitar re-entrada.
     """
-    # Solo ejecutar si la factura está en estado PAID
-    if instance.status == 'PAID':
-        logger.info("=" * 80)
-        logger.info(f"🔴 [register_cash_on_invoice_paid] Factura {instance.number} está PAGADA")
-        
-        # ✅ Asegurar que los totales están actualizados
-        instance.refresh_from_db()
-        
-        # ✅ Verificar que el monto total sea mayor a 0
-        if instance.total <= 0:
-            logger.warning(f"   ⚠️ El total de la factura es {instance.total}, no se registra en caja")
-            logger.info("=" * 80)
-            return
-        
-        # Verificar que la factura tenga un usuario asociado
-        user = instance.user
-        if not user:
-            logger.warning(f"   ⚠️ Factura {instance.number} sin usuario asignado")
-            logger.info("=" * 80)
-            return
-        
-        # Verificar que no exista ya una transacción para esta factura
-        from .models import CashTransaction
-        existing = CashTransaction.objects.filter(
-            reference=instance.number,
-            type='SALE'
-        ).first()
-        
-        if existing:
-            logger.info(f"   ℹ️ Transacción ya existe para factura {instance.number} con monto: {existing.amount}")
-            logger.info("=" * 80)
-            return
-        
-        # Registrar la transacción en caja
-        from .helpers import get_open_register
-        from django_erp.configuration.models import PaymentMethod, Currency
-        
-        try:
-            register = get_open_register(user)
-            logger.info(f"   ✅ Caja abierta: {register.number}")
-            
-            # ✅ Crear transacción con el total correcto
-            transaction = CashTransaction.objects.create(
-                register=register,
-                type='SALE',
-                amount=instance.total,  # ✅ Usar el total calculado
-                description=f"Factura {instance.number} - {instance.customer_name}",
-                reference=instance.number,
-                user=user,
-                company=instance.company,
-            )
-            logger.info(f"   ✅ Transacción creada con monto: {transaction.amount}")
-            
-            # Recalcular totales de la caja
-            register.calculate_totals()
-            logger.info(f"   ✅ Totales de caja recalculados")
-            
-            # Verificar si ya existe un pago para esta factura
-            from .models import Payment
-            existing_payment = Payment.objects.filter(
-                sale_invoice=instance,
-                status='COMPLETED'
-            ).first()
-            
-            if not existing_payment:
-                # Crear pago asociado
-                default_method = PaymentMethod.objects.filter(
-                    company=instance.company,
-                    is_active=True
-                ).first()
-                
-                if default_method:
-                    try:
-                        usd = Currency.objects.get(code='USD')
-                    except Currency.DoesNotExist:
-                        usd = None
-                    
-                    if usd:
-                        Payment.objects.create(
-                            sale_invoice=instance,
-                            method=default_method,
-                            currency=usd,
-                            amount=instance.total,
-                            amount_usd=instance.total,
-                            reference=f"Pago factura {instance.number}",
-                            status='COMPLETED',
-                            user=user,
-                            company=instance.company,
-                        )
-                        logger.info(f"   ✅ Pago creado para factura {instance.number}")
-                else:
-                    logger.warning(f"   ⚠️ No hay método de pago por defecto")
-            else:
-                logger.info(f"   ℹ️ Pago ya existe para factura {instance.number}")
-            
-            logger.info(f"   ✅ Factura {instance.number} registrada en caja por ${instance.total:.2f}")
-            
-        except ValidationError as e:
-            logger.error(f"   ❌ Error al registrar en caja: {e}")
-        except Exception as e:
-            logger.error(f"   ❌ Error inesperado: {e}")
-            import traceback
-            logger.error(f"   Traceback: {traceback.format_exc()}")
-        
-        logger.info("=" * 80)
+    return  # ← No-op

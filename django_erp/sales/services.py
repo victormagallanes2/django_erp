@@ -11,7 +11,11 @@ from datetime import timedelta, datetime
 from django_erp.configuration.models import Company
 import logging
 from .models import SaleOrder, SaleInvoice
+from decimal import Decimal, ROUND_HALF_UP
+
+
 logger = logging.getLogger(__name__)
+
 
 
 class SaleService:
@@ -543,3 +547,329 @@ class SaleReportService:
             'this_month': float(sales_this_month),
             'this_year': float(sales_this_year),
         }
+
+
+class SaleInvoiceProcessingService:
+    """
+    Servicio centralizado para procesar facturas de venta.
+    
+    Este servicio replica EXACTAMENTE el flujo que se ejecuta cuando se
+    guarda una factura desde el admin (SaleInvoiceAdmin.save_formset),
+    para que el POS y cualquier otro canal (API, importación, etc.)
+    tengan el mismo comportamiento.
+    
+    Flujo:
+    1. Recalcular totales (subtotal, IVA, total)
+    2. Generar comisión si status == 'PAID'
+    3. Registrar transacción en caja (con verificación de duplicados)
+    4. Crear pago si no existe
+    5. Reducir inventario (con verificación de duplicados)
+    6. Enviar señal invoice_paid
+    """
+    
+    @staticmethod
+    @transaction.atomic
+    def process_paid_invoice(invoice, user, request=None, skip_inventory=False):
+        """
+        Procesa una factura que acaba de pasar a estado PAID.
+        
+        Args:
+            invoice: Instancia de SaleInvoice
+            user: Usuario que realiza la acción
+            request: Request opcional (para mensajes en admin)
+            skip_inventory: Si True, no reduce inventario (útil si ya se hizo)
+        
+        Returns:
+            dict con el resultado del procesamiento
+        """
+        from .models import CashTransaction, Payment
+        from .helpers import get_open_register
+        from django_erp.configuration.models import PaymentMethod, Currency
+        from django_erp.inventory.models import Movement
+        from django_erp.accounting.services import TaxService
+        
+        logger.info("=" * 80)
+        logger.info(f"🔴 [SaleInvoiceProcessingService] Procesando factura {invoice.number}")
+        
+        result = {
+            'invoice': invoice,
+            'totals_recalculated': False,
+            'commission_created': None,
+            'cash_transaction_created': False,
+            'payment_created': False,
+            'inventory_reduced': False,
+            'movements_created': 0,
+            'errors': [],
+            'warnings': [],
+        }
+        
+        company = invoice.company or Company.get_active()
+        if not company:
+            raise ValidationError("No hay una compañía activa para procesar la factura.")
+        
+        # ============================================================
+        # 1. RECALCULAR TOTALES
+        # ============================================================
+        try:
+            invoice.refresh_from_db()
+            
+            subtotal = Decimal('0.00')
+            for line in invoice.lines.all():
+                subtotal += Decimal(str(line.subtotal))
+            
+            tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
+            tax = subtotal * (tax_rate / Decimal('100'))
+            total = subtotal + tax
+            
+            invoice.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            invoice.tax = tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            invoice.total = total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            invoice.tax_rate = tax_rate
+            
+            invoice.save(update_fields=['subtotal', 'tax', 'total', 'tax_rate'])
+            invoice.refresh_from_db()
+            
+            result['totals_recalculated'] = True
+            logger.info(f"   ✅ Totales: Subtotal={invoice.subtotal}, IVA={invoice.tax}, Total={invoice.total}")
+        except Exception as e:
+            logger.error(f"   ❌ Error recalculando totales: {e}")
+            result['errors'].append(f"Error recalculando totales: {e}")
+            raise
+        
+        # ============================================================
+        # 2. GENERAR COMISIÓN (si aplica)
+        # ============================================================
+        try:
+            from django_erp.rrhh.services import CommissionService
+
+            # 🔍 DIAGNÓSTICO TEMPORAL
+            logger.info("   🔍 [DIAGNÓSTICO COMISIÓN]")
+            logger.info(f"      company.commission_enabled: {getattr(company, 'commission_enabled', 'N/A')}")
+            logger.info(f"      company.commission_by_service_only: {getattr(company, 'commission_by_service_only', 'N/A')}")
+            logger.info(f"      invoice.salesperson_id: {invoice.salesperson_id}")
+            logger.info(f"      invoice.salesperson: {invoice.salesperson}")
+            if invoice.salesperson_id:
+                logger.info(f"      salesperson.commission_rate: {invoice.salesperson.commission_rate}")
+                logger.info(f"      salesperson.user.is_employee: {invoice.salesperson.user.is_employee}")
+                logger.info(f"      salesperson.user.is_active: {invoice.salesperson.user.is_active}")
+            logger.info(f"      invoice.subtotal: {invoice.subtotal}")
+            logger.info(f"      invoice.total: {invoice.total}")
+            logger.info(f"      invoice.lines.count(): {invoice.lines.count()}")
+
+            commission = CommissionService.create_commission_for_invoice(invoice)
+            if commission:
+                result['commission_created'] = commission
+                logger.info(f"   ✅ Comisión generada: ${commission.amount:.2f}")
+            else:
+                logger.warning("   ⚠️ CommissionService devolvió None (no se generó comisión)")
+        except Exception as e:
+            logger.warning(f"   ⚠️ Error al generar comisión: {e}")
+            import traceback
+            logger.warning(f"   Traceback: {traceback.format_exc()}")
+            result['warnings'].append(f"Error al generar comisión: {e}")
+        
+        # ============================================================
+        # 3. VERIFICAR MONTO VÁLIDO
+        # ============================================================
+        if invoice.total <= 0:
+            msg = f"El total de la factura es {invoice.total}, no se registra en caja"
+            logger.warning(f"   ⚠️ {msg}")
+            result['warnings'].append(msg)
+            return result
+        
+        # ============================================================
+        # 4. REGISTRAR EN CAJA (con verificación de duplicados)
+        # ============================================================
+        cash_exists = CashTransaction.objects.filter(
+            reference=invoice.number,
+            type='SALE'
+        ).exists()
+        
+        if cash_exists:
+            logger.info(f"   ℹ️ Transacción de caja ya existe para {invoice.number}")
+        else:
+            try:
+                register = get_open_register(user)
+                logger.info(f"   ✅ Caja abierta: {register.number}")
+                
+                CashTransaction.objects.create(
+                    register=register,
+                    type='SALE',
+                    amount=invoice.total,
+                    description=f"Factura {invoice.number} - {invoice.customer_name}",
+                    reference=invoice.number,
+                    user=user,
+                    company=invoice.company,
+                )
+                register.calculate_totals()
+                
+                result['cash_transaction_created'] = True
+                logger.info(f"   ✅ Transacción creada: ${invoice.total:.2f}")
+            except ValidationError as e:
+                logger.warning(f"   ⚠️ No se pudo registrar en caja: {e}")
+                result['warnings'].append(f"No se pudo registrar en caja: {e}")
+            except Exception as e:
+                logger.error(f"   ❌ Error al registrar en caja: {e}")
+                result['errors'].append(f"Error al registrar en caja: {e}")
+        
+        # ============================================================
+        # 5. CREAR PAGO (si no existe)
+        # ============================================================
+        payment_exists = Payment.objects.filter(
+            sale_invoice=invoice,
+            status='COMPLETED'
+        ).exists()
+        
+        if not payment_exists:
+            try:
+                default_method = PaymentMethod.objects.filter(
+                    company=invoice.company,
+                    is_active=True
+                ).first()
+                
+                if default_method:
+                    try:
+                        usd = Currency.objects.get(code='USD')
+                    except Currency.DoesNotExist:
+                        usd = None
+                    
+                    if usd:
+                        Payment.objects.create(
+                            sale_invoice=invoice,
+                            method=default_method,
+                            currency=usd,
+                            amount=invoice.total,
+                            amount_usd=invoice.total,
+                            reference=f"Pago factura {invoice.number}",
+                            status='COMPLETED',
+                            user=user,
+                            company=invoice.company,
+                        )
+                        result['payment_created'] = True
+                        logger.info(f"   ✅ Pago creado")
+            except Exception as e:
+                logger.error(f"   ❌ Error creando pago: {e}")
+                result['errors'].append(f"Error creando pago: {e}")
+        else:
+            logger.info(f"   ℹ️ Pago ya existe para {invoice.number}")
+        
+        # ============================================================
+        # 6. REDUCIR INVENTARIO (con verificación de duplicados)
+        # ============================================================
+        if not skip_inventory:
+            already_reduced = Movement.objects.filter(
+                source_reference=invoice.number,
+                source_type='SALE'
+            ).exists()
+            
+            if already_reduced:
+                logger.info(f"   ℹ️ Inventario ya reducido para {invoice.number}")
+            elif not invoice.lines.exists():
+                msg = "La factura no tiene líneas, no se reduce inventario"
+                logger.warning(f"   ⚠️ {msg}")
+                result['warnings'].append(msg)
+            else:
+                try:
+                    movements = SaleInvoiceProcessingService._reduce_inventory(
+                        invoice, user, company
+                    )
+                    result['inventory_reduced'] = True
+                    result['movements_created'] = len(movements)
+                    logger.info(f"   ✅ {len(movements)} movimientos creados")
+                except Exception as e:
+                    logger.error(f"   ❌ Error al reducir inventario: {e}")
+                    result['errors'].append(f"Error al reducir inventario: {e}")
+                    raise  # Propagar para que la transacción se revierta
+        
+        # ============================================================
+        # 7. ENVIAR SEÑAL invoice_paid
+        # ============================================================
+        try:
+            from .signals import invoice_paid
+            invoice_paid.send(sender=SaleInvoice, invoice=invoice, request=request)
+            logger.info(f"   📨 Señal invoice_paid enviada")
+        except Exception as e:
+            logger.warning(f"   ⚠️ Error enviando señal invoice_paid: {e}")
+        
+        logger.info("=" * 80)
+        return result
+    
+    @staticmethod
+    def _reduce_inventory(invoice, user, company):
+        """
+        Reduce el inventario para cada línea de la factura.
+        Replica la lógica de SaleInvoiceAdmin._reduce_inventory.
+        """
+        from django_erp.inventory.models import Inventory, Location
+        from django_erp.inventory.services import WarehouseService, InventoryService
+        
+        logger.info("   🔴 [_reduce_inventory] INICIANDO")
+        
+        if not invoice.lines.exists():
+            logger.warning("   ⚠️ La factura no tiene líneas")
+            return []
+        
+        movements_created = []
+        
+        for idx, line in enumerate(invoice.lines.all(), 1):
+            logger.info(f"   📝 Procesando línea {idx}: {line.product_name}")
+            
+            if not line.product:
+                logger.warning(f"      ⚠️ Línea sin producto, saltando...")
+                continue
+            
+            if line.product.is_service:
+                logger.info(f"      ℹ️ {line.product.name} es un servicio, no se reduce inventario")
+                continue
+            
+            # Buscar ubicación con stock
+            location = None
+            inventory_records = Inventory.objects.filter(
+                product=line.product,
+                company=company
+            ).order_by('-quantity')
+            
+            for inv in inventory_records:
+                if inv.quantity > 0 and inv.location:
+                    location = inv.location
+                    break
+            
+            if not location:
+                location = Location.objects.filter(
+                    company=company,
+                    is_active=True
+                ).first()
+            
+            if not location:
+                raise ValidationError(
+                    f"No hay ubicación para el producto {line.product.name}. "
+                    f"Configura una ubicación en Inventario > Ubicaciones."
+                )
+            
+            # Verificar stock
+            stock = InventoryService.get_stock_by_location(
+                line.product.id, location.id, company
+            )
+            
+            if stock < line.quantity:
+                raise ValidationError(
+                    f"Stock insuficiente para '{line.product.name}'. "
+                    f"Disponible: {stock}, Requerido: {line.quantity}"
+                )
+            
+            # Crear movimiento de salida
+            movement = WarehouseService.create_exit(
+                product_id=line.product.id,
+                quantity=line.quantity,
+                location_from_id=location.id,
+                unit_price=line.unit_price,
+                source_type='SALE',
+                source_reference=invoice.number,
+                note=f"Factura {invoice.number} - {invoice.customer_name or 'Sin cliente'}",
+                user=user,
+                company=company
+            )
+            movements_created.append(movement)
+            logger.info(f"      ✅ Movimiento {movement.id} creado")
+        
+        return movements_created
