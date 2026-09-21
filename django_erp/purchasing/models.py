@@ -316,7 +316,7 @@ class PurchaseLine(models.Model):
         
         # ✅ Si NO hay producto pero hay código, buscar el producto
         elif self.product_code:
-            from django_erp.warehouse.models import Product
+            from django_erp.inventory.models import Product
             try:
                 product = Product.objects.get(code=self.product_code)
                 self.product = product

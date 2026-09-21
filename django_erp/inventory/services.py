@@ -138,6 +138,15 @@ class WarehouseService:
         if quantity <= 0:
             logger.error(f"❌ [create_exit] Cantidad inválida: {quantity}")
             raise ValidationError("La cantidad debe ser mayor a cero")
+
+        stock_actual = InventoryService.get_stock_by_location(
+            product.id, location_from.id, company
+        )
+        if stock_actual < quantity:
+            raise ValidationError(
+                f"Stock insuficiente para '{product.name}'. "
+                f"Disponible: {stock_actual}, Solicitado: {quantity}"
+            )
         
         logger.info("   📝 Creando movimiento...")
         movement = Movement.objects.create(

@@ -2,6 +2,7 @@
 from django.shortcuts import render
 from django.http import JsonResponse
 from django.contrib.admin.views.decorators import staff_member_required
+from .models import Company 
 
 
 @staff_member_required

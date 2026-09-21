@@ -26,6 +26,7 @@ class CurrentCompanyMiddleware:
                 if request.user.is_superuser or company in request.user.companies.all():
                     request.session['active_company_id'] = company.id
                     request.current_company = company
+                    request.company_switched = True
                     return
             except Company.DoesNotExist:
                 pass

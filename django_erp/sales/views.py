@@ -21,11 +21,8 @@ from django_erp.inventory.models import Location
 from .models import SaleInvoice, SaleInvoiceLine, CashTransaction, Payment, Customer, CashRegister
 from .helpers import get_open_register
 from unfold.views import UnfoldModelAdminViewMixin
-from django.urls import reverse
 from django.contrib.admin.views.decorators import staff_member_required
 from django import forms as dj_forms
-from django.contrib.admin.widgets import AutocompleteSelect
-from django.contrib import admin
 import json
 import logging
 from django.db.models import Sum, Q
@@ -99,12 +96,11 @@ def pos_search_products(request):
 def pos_customer_search(request):
     """Busca clientes por nombre o cédula/RIF para el POS."""
     query = request.GET.get('q', '').strip()
-    company = getattr(request, 'current_company', None)
+    company = getattr(request, 'current_company', None) or Company.get_active()
     if not company:
-        company = Company.get_active()
+        return JsonResponse({'error': 'No hay compañía activa'}, status=400)
+    customer.company = company
 
-    if not company:
-        return JsonResponse({'results': []})
 
     qs = Customer.objects.filter(company=company, is_active=True)
 
@@ -481,39 +477,6 @@ def pos_customer_form(request):
 
     form = POSCustomerForm()
     return render(request, 'admin/sales/customer_form.html', {'form': form})
-
-
-@staff_member_required
-@require_GET
-def pos_salespersons(request):
-    """
-    Devuelve la lista de empleados elegibles como vendedores para el POS.
-    El modelo Employee NO tiene FK a Company, se filtra por User.is_employee
-    e User.is_active (que es lo que evalúa la property Employee.is_active).
-    """
-    from django_erp.rrhh.models import Employee
-
-    qs = (
-        Employee.objects
-        .filter(user__is_employee=True, user__is_active=True)
-        .select_related('user')
-        .order_by('user__first_name', 'user__last_name')
-    )
-
-    results = []
-    for e in qs:
-        full_name = e.user.get_full_name() or e.user.username
-        results.append({
-            'id': e.id,
-            'name': full_name,
-            'code': e.employee_code,
-            'position': e.position or '',
-            'commission_rate': float(e.commission_rate or 0),
-            'has_pin': bool(e.pin),
-            'text': full_name,
-        })
-
-    return JsonResponse({'results': results})
 
 
 @staff_member_required
