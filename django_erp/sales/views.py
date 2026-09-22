@@ -97,10 +97,9 @@ def pos_customer_search(request):
     """Busca clientes por nombre o cédula/RIF para el POS."""
     query = request.GET.get('q', '').strip()
     company = getattr(request, 'current_company', None) or Company.get_active()
+    
     if not company:
         return JsonResponse({'error': 'No hay compañía activa'}, status=400)
-    customer.company = company
-
 
     qs = Customer.objects.filter(company=company, is_active=True)
 
@@ -303,12 +302,29 @@ def pos_checkout(request):
             # ✅ 5. Procesar con el servicio centralizado
             #    Esto recalcula totales, genera comisión, registra caja,
             #    crea pago, reduce inventario y envía señal invoice_paid.
+            invoice.refresh_from_db()
+            
+            # ✅ 6. Verificar que las líneas se guardaron
+            lines_count = invoice.lines.count()
+            logger.info(f"   ✅ Factura {invoice.number} tiene {lines_count} líneas antes de procesar")
+            
+            if lines_count == 0:
+                raise ValidationError("No se pudieron guardar las líneas de la factura")
+            
+            # ✅ 7. Procesar con el servicio centralizado
             from .services import SaleInvoiceProcessingService
             result = SaleInvoiceProcessingService.process_paid_invoice(
                 invoice=invoice,
                 user=request.user,
                 request=request,
             )
+            
+            # ✅ 8. Log del resultado
+            logger.info(f"   📊 Resultado del procesamiento:")
+            logger.info(f"      - Comisión creada: {result.get('commission_created')}")
+            logger.info(f"      - Caja registrada: {result.get('cash_transaction_created')}")
+            logger.info(f"      - Pago creado: {result.get('payment_created')}")
+            logger.info(f"      - Inventario reducido: {result.get('inventory_reduced')}")
 
             # ✅ 6. Ajustar el método de pago específico del POS
             payment = Payment.objects.filter(
@@ -318,9 +334,15 @@ def pos_checkout(request):
 
             if payment:
                 payment.method = payment_method
-                if payment_method.default_currency:
-                    payment.currency = payment_method.default_currency
+                payment.currency = payment_method.default_currency or payment.currency
                 payment.reference = f"Pago POS {invoice.number}"
+                # ✅ Recalcular amount_usd si cambió la moneda
+                if payment.currency and payment.currency.code == 'USD':
+                    payment.amount_usd = payment.amount
+                else:
+                    rate = ExchangeRate.get_today_rate(payment.currency.code, 'USD') if payment.currency else None
+                    if rate and rate > 0:
+                        payment.amount_usd = payment.amount / rate
                 payment.save()
 
             invoice.refresh_from_db()

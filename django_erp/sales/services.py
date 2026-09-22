@@ -550,22 +550,7 @@ class SaleReportService:
 
 
 class SaleInvoiceProcessingService:
-    """
-    Servicio centralizado para procesar facturas de venta.
-    
-    Este servicio replica EXACTAMENTE el flujo que se ejecuta cuando se
-    guarda una factura desde el admin (SaleInvoiceAdmin.save_formset),
-    para que el POS y cualquier otro canal (API, importación, etc.)
-    tengan el mismo comportamiento.
-    
-    Flujo:
-    1. Recalcular totales (subtotal, IVA, total)
-    2. Generar comisión si status == 'PAID'
-    3. Registrar transacción en caja (con verificación de duplicados)
-    4. Crear pago si no existe
-    5. Reducir inventario (con verificación de duplicados)
-    6. Enviar señal invoice_paid
-    """
+
     
     @staticmethod
     @transaction.atomic
@@ -642,30 +627,37 @@ class SaleInvoiceProcessingService:
         try:
             from django_erp.rrhh.services import CommissionService
 
-            # 🔍 DIAGNÓSTICO TEMPORAL
-            logger.info("   🔍 [DIAGNÓSTICO COMISIÓN]")
+            # ✅ CRÍTICO: Refrescar la factura desde la BD para asegurar
+            #    que salesperson_id y lines estén cargados correctamente
+            invoice.refresh_from_db()
+            
+            logger.info("   🎯 [COMISIÓN] Iniciando generación de comisión")
+            logger.info(f"      invoice.number: {invoice.number}")
+            logger.info(f"      invoice.status: {invoice.status}")
             logger.info(f"      company.commission_enabled: {getattr(company, 'commission_enabled', 'N/A')}")
             logger.info(f"      company.commission_by_service_only: {getattr(company, 'commission_by_service_only', 'N/A')}")
             logger.info(f"      invoice.salesperson_id: {invoice.salesperson_id}")
-            logger.info(f"      invoice.salesperson: {invoice.salesperson}")
-            if invoice.salesperson_id:
-                logger.info(f"      salesperson.commission_rate: {invoice.salesperson.commission_rate}")
-                logger.info(f"      salesperson.user.is_employee: {invoice.salesperson.user.is_employee}")
-                logger.info(f"      salesperson.user.is_active: {invoice.salesperson.user.is_active}")
             logger.info(f"      invoice.subtotal: {invoice.subtotal}")
-            logger.info(f"      invoice.total: {invoice.total}")
             logger.info(f"      invoice.lines.count(): {invoice.lines.count()}")
-
-            commission = CommissionService.create_commission_for_invoice(invoice)
-            if commission:
-                result['commission_created'] = commission
-                logger.info(f"   ✅ Comisión generada: ${commission.amount:.2f}")
+            
+            # ✅ Solo generar comisión si la factura está en estado PAID
+            if invoice.status != 'PAID':
+                logger.info(f"      ℹ️ Factura no está PAID (estado={invoice.status}), saltando comisión")
             else:
-                logger.warning("   ⚠️ CommissionService devolvió None (no se generó comisión)")
+                # ✅ Calcular base ANTES de llamar al servicio
+                base = CommissionService._calculate_commission_base(invoice)
+                logger.info(f"      Base comisionable calculada: {base}")
+                
+                commission = CommissionService.create_commission_for_invoice(invoice)
+                if commission:
+                    result['commission_created'] = commission
+                    logger.info(f"   ✅ Comisión generada: ${commission.amount:.2f} ({commission.rate}%)")
+                else:
+                    logger.warning("   ⚠️ CommissionService devolvió None (no se generó comisión)")
         except Exception as e:
-            logger.warning(f"   ⚠️ Error al generar comisión: {e}")
+            logger.error(f"   ❌ Error al generar comisión: {e}")
             import traceback
-            logger.warning(f"   Traceback: {traceback.format_exc()}")
+            logger.error(f"   Traceback: {traceback.format_exc()}")
             result['warnings'].append(f"Error al generar comisión: {e}")
         
         # ============================================================
@@ -798,7 +790,8 @@ class SaleInvoiceProcessingService:
     def _reduce_inventory(invoice, user, company):
         """
         Reduce el inventario para cada línea de la factura.
-        Replica la lógica de SaleInvoiceAdmin._reduce_inventory.
+        ✅ REFACTORIZADO: usa WarehouseService.create_exit() para unificar
+        la lógica de salida de inventario en un solo lugar.
         """
         from django_erp.inventory.models import Inventory, Location
         from django_erp.inventory.services import WarehouseService, InventoryService
@@ -822,19 +815,15 @@ class SaleInvoiceProcessingService:
                 logger.info(f"      ℹ️ {line.product.name} es un servicio, no se reduce inventario")
                 continue
             
-            # Buscar ubicación con stock
-            location = None
-            inventory_records = Inventory.objects.filter(
+            # ✅ Buscar ubicación con stock (lógica del servicio de inventario)
+            location = InventoryService.find_location_with_stock(
                 product=line.product,
-                company=company
-            ).order_by('-quantity')
-            
-            for inv in inventory_records:
-                if inv.quantity > 0 and inv.location:
-                    location = inv.location
-                    break
+                company=company,
+                required_quantity=line.quantity
+            )
             
             if not location:
+                # Fallback: usar la primera ubicación activa
                 location = Location.objects.filter(
                     company=company,
                     is_active=True
@@ -846,7 +835,7 @@ class SaleInvoiceProcessingService:
                     f"Configura una ubicación en Inventario > Ubicaciones."
                 )
             
-            # Verificar stock
+            # ✅ Verificar stock
             stock = InventoryService.get_stock_by_location(
                 line.product.id, location.id, company
             )
@@ -857,7 +846,8 @@ class SaleInvoiceProcessingService:
                     f"Disponible: {stock}, Requerido: {line.quantity}"
                 )
             
-            # Crear movimiento de salida
+            # ✅ Delegar la creación del movimiento a WarehouseService
+            #    (así queda un único punto de entrada para salidas)
             movement = WarehouseService.create_exit(
                 product_id=line.product.id,
                 quantity=line.quantity,

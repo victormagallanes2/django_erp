@@ -94,7 +94,17 @@ class WarehouseService:
         )
         
         logger.info(f"   ✅ Movimiento creado: ID {movement.id}")
-        logger.info("   ℹ️ La señal post_save actualizará el inventario automáticamente")
+        
+        # ✅ ACTUALIZACIÓN DIRECTA DEL INVENTARIO (no depende de señales)
+        logger.info("   🔄 Actualizando inventario directamente...")
+        try:
+            InventoryService.update_stock_from_movement(movement)
+            logger.info("   ✅ Inventario actualizado correctamente")
+        except Exception as e:
+            logger.error(f"   ❌ ERROR actualizando inventario: {e}")
+            import traceback
+            logger.error(f"   Traceback: {traceback.format_exc()}")
+            raise  # Re-lanzar para que la transacción se revierta
         
         logger.info("🔴 [create_entry] FINALIZADO EXITOSAMENTE")
         logger.info("=" * 80)
@@ -139,10 +149,14 @@ class WarehouseService:
             logger.error(f"❌ [create_exit] Cantidad inválida: {quantity}")
             raise ValidationError("La cantidad debe ser mayor a cero")
 
+        # ✅ Verificar stock ANTES de crear el movimiento
         stock_actual = InventoryService.get_stock_by_location(
             product.id, location_from.id, company
         )
         if stock_actual < quantity:
+            logger.error(
+                f"❌ Stock insuficiente: {stock_actual} < {quantity}"
+            )
             raise ValidationError(
                 f"Stock insuficiente para '{product.name}'. "
                 f"Disponible: {stock_actual}, Solicitado: {quantity}"
@@ -163,7 +177,17 @@ class WarehouseService:
         )
         
         logger.info(f"   ✅ Movimiento creado: ID {movement.id}")
-        logger.info("   ℹ️ La señal post_save actualizará el inventario automáticamente")
+        
+        # ✅ ACTUALIZACIÓN DIRECTA DEL INVENTARIO
+        logger.info("   🔄 Actualizando inventario directamente...")
+        try:
+            InventoryService.update_stock_from_movement(movement)
+            logger.info("   ✅ Inventario actualizado correctamente")
+        except Exception as e:
+            logger.error(f"   ❌ ERROR actualizando inventario: {e}")
+            import traceback
+            logger.error(f"   Traceback: {traceback.format_exc()}")
+            raise
         
         logger.info("🔴 [create_exit] FINALIZADO EXITOSAMENTE")
         logger.info("=" * 80)
@@ -193,6 +217,16 @@ class WarehouseService:
         if location_from == location_to:
             raise ValidationError("Origen y destino no pueden ser la misma ubicación")
         
+        # ✅ Verificar stock en origen
+        stock_actual = InventoryService.get_stock_by_location(
+            product.id, location_from.id, company
+        )
+        if stock_actual < quantity:
+            raise ValidationError(
+                f"Stock insuficiente para '{product.name}' en '{location_from.code}'. "
+                f"Disponible: {stock_actual}, Solicitado: {quantity}"
+            )
+        
         movement = Movement.objects.create(
             product=product,
             type='TRANSFER',
@@ -206,8 +240,39 @@ class WarehouseService:
         )
         
         logger.info(f"   ✅ Movimiento creado: ID {movement.id}")
-        logger.info("   ℹ️ La señal post_save actualizará el inventario automáticamente")
         
+        # ✅ ACTUALIZACIÓN DIRECTA: restar de origen, sumar a destino
+        logger.info("   🔄 Actualizando inventario (restar origen)...")
+        exit_movement = Movement.objects.create(
+            product=product,
+            type='EXIT',
+            quantity=quantity,
+            unit_price=unit_price,
+            location_from=location_from,
+            source_type='MANUAL',
+            source_reference=movement.source_reference or f"TRANSFER-{movement.id}",
+            note=f"Traslado a {location_to.code}",
+            user=user,
+            company=company,
+        )
+        InventoryService.update_stock_from_movement(exit_movement)
+        
+        logger.info("   🔄 Actualizando inventario (sumar destino)...")
+        entry_movement = Movement.objects.create(
+            product=product,
+            type='ENTRY',
+            quantity=quantity,
+            unit_price=unit_price,
+            location_to=location_to,
+            source_type='MANUAL',
+            source_reference=movement.source_reference or f"TRANSFER-{movement.id}",
+            note=f"Traslado desde {location_from.code}",
+            user=user,
+            company=company,
+        )
+        InventoryService.update_stock_from_movement(entry_movement)
+        
+        logger.info("   ✅ Inventario actualizado correctamente")
         return movement
 
 
@@ -237,6 +302,36 @@ class InventoryService:
         except Exception as e:
             logger.error(f"❌ Error obteniendo stock: {e}")
             return 0
+
+
+    @staticmethod
+    def find_location_with_stock(product, company, required_quantity=0):
+        """
+        Encuentra la primera ubicación que tenga stock disponible del producto.
+        
+        Args:
+            product: Instancia de Product
+            company: Instancia de Company
+            required_quantity: Cantidad mínima requerida (opcional)
+        
+        Returns:
+            Instancia de Location o None
+        """
+        from .models import Inventory
+        
+        inventories = Inventory.objects.filter(
+            product=product,
+            company=company,
+            quantity__gt=0
+        ).order_by('-quantity')
+        
+        for inv in inventories:
+            if inv.location and inv.quantity >= required_quantity:
+                return inv.location
+        
+        # Si no hay ninguna con stock suficiente, devolver la que más tenga
+        first = inventories.first()
+        return first.location if first and first.location else None
     
     @staticmethod
     def get_total_stock(product_id, company=None):
@@ -252,16 +347,40 @@ class InventoryService:
         """
         Actualizar inventario desde un movimiento físico.
 
-        ⚠️ IMPORTANTE: usa QuerySet.update() en lugar de instance.save()
-        para evitar disparar la señal post_save de Inventory, que junto con
-        simple_history causaba una recursión infinita (RecursionError).
+        ⚠️ Usa QuerySet.update() en lugar de instance.save() para evitar
+        disparar señales post_save de Inventory (recursión infinita).
+
+        ⚠️ Usa threading.local() para evitar re-entrada.
         """
+        import threading
+        
+        # ✅ threading.local() correctamente implementado
+        if not hasattr(threading.current_thread(), '_inventory_lock'):
+            threading.current_thread()._inventory_lock = threading.local()
+        
+        lock = threading.current_thread()._inventory_lock
+        
+        if getattr(lock, 'updating', False):
+            logger.warning("⚠️ Re-entrada detectada en update_stock_from_movement, abortando")
+            return None
+        
+        lock.updating = True
+        try:
+            return InventoryService._do_update_stock_from_movement(movement)
+        finally:
+            lock.updating = False
+    
+    @staticmethod
+    @transaction.atomic
+    def _do_update_stock_from_movement(movement):
+        """Lógica real de actualización (protegida contra recursión)"""
         logger.info("=" * 80)
-        logger.info("🔴 [update_stock_from_movement] INICIANDO ACTUALIZACIÓN")
+        logger.info("🔴 [_do_update_stock_from_movement] INICIANDO")
         logger.info(f"   Movimiento ID: {movement.id}")
         logger.info(f"   Tipo: {movement.type}")
         logger.info(f"   Producto: {movement.product.name} (ID: {movement.product.id})")
         logger.info(f"   Cantidad: {movement.quantity}")
+        logger.info(f"   Compañía: {movement.company.code}")
 
         location = movement.location_to or movement.location_from
 
@@ -275,14 +394,14 @@ class InventoryService:
         logger.info(f"   Ubicación: {location.code} (ID: {location.id})")
 
         try:
-            # ✅ get_or_create SIN save() posterior (usamos update() más abajo)
+            # ✅ get_or_create
             inventory, created = Inventory.objects.get_or_create(
                 product=movement.product,
                 location=location,
                 company=movement.company,
                 defaults={
                     'quantity': 0,
-                    'total_value': 0,
+                    'total_value': Decimal('0.00'),
                 }
             )
 
@@ -291,7 +410,7 @@ class InventoryService:
             )
             logger.info(f"   Cantidad actual: {inventory.quantity}")
 
-            old_quantity = inventory.quantity
+            old_quantity = inventory.quantity or 0
             new_quantity = old_quantity
             new_total_value = Decimal(str(inventory.total_value or 0))
 
@@ -317,7 +436,6 @@ class InventoryService:
                     )
                 new_quantity = old_quantity - movement.quantity
 
-                # Recalcular valor total proporcional (valor promedio ponderado)
                 if new_quantity > 0 and old_quantity > 0:
                     avg_value = (
                         Decimal(str(inventory.total_value or 0))
@@ -330,42 +448,62 @@ class InventoryService:
                 logger.info(f"   Nueva cantidad: {new_quantity}")
 
             elif movement.type == 'TRANSFER':
-                logger.info("   🔄 Procesando TRASLADO...")
-                # Los traslados se manejan con dos movimientos separados
-                # (EXIT en origen + ENTRY en destino). Aquí no modificamos.
+                logger.info("   🔄 TRASLADO detectado (no actualiza inventario directamente)")
                 logger.info("=" * 80)
                 return inventory
 
-            # ✅ CLAVE: usar QuerySet.update() en lugar de inventory.save()
-            # Esto evita disparar post_save → simple_history → recursión infinita
-            Inventory.objects.filter(pk=inventory.pk).update(
+            elif movement.type == 'ADJUSTMENT':
+                logger.info("   ⚙️ Procesando AJUSTE...")
+                # ✅ El PhysicalCount maneja los ajustes directamente
+                # Si llega aquí, tratamos como ENTRY o EXIT según location
+                if movement.location_to and not movement.location_from:
+                    # Es una entrada por ajuste
+                    new_quantity = old_quantity + movement.quantity
+                    logger.info(f"   Ajuste tipo ENTRADA → nueva cantidad: {new_quantity}")
+                elif movement.location_from and not movement.location_to:
+                    # Es una salida por ajuste
+                    new_quantity = max(0, old_quantity - movement.quantity)
+                    logger.info(f"   Ajuste tipo SALIDA → nueva cantidad: {new_quantity}")
+                else:
+                    logger.warning("   ⚠️ Movimiento ADJUSTMENT sin location_from ni location_to definidos")
+                    logger.info("=" * 80)
+                    return inventory
+                
+                new_total_value = Decimal(str(inventory.total_value or 0))
+            
+            else:
+                logger.warning(f"   ⚠️ Tipo de movimiento no reconocido: {movement.type}")
+                logger.info("=" * 80)
+                return inventory
+
+            # ✅ CLAVE: usar QuerySet.update() para evitar señales post_save
+            updated_rows = Inventory.objects.filter(pk=inventory.pk).update(
                 quantity=new_quantity,
                 total_value=new_total_value,
                 updated_at=timezone.now(),
             )
+            logger.info(f"   ✅ {updated_rows} fila(s) actualizada(s) en BD")
 
-            # Refrescar el objeto para devolver los valores reales
             inventory.refresh_from_db()
 
-            logger.info("   ✅ Inventario actualizado exitosamente (via .update())")
+            logger.info("   ✅ Inventario actualizado exitosamente")
             logger.info(f"   Cantidad final: {inventory.quantity}")
             logger.info(f"   Valor total final: {inventory.total_value}")
-            logger.info("🔴 [update_stock_from_movement] FINALIZADO")
+            logger.info("🔴 [_do_update_stock_from_movement] FINALIZADO")
             logger.info("=" * 80)
 
             return inventory
 
         except ValidationError:
-            # Re-lanzar errores de validación tal cual (stock insuficiente, etc.)
             logger.info("=" * 80)
             raise
         except Exception as e:
-            logger.error(f"❌ [update_stock_from_movement] Error: {e}")
+            logger.error(f"❌ [_do_update_stock_from_movement] Error: {e}")
             import traceback
             logger.error(f"   Traceback: {traceback.format_exc()}")
             logger.info("=" * 80)
             raise
-    
+
     @staticmethod
     @transaction.atomic
     def confirm_physical_count(count_id):
@@ -530,26 +668,38 @@ class InventoryService:
     @transaction.atomic
     def confirm_receipt_note(note_id, user=None):
         """
-        Confirmar una Nota de Recibo y crear movimientos de entrada.
+        ✅ Confirmar una Nota de Recibo y crear movimientos de entrada.
+        
+        FLUJO CENTRALIZADO:
+        1. Verifica estado DRAFT
+        2. Crea movimientos de entrada (ENTRY)
+        3. Marca la nota como CONFIRMED
+        4. Si hay orden de compra asociada, la marca como RECEIVED y genera factura
         """
         from .models import ReceiptNote, Movement
         
         logger.info("=" * 80)
-        logger.info("🔴 [confirm_receipt_note] INICIANDO CONFIRMACIÓN DE NOTA DE RECIBO")
+        logger.info("🔴 [confirm_receipt_note] INICIANDO CONFIRMACIÓN")
         logger.info(f"   note_id: {note_id}")
         
         try:
             note = ReceiptNote.objects.get(id=note_id)
             logger.info(f"   ✅ Nota encontrada: {note.number}")
             logger.info(f"   Estado actual: {note.status}")
-            logger.info(f"   Orden de compra asociada: {note.purchase_order.number if note.purchase_order else 'Ninguna'}")
         except ReceiptNote.DoesNotExist as e:
             logger.error(f"❌ Nota no encontrada: {e}")
             raise
         
+        # ✅ Idempotencia: si ya está confirmada, no hacer nada
+        if note.status == 'CONFIRMED':
+            logger.info(f"   ℹ️ Nota {note.number} ya estaba confirmada")
+            return note
+        
         if note.status != 'DRAFT':
             logger.warning(f"⚠️ Nota en estado '{note.get_status_display()}', no se puede confirmar")
-            raise ValidationError(f"No se puede confirmar una nota en estado '{note.get_status_display()}'.")
+            raise ValidationError(
+                f"No se puede confirmar una nota en estado '{note.get_status_display()}'."
+            )
         
         if not note.receipt_lines.exists():
             logger.warning("⚠️ Nota sin líneas")
@@ -557,6 +707,7 @@ class InventoryService:
         
         logger.info(f"   📊 Líneas a procesar: {note.receipt_lines.count()}")
         
+        # ✅ PASO 1: Crear movimientos de entrada
         for idx, line in enumerate(note.receipt_lines.all(), 1):
             logger.info(f"   📝 Procesando línea {idx}:")
             logger.info(f"      - Producto: {line.product.name}")
@@ -568,19 +719,21 @@ class InventoryService:
                 product_id=line.product.id,
                 quantity=line.quantity,
                 location_to_id=line.location.id,
-                unit_price=line.product.sale_price,
+                unit_price=line.product.purchase_price or line.product.sale_price,
                 source_type='PURCHASE',
                 source_reference=note.number,
-                note=f"Recibo {note.number} - {note.supplier_name or note.supplier.name if note.supplier else 'Sin proveedor'}",
+                note=f"Recibo {note.number} - {note.supplier_name or (note.supplier.name if note.supplier else 'Sin proveedor')}",
                 user=user or note.user,
                 company=line.company
             )
             logger.info(f"      ✅ Línea {idx} procesada exitosamente")
         
+        # ✅ PASO 2: Marcar nota como CONFIRMED
         note.status = 'CONFIRMED'
         note.save()
         logger.info(f"   ✅ Nota {note.number} marcada como CONFIRMADA")
 
+        # ✅ PASO 3: Si hay orden de compra, finalizarla (marca RECEIVED + genera factura)
         if note.purchase_order_id:
             logger.info(f"🔗 Nota {note.number} vinculada a orden {note.purchase_order.number}")
             logger.info("   🔄 Llamando a PurchaseService.finalize_receipt()...")
@@ -597,7 +750,7 @@ class InventoryService:
         else:
             logger.info("ℹ️ Nota no vinculada a una orden de compra, saltando finalización")
         
-        logger.info("✅ [confirm_receipt_note] CONFIRMACIÓN COMPLETADA EXITOSAMENTE")
+        logger.info("✅ [confirm_receipt_note] CONFIRMACIÓN COMPLETADA")
         logger.info("=" * 80)
         return note
 

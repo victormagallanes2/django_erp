@@ -22,8 +22,7 @@ class CompanyFilterMixin(ModelAdmin):
     
     def save_model(self, request, obj, form, change):
         """Asignar la compañía activa al guardar un objeto."""
-        print(f"🔴 ===== MIXIN: save_model =====")
-        print(f"   Modelo: {obj.__class__.__name__}")
+        logger.debug(f"CompanyFilterMixin.save_model: {obj.__class__.__name__}")
         
         # ✅ FORZAR ASIGNACIÓN - Verificar si el modelo tiene campo company
         company = self._get_active_company(request)

@@ -201,15 +201,18 @@ class PurchaseService:
         logger.info(f"   Estado actual: {order.status}")
         logger.info(f"   ¿Ya facturada?: {order.invoiced}")
 
-        if order.status == 'RECEIVED':
-            logger.info(f"   ℹ️ La orden ya estaba marcada como recibida")
+        # ✅ Idempotencia: si ya está RECEIVED y facturada, salir
+        if order.status == 'RECEIVED' and order.invoiced:
+            logger.info(f"   ℹ️ La orden ya estaba recibida y facturada, saliendo")
             logger.info("=" * 80)
             return order
 
-        order.status = 'RECEIVED'
-        order.received_date = timezone.now()
-        order.save()
-        logger.info(f"   ✅ Orden marcada como RECIBIDA")
+        # ✅ Marcar como RECEIVED si aún no lo está
+        if order.status != 'RECEIVED':
+            order.status = 'RECEIVED'
+            order.received_date = timezone.now()
+            order.save()
+            logger.info(f"   ✅ Orden marcada como RECIBIDA")
 
         # ✅ Generar factura solo si no tiene factura
         if not order.invoiced:
