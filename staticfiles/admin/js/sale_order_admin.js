@@ -48,14 +48,19 @@ function getExchangeRate() {
     return rate;
 }
 
-// ✅ Función para obtener precio y asignarlo
+// ✅ Función para obtener datos del producto (precio + stock)
 function fetchProductDetails(productId, row) {
     if (!productId || productId === '') return;
     if (!row) return;
     
+    console.log("🔴 Obteniendo datos para producto ID:", productId);
+    
     fetch('/admin/sales/get-product-price/?product_id=' + productId)
         .then(response => response.json())
         .then(data => {
+            console.log("   Datos recibidos:", data);
+            
+            // 1. Actualizar precio unitario
             var priceInput = row.querySelector('input[name$="unit_price"]');
             if (!priceInput) {
                 priceInput = row.querySelector('input[id*="unit_price"]');
@@ -81,6 +86,19 @@ function fetchProductDetails(productId, row) {
                 }
             }
             
+            // 2. Actualizar el Stock Disponible dinámicamente
+            var stockField = row.querySelector('.field-stock_display');
+            if (stockField) {
+                if (data.stock_display) {
+                    stockField.textContent = data.stock_display;
+                } else if (data.stock !== undefined) {
+                    stockField.textContent = data.stock + ' unidades';
+                } else {
+                    stockField.textContent = 'Sin stock';
+                }
+            }
+
+            // 3. Ubicación (si aplica)
             var locationSelect = row.querySelector('select[name$="location"]');
             if (locationSelect && data.location_id) {
                 for (var i = 0; i < locationSelect.options.length; i++) {
@@ -97,7 +115,7 @@ function fetchProductDetails(productId, row) {
             updateLineSubtotal(row);
             recalculateOrderTotals();
         })
-        .catch(error => console.error("Error:", error));
+        .catch(error => console.error("Error al obtener datos del producto:", error));
 }
 
 // ✅ Función para actualizar subtotal de una línea

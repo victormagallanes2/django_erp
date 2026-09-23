@@ -21,12 +21,14 @@
         const SALESPERSONS_URL = container.dataset.salespersonsUrl || '';
         const REQUIRE_SALESPERSON = container.dataset.requireSalesperson === 'true';
         const EXCHANGE_RATE = parseFloat(container.dataset.exchangeRate) || 0;
+        const TAX_RATE = parseFloat(container.dataset.taxRate) || 16;
 
         console.log('[POS] SEARCH_URL:', SEARCH_URL);
         console.log('[POS] CHECKOUT_URL:', CHECKOUT_URL);
         console.log('[POS] CUSTOMER_SEARCH_URL:', CUSTOMER_SEARCH_URL);
         console.log('[POS] SALESPERSONS_URL:', SALESPERSONS_URL);
         console.log('[POS] REQUIRE_SALESPERSON:', REQUIRE_SALESPERSON);
+        console.log('[POS] TAX_RATE:', TAX_RATE);
 
         const searchInput = document.getElementById('pos-search-input');
         const productsGrid = document.getElementById('pos-products-grid');
@@ -56,10 +58,32 @@
         const clearBtn = document.getElementById('pos-clear-btn');
         const successModal = document.getElementById('pos-success-modal');
 
+        // ============================================================
+        // REFERENCIAS MÚLTIPLES PAGOS
+        // ============================================================
+        const multiPaymentBtn = document.getElementById('pos-multi-payment-btn');
+        const multiPaymentModal = document.getElementById('pos-multi-payment-modal');
+        const multiPaymentCloseBtn = document.getElementById('pos-multi-payment-close-btn');
+        const multiPaymentCancelBtn = document.getElementById('pos-multi-cancel-btn');
+        const multiPaymentConfirmBtn = document.getElementById('pos-multi-confirm-btn');
+        const multiPaymentList = document.getElementById('pos-multi-payment-list');
+        const multiPaymentAddBtn = document.getElementById('pos-multi-add-btn');
+        const multiMethodSelect = document.getElementById('pos-multi-method');
+        const multiAmountInput = document.getElementById('pos-multi-amount');
+        const multiReferenceInput = document.getElementById('pos-multi-reference');
+        const multiCustomerBankInput = document.getElementById('pos-multi-customer-bank');
+        const multiTotalInvoiceEl = document.getElementById('pos-multi-total-invoice');
+        const multiTotalPaidEl = document.getElementById('pos-multi-total-paid');
+        const multiDiffEl = document.getElementById('pos-multi-diff');
+        const multiDiffRow = document.getElementById('pos-multi-diff-row');
+
         let cart = [];
         let productsCache = [];
         let searchTimeout = null;
         let customerTimeout = null;
+
+        // Estado de pagos múltiples
+        let multiPayments = [];   // [{ method_id, method_name, amount, reference, customer_bank }]
 
         // ============================================================
         // UTILIDADES
@@ -421,8 +445,7 @@
             cart.forEach(item => {
                 subtotal += item.quantity * item.unit_price;
             });
-            const taxRate = 16;
-            const tax = subtotal * (taxRate / 100);
+            const tax = subtotal * (TAX_RATE / 100);
             const total = subtotal + tax;
             const totalBs = total * EXCHANGE_RATE;
 
@@ -433,7 +456,7 @@
         }
 
         // ============================================================
-        // MÉTODOS DE PAGO
+        // MÉTODOS DE PAGO (RÁPIDOS - PAGO ÚNICO)
         // ============================================================
         paymentButtons.forEach(btn => {
             btn.addEventListener('click', function () {
@@ -450,23 +473,35 @@
         function updateCheckoutButton() {
             if (!checkoutBtn) return;
 
-            const customerValue    = customerHidden ? String(customerHidden.value || '').trim() : '';
-            const paymentValue     = paymentMethodInput ? String(paymentMethodInput.value || '').trim() : '';
-            const salespersonValue = salespersonSelect ? String(salespersonSelect.value || '').trim() : '';
+            const customerValue = customerHidden ? String(customerHidden.value || '').trim() : '';
+            const paymentValue  = paymentMethodInput ? String(paymentMethodInput.value || '').trim() : '';
 
-            const hasCustomer    = customerValue !== '';
-            const hasPayment     = paymentValue !== '';
-            const hasItems       = Array.isArray(cart) && cart.length > 0;
-            const hasSalesperson = !REQUIRE_SALESPERSON || salespersonValue !== '';
+            const hasCustomer = customerValue !== '';
+            const hasPayment  = paymentValue !== '';
+            const hasItems    = Array.isArray(cart) && cart.length > 0;
 
-            const shouldEnable = hasCustomer && hasPayment && hasItems && hasSalesperson;
+            // ✅ El vendedor YA NO es obligatorio
+            const shouldEnable = hasCustomer && hasPayment && hasItems;
             checkoutBtn.disabled = !shouldEnable;
 
+            // ✅ Botón "Múltiples pagos": solo cliente + items
+            if (multiPaymentBtn) {
+                const multiEnabled = hasCustomer && hasItems;
+                multiPaymentBtn.disabled = !multiEnabled;
+                multiPaymentBtn.style.opacity = multiEnabled ? '1' : '0.5';
+                multiPaymentBtn.style.cursor = multiEnabled ? 'pointer' : 'not-allowed';
+                multiPaymentBtn.title = !multiEnabled
+                    ? 'Falta: ' + [
+                        !hasItems ? 'agregar productos' : null,
+                        !hasCustomer ? 'seleccionar cliente' : null,
+                      ].filter(Boolean).join(', ')
+                    : 'Pagar con varios métodos';
+            }
+
             const missing = [];
-            if (!hasItems)        missing.push('agregar productos');
-            if (!hasCustomer)     missing.push('seleccionar cliente');
-            if (!hasPayment)      missing.push('seleccionar método de pago');
-            if (!hasSalesperson)  missing.push('seleccionar vendedor');
+            if (!hasItems)    missing.push('agregar productos');
+            if (!hasCustomer) missing.push('seleccionar cliente');
+            if (!hasPayment)  missing.push('seleccionar método de pago');
             checkoutBtn.title = missing.length
                 ? 'Falta: ' + missing.join(', ')
                 : 'Procesar venta';
@@ -486,6 +521,9 @@
                 if (paymentMethodInput) paymentMethodInput.value = '';
                 if (salespersonSelect) salespersonSelect.value = '';
                 paymentButtons.forEach(b => b.classList.remove('active'));
+                // Limpiar pagos múltiples
+                multiPayments = [];
+                renderMultiPayments();
                 updateCheckoutButton();
                 if (searchInput) {
                     searchInput.value = '';
@@ -496,53 +534,268 @@
         }
 
         // ============================================================
+        // MÚLTIPLES PAGOS
+        // ============================================================
+        function getCartTotal() {
+            let subtotal = 0;
+            cart.forEach(item => {
+                subtotal += item.quantity * item.unit_price;
+            });
+            const tax = subtotal * (TAX_RATE / 100);
+            return subtotal + tax;
+        }
+
+        function openMultiPaymentModal() {
+            if (cart.length === 0) {
+                alert('El carrito está vacío');
+                return;
+            }
+
+            // ✅ Validar cliente
+            const customerValue = customerHidden ? String(customerHidden.value || '').trim() : '';
+            if (!customerValue) {
+                alert('⚠️ Debes seleccionar un cliente antes de continuar.');
+                if (customerInput) customerInput.focus();
+                return;
+            }
+
+            // ✅ Vendedor es opcional, no se valida
+
+            // Resetear pagos múltiples cada vez que se abre
+            multiPayments = [];
+            renderMultiPayments();
+            updateMultiTotals();
+
+            multiAmountInput.value = getCartTotal().toFixed(2);
+            multiReferenceInput.value = '';
+            multiCustomerBankInput.value = '';
+            multiMethodSelect.value = '';
+
+            multiPaymentModal.style.display = 'flex';
+        }
+
+        function closeMultiPaymentModal() {
+            if (multiPaymentModal) multiPaymentModal.style.display = 'none';
+        }
+
+        function renderMultiPayments() {
+            if (!multiPaymentList) return;
+
+            if (multiPayments.length === 0) {
+                multiPaymentList.innerHTML =
+                    '<div class="pos-multi-payment-empty">No has agregado pagos todavía.</div>';
+                return;
+            }
+
+            multiPaymentList.innerHTML = multiPayments.map((p, i) => {
+                const refHtml = p.reference
+                    ? '<span class="pos-multi-payment-item-ref">Ref: ' + escapeHtml(p.reference) + '</span>'
+                    : '';
+                return (
+                    '<div class="pos-multi-payment-item">' +
+                        '<div class="pos-multi-payment-item-info">' +
+                            '<span class="pos-multi-payment-item-method">' + escapeHtml(p.method_name) + '</span>' +
+                            refHtml +
+                        '</div>' +
+                        '<div style="display:flex;align-items:center;">' +
+                            '<span class="pos-multi-payment-item-amount">' + formatMoney(p.amount) + '</span>' +
+                            '<button type="button" class="pos-multi-payment-item-remove" ' +
+                                    'data-index="' + i + '">✕</button>' +
+                        '</div>' +
+                    '</div>'
+                );
+            }).join('');
+        }
+
+        function updateMultiTotals() {
+            const totalInvoice = getCartTotal();
+            const totalPaid = multiPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+            const diff = totalPaid - totalInvoice;
+
+            if (multiTotalInvoiceEl) multiTotalInvoiceEl.textContent = formatMoney(totalInvoice);
+            if (multiTotalPaidEl) multiTotalPaidEl.textContent = formatMoney(totalPaid);
+
+            if (multiDiffRow) {
+                multiDiffRow.classList.remove('negative', 'positive', 'exact');
+            }
+
+            if (Math.abs(diff) < 0.01) {
+                if (multiDiffRow) multiDiffRow.classList.add('exact');
+                if (multiDiffEl) multiDiffEl.textContent = '$ 0.00';
+                if (multiPaymentConfirmBtn) {
+                    multiPaymentConfirmBtn.disabled = multiPayments.length === 0;
+                }
+            } else if (diff < 0) {
+                if (multiDiffRow) multiDiffRow.classList.add('negative');
+                if (multiDiffEl) multiDiffEl.textContent = '- ' + formatMoney(Math.abs(diff));
+                if (multiPaymentConfirmBtn) multiPaymentConfirmBtn.disabled = true;
+            } else {
+                if (multiDiffRow) multiDiffRow.classList.add('positive');
+                if (multiDiffEl) multiDiffEl.textContent = '+ ' + formatMoney(diff);
+                if (multiPaymentConfirmBtn) multiPaymentConfirmBtn.disabled = true;
+            }
+        }
+
+        function addMultiPayment() {
+            const methodId = multiMethodSelect.value;
+            const selectedOption = multiMethodSelect.options[multiMethodSelect.selectedIndex];
+            const methodName = selectedOption ? selectedOption.text : '';
+            const amount = parseFloat(multiAmountInput.value) || 0;
+            const reference = multiReferenceInput.value.trim();
+            const customerBank = multiCustomerBankInput.value.trim();
+
+            if (!methodId) {
+                alert('Selecciona un método de pago');
+                return;
+            }
+            if (amount <= 0) {
+                alert('El monto debe ser mayor a cero');
+                return;
+            }
+
+            // Validar que no exceda el total
+            const totalInvoice = getCartTotal();
+            const totalPaid = multiPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+            if (totalPaid + amount > totalInvoice + 0.01) {
+                alert('La suma de pagos excede el total de la factura');
+                return;
+            }
+
+            multiPayments.push({
+                method_id: parseInt(methodId),
+                method_name: methodName,
+                amount: amount,
+                reference: reference,
+                customer_bank: customerBank,
+            });
+
+            // Limpiar formulario
+            multiMethodSelect.value = '';
+            multiReferenceInput.value = '';
+            multiCustomerBankInput.value = '';
+
+            // Sugerir el restante
+            const newPaid = multiPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+            const remaining = totalInvoice - newPaid;
+            multiAmountInput.value = remaining > 0 ? remaining.toFixed(2) : '0.00';
+
+            renderMultiPayments();
+            updateMultiTotals();
+        }
+
+        // Eventos del modal de múltiples pagos
+        if (multiPaymentBtn) {
+            multiPaymentBtn.addEventListener('click', openMultiPaymentModal);
+        }
+        if (multiPaymentCloseBtn) {
+            multiPaymentCloseBtn.addEventListener('click', closeMultiPaymentModal);
+        }
+        if (multiPaymentCancelBtn) {
+            multiPaymentCancelBtn.addEventListener('click', closeMultiPaymentModal);
+        }
+        if (multiPaymentModal) {
+            multiPaymentModal.addEventListener('click', function (e) {
+                if (e.target === this) closeMultiPaymentModal();
+            });
+        }
+        if (multiPaymentAddBtn) {
+            multiPaymentAddBtn.addEventListener('click', addMultiPayment);
+        }
+        if (multiPaymentList) {
+            multiPaymentList.addEventListener('click', function (e) {
+                if (e.target.classList.contains('pos-multi-payment-item-remove')) {
+                    const idx = parseInt(e.target.dataset.index);
+                    multiPayments.splice(idx, 1);
+                    renderMultiPayments();
+                    updateMultiTotals();
+
+                    // Reajustar el monto sugerido
+                    const totalInvoice = getCartTotal();
+                    const newPaid = multiPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+                    const remaining = totalInvoice - newPaid;
+                    multiAmountInput.value = remaining > 0 ? remaining.toFixed(2) : '0.00';
+                }
+            });
+        }
+        if (multiPaymentConfirmBtn) {
+            multiPaymentConfirmBtn.addEventListener('click', function () {
+                if (multiPayments.length === 0) return;
+                // Validar diferencia exacta
+                const totalInvoice = getCartTotal();
+                const totalPaid = multiPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+                if (Math.abs(totalPaid - totalInvoice) > 0.01) {
+                    alert('La suma de pagos debe coincidir exactamente con el total');
+                    return;
+                }
+                closeMultiPaymentModal();
+                // Ejecutar checkout con los pagos múltiples
+                performCheckout({ multiPayments: multiPayments.slice() });
+            });
+        }
+
+        // ============================================================
         // CHECKOUT
         // ============================================================
         if (checkoutBtn) {
             checkoutBtn.addEventListener('click', function () {
                 if (checkoutBtn.disabled) return;
-
-                const payload = {
-                    customer_id: parseInt(customerHidden.value),
-                    payment_method_id: parseInt(paymentMethodInput.value),
-                    salesperson_id: (salespersonSelect && salespersonSelect.value)
-                        ? parseInt(salespersonSelect.value)
-                        : null,
-                    note: '',
-                    lines: cart.map(item => ({
-                        product_id: item.product_id,
-                        quantity: item.quantity,
-                        unit_price: item.unit_price,
-                        location_id: item.location_id,
-                    })),
-                };
-
-                checkoutBtn.disabled = true;
-                checkoutBtn.textContent = '⏳ Procesando...';
-
-                fetch(CHECKOUT_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCookie('csrftoken'),
-                    },
-                    body: JSON.stringify(payload),
-                })
-                    .then(r => r.json().then(data => ({ ok: r.ok, data })))
-                    .then(({ ok, data }) => {
-                        if (!ok || data.error) {
-                            alert('❌ ' + (data.error || 'Error al procesar la venta'));
-                            resetCheckoutButton();
-                            return;
-                        }
-                        showSuccessModal(data);
-                    })
-                    .catch(err => {
-                        console.error(err);
-                        alert('❌ Error de red al procesar la venta');
-                        resetCheckoutButton();
-                    });
+                // Pago único (comportamiento actual)
+                performCheckout();
             });
+        }
+
+        function performCheckout(extra) {
+            extra = extra || {};
+            const useMulti = Array.isArray(extra.multiPayments) && extra.multiPayments.length > 0;
+
+            const payload = {
+                customer_id: parseInt(customerHidden.value),
+                payment_method_id: useMulti ? null : parseInt(paymentMethodInput.value),
+                payments: useMulti
+                    ? extra.multiPayments.map(p => ({
+                        method_id: p.method_id,
+                        amount: p.amount,
+                        reference: p.reference || '',
+                        customer_bank: p.customer_bank || '',
+                    }))
+                    : null,
+                salesperson_id: (salespersonSelect && salespersonSelect.value)
+                    ? parseInt(salespersonSelect.value)
+                    : null,
+                note: '',
+                lines: cart.map(item => ({
+                    product_id: item.product_id,
+                    quantity: item.quantity,
+                    unit_price: item.unit_price,
+                    location_id: item.location_id,
+                })),
+            };
+
+            checkoutBtn.disabled = true;
+            checkoutBtn.textContent = '⏳ Procesando...';
+
+            fetch(CHECKOUT_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken'),
+                },
+                body: JSON.stringify(payload),
+            })
+                .then(r => r.json().then(data => ({ ok: r.ok, data })))
+                .then(({ ok, data }) => {
+                    if (!ok || data.error) {
+                        alert('❌ ' + (data.error || 'Error al procesar la venta'));
+                        resetCheckoutButton();
+                        return;
+                    }
+                    showSuccessModal(data);
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert('❌ Error de red al procesar la venta');
+                    resetCheckoutButton();
+                });
         }
 
         function resetCheckoutButton() {
@@ -553,8 +806,10 @@
 
         function showSuccessModal(data) {
             if (!successModal) return;
-            document.getElementById('pos-success-number').textContent = data.invoice_number;
-            document.getElementById('pos-success-total').textContent = formatMoney(data.total);
+            const numberEl = document.getElementById('pos-success-number');
+            const totalElModal = document.getElementById('pos-success-total');
+            if (numberEl) numberEl.textContent = data.invoice_number;
+            if (totalElModal) totalElModal.textContent = formatMoney(data.total);
             const printBtn = document.getElementById('pos-print-btn');
             if (printBtn) printBtn.href = data.print_url;
             successModal.style.display = 'flex';
@@ -565,7 +820,9 @@
             newSaleBtn.addEventListener('click', function () {
                 successModal.style.display = 'none';
                 cart = [];
+                multiPayments = [];
                 renderCart();
+                renderMultiPayments();
                 if (customerHidden) customerHidden.value = '';
                 if (customerInput) customerInput.value = '';
                 if (paymentMethodInput) paymentMethodInput.value = '';
@@ -690,6 +947,9 @@
                 if (customerModal && customerModal.style.display === 'flex') {
                     closeCustomerModal();
                 }
+                if (multiPaymentModal && multiPaymentModal.style.display === 'flex') {
+                    closeMultiPaymentModal();
+                }
             }
         });
 
@@ -697,6 +957,7 @@
         // INICIALIZACIÓN
         // ============================================================
         renderCart();
+        renderMultiPayments();
         updateCheckoutButton();
         loadSalespersons();
         doSearch('');

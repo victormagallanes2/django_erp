@@ -13,6 +13,7 @@
      data-customer-search-url="{{ customer_search_url }}"
      data-salespersons-url="{{ salespersons_url }}"
      data-require-salesperson="{{ require_salesperson|yesno:'true,false' }}"
+     data-tax-rate="{{ tax_rate }}"
      data-exchange-rate="{{ exchange_rate }}">
 
     <!-- ============================================================ -->
@@ -49,6 +50,9 @@
                 {% endfor %}
             </div>
             <input type="hidden" id="pos-payment-method-id">
+        <button type="button" id="pos-multi-payment-btn" class="pos-multi-payment-btn">
+            ➕ Múltiples pagos
+        </button>
         </div>
     </div>
 
@@ -92,13 +96,14 @@
 
         </div>
 
-<div class="pos-salesperson-bar" id="pos-salesperson-bar"
-     {% if not require_salesperson %}style="display:none;"{% endif %}>
-    <label>🧑‍💼 Vendedor que cobra comisión</label>
+{% if commission_enabled %}
+<div class="pos-salesperson-bar" id="pos-salesperson-bar">
+    <label>🧑‍💼 Vendedor (opcional - para comisión)</label>
     <select id="pos-salesperson" class="pos-salesperson-select">
-        <option value="">— Selecciona un empleado —</option>
+        <option value="">— Sin vendedor (no genera comisión) —</option>
     </select>
 </div>
+{% endif %}
         <!-- Lista del carrito -->
         <div class="pos-cart" id="pos-cart">
             <div class="pos-cart-empty" id="pos-cart-empty">
@@ -173,6 +178,88 @@
         </div>
     </div>
 </div>
+
+<!-- ============================================================ -->
+<!-- MODAL DE MÚLTIPLES PAGOS                                      -->
+<!-- ============================================================ -->
+<div id="pos-multi-payment-modal" class="pos-modal-overlay" style="display:none;">
+    <div class="pos-modal-box pos-multi-payment-box">
+        <div class="pos-modal-header">
+            <h3>💳 Múltiples métodos de pago</h3>
+            <button type="button" class="pos-modal-close" id="pos-multi-payment-close-btn">✕</button>
+        </div>
+        <div class="pos-modal-body">
+            <!-- Lista de pagos agregados -->
+            <div id="pos-multi-payment-list" class="pos-multi-payment-list">
+                <div class="pos-multi-payment-empty">
+                    No has agregado pagos todavía.
+                </div>
+            </div>
+
+            <!-- Formulario para agregar un pago -->
+            <div class="pos-multi-payment-form">
+                <div class="pos-multi-payment-form-title">Agregar pago</div>
+
+                <label for="pos-multi-method">Método</label>
+                <select id="pos-multi-method" class="pos-multi-input">
+                    <option value="">— Selecciona método —</option>
+                    {% for pm in payment_methods %}
+                        <option value="{{ pm.id }}"
+                                data-currency="{{ pm.default_currency.code|default:'USD' }}">
+                            {{ pm.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+
+                <label for="pos-multi-amount">Monto</label>
+                <input type="number" id="pos-multi-amount" class="pos-multi-input"
+                       step="0.01" min="0" placeholder="0.00">
+
+                <label for="pos-multi-reference">Referencia (opcional)</label>
+                <input type="text" id="pos-multi-reference" class="pos-multi-input"
+                       placeholder="Nro. transferencia, cheque, etc.">
+
+                <label for="pos-multi-customer-bank">Banco del cliente (opcional)</label>
+                <input type="text" id="pos-multi-customer-bank" class="pos-multi-input"
+                       placeholder="Banco desde el que pagó">
+
+                <button type="button" id="pos-multi-add-btn"
+                        class="pos-btn pos-btn-primary pos-multi-add-btn">
+                    ➕ Agregar pago
+                </button>
+            </div>
+
+            <!-- Totales -->
+            <div class="pos-multi-payment-totals">
+                <div class="pos-total-row">
+                    <span>Total factura</span>
+                    <span id="pos-multi-total-invoice">$ 0.00</span>
+                </div>
+                <div class="pos-total-row">
+                    <span>Total pagado</span>
+                    <span id="pos-multi-total-paid">$ 0.00</span>
+                </div>
+                <div class="pos-total-row" id="pos-multi-diff-row">
+                    <span>Diferencia</span>
+                    <span id="pos-multi-diff">$ 0.00</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="pos-modal-footer">
+            <button type="button" id="pos-multi-cancel-btn"
+                    class="pos-btn pos-btn-secondary">
+                Cancelar
+            </button>
+            <button type="button" id="pos-multi-confirm-btn"
+                    class="pos-btn pos-btn-primary" disabled>
+                ✅ Confirmar pagos
+            </button>
+        </div>
+    </div>
+</div>
+
+
 
 <script src="{% static 'admin/js/sale_invoice_pos.js' %}"></script>
 {% endblock %}

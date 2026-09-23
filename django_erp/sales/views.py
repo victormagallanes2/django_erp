@@ -31,6 +31,31 @@ from django_erp.rrhh.models import Employee
 logger = logging.getLogger(__name__)
 
 
+from decimal import Decimal, ROUND_HALF_UP
+from django_erp.accounting.models import ExchangeRate
+from .helpers import get_open_register
+from django_erp.accounting.services import TaxService
+
+
+def _round2(value):
+    return Decimal(str(value)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+def _to_usd(amount, currency):
+    """Convierte `amount` (Decimal) de `currency` a USD."""
+    if not currency:
+        return _round2(amount)
+
+    if currency.code == 'USD':
+        return _round2(amount)
+
+    rate = ExchangeRate.get_today_rate(currency.code, 'USD')
+    if rate and rate > 0:
+        return _round2(Decimal(str(amount)) / Decimal(str(rate)))
+
+    return _round2(amount)
+
+
 
 @staff_member_required
 @require_GET
@@ -143,11 +168,20 @@ class POSView(UnfoldModelAdminViewMixin, TemplateView):
         context['payment_methods'] = PaymentMethod.objects.filter(
             company=company, is_active=True
         ) if company else PaymentMethod.objects.none()
+        from django_erp.accounting.services import TaxService
+        tax_rate = float(TaxService.get_current_vat_rate(company)) if company else 16.0
 
+
+        context['commission_enabled'] = bool(
+            company and getattr(company, 'commission_enabled', False)
+        )
+        
+        context['tax_rate'] = tax_rate
         context['search_url'] = self.request.build_absolute_uri('search/')
         context['checkout_url'] = self.request.build_absolute_uri('checkout/')
         context['customer_search_url'] = self.request.build_absolute_uri('customer-search/')
         context['salespersons_url'] = self.request.build_absolute_uri('salespersons/')
+
 
         context['require_salesperson'] = bool(
             company and (
@@ -192,7 +226,8 @@ def pos_checkout(request):
     customer_id = data.get('customer_id')
     lines_data = data.get('lines', [])
     payment_method_id = data.get('payment_method_id')
-    salesperson_id = data.get('salesperson_id')  # ✅ NUEVO
+    payments_data = data.get('payments') or []      # ✅ NUEVO
+    salesperson_id = data.get('salesperson_id')
     note = data.get('note', '')
 
     # ✅ Validaciones básicas
@@ -200,7 +235,12 @@ def pos_checkout(request):
         return JsonResponse({'error': 'Debes seleccionar un cliente'}, status=400)
     if not lines_data:
         return JsonResponse({'error': 'El carrito está vacío'}, status=400)
-    if not payment_method_id:
+
+    # ✅ Validar pago: único O múltiple
+    has_single_payment = bool(payment_method_id)
+    has_multi_payment = isinstance(payments_data, list) and len(payments_data) > 0
+
+    if not has_single_payment and not has_multi_payment:
         return JsonResponse({'error': 'Debes seleccionar un método de pago'}, status=400)
 
     company = getattr(request, 'current_company', None)
@@ -210,15 +250,15 @@ def pos_checkout(request):
         return JsonResponse({'error': 'No hay compañía activa'}, status=400)
 
     # ✅ Validar vendedor si la compañía lo requiere
-    requires_salesperson = bool(
-        getattr(company, 'commission_enabled', False)
-        or getattr(company, 'require_salesperson_pin', False)
-    )
-    if requires_salesperson and not salesperson_id:
-        return JsonResponse(
-            {'error': 'Debes seleccionar el empleado que cobra la comisión'},
-            status=400
-        )
+    # requires_salesperson = bool(
+    #     getattr(company, 'commission_enabled', False)
+    #     or getattr(company, 'require_salesperson_pin', False)
+    # )
+    # if requires_salesperson and not salesperson_id:
+    #     return JsonResponse(
+    #         {'error': 'Debes seleccionar el empleado que cobra la comisión'},
+    #         status=400
+    #     )
 
     # ✅ Resolver el Employee
     salesperson = None
@@ -239,9 +279,7 @@ def pos_checkout(request):
     try:
         with transaction.atomic():
             customer = Customer.objects.get(id=customer_id, company=company)
-            payment_method = PaymentMethod.objects.get(
-                id=payment_method_id, company=company
-            )
+
 
             # ✅ 1. Verificar caja abierta ANTES de crear la factura
             try:
@@ -263,7 +301,34 @@ def pos_checkout(request):
 
             number = f"FAC-VENTA-{datetime.now().strftime('%Y%m')}-{next_num:04d}"
 
-            # ✅ 3. Crear factura CON salesperson
+            # ✅ 3. Validar método único (si aplica) ANTES de crear la factura
+            single_method = None
+            if has_single_payment:
+                try:
+                    single_method = PaymentMethod.objects.get(
+                        id=payment_method_id, company=company
+                    )
+                except PaymentMethod.DoesNotExist:
+                    return JsonResponse(
+                        {'error': 'Método de pago no encontrado'}, status=404
+                    )
+
+            # ✅ 4. Validar métodos múltiples ANTES de crear la factura
+            multi_methods = {}
+            if has_multi_payment:
+                method_ids = [p.get('method_id') for p in payments_data if p.get('method_id')]
+                found = PaymentMethod.objects.filter(
+                    id__in=method_ids, company=company
+                )
+                multi_methods = {m.id: m for m in found}
+
+                if len(multi_methods) != len(set(method_ids)):
+                    return JsonResponse(
+                        {'error': 'Uno o más métodos de pago no son válidos'},
+                        status=400
+                    )
+
+            # ✅ 5. Crear factura CON salesperson
             tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
 
             invoice = SaleInvoice.objects.create(
@@ -272,7 +337,7 @@ def pos_checkout(request):
                 customer_name=customer.name,
                 customer_tax_id=customer.tax_id,
                 customer_address=customer.address,
-                salesperson=salesperson,          # ✅ ASIGNAR VENDEDOR
+                salesperson=salesperson,
                 status='PAID',
                 tax_rate=tax_rate,
                 note=note,
@@ -280,7 +345,7 @@ def pos_checkout(request):
                 company=company,
             )
 
-            # ✅ 4. Crear líneas
+            # ✅ 6. Crear líneas
             for line_data in lines_data:
                 product_id = line_data.get('product_id')
                 quantity = int(line_data.get('quantity', 1))
@@ -299,51 +364,71 @@ def pos_checkout(request):
                     company=company,
                 )
 
-            # ✅ 5. Procesar con el servicio centralizado
-            #    Esto recalcula totales, genera comisión, registra caja,
-            #    crea pago, reduce inventario y envía señal invoice_paid.
+            # ✅ 7. Procesar la factura (recalcula totales, comisión, caja, inventario)
             invoice.refresh_from_db()
-            
-            # ✅ 6. Verificar que las líneas se guardaron
-            lines_count = invoice.lines.count()
-            logger.info(f"   ✅ Factura {invoice.number} tiene {lines_count} líneas antes de procesar")
-            
-            if lines_count == 0:
-                raise ValidationError("No se pudieron guardar las líneas de la factura")
-            
-            # ✅ 7. Procesar con el servicio centralizado
+
             from .services import SaleInvoiceProcessingService
             result = SaleInvoiceProcessingService.process_paid_invoice(
                 invoice=invoice,
                 user=request.user,
                 request=request,
             )
-            
-            # ✅ 8. Log del resultado
-            logger.info(f"   📊 Resultado del procesamiento:")
-            logger.info(f"      - Comisión creada: {result.get('commission_created')}")
-            logger.info(f"      - Caja registrada: {result.get('cash_transaction_created')}")
-            logger.info(f"      - Pago creado: {result.get('payment_created')}")
-            logger.info(f"      - Inventario reducido: {result.get('inventory_reduced')}")
 
-            # ✅ 6. Ajustar el método de pago específico del POS
-            payment = Payment.objects.filter(
+            # ✅ 8. Eliminar el pago automático que creó el servicio
+            #    (vamos a crear los pagos reales nosotros)
+            Payment.objects.filter(
                 sale_invoice=invoice,
-                status='COMPLETED'
-            ).first()
+                reference__startswith='Pago factura'
+            ).delete()
 
-            if payment:
-                payment.method = payment_method
-                payment.currency = payment_method.default_currency or payment.currency
-                payment.reference = f"Pago POS {invoice.number}"
-                # ✅ Recalcular amount_usd si cambió la moneda
-                if payment.currency and payment.currency.code == 'USD':
-                    payment.amount_usd = payment.amount
-                else:
-                    rate = ExchangeRate.get_today_rate(payment.currency.code, 'USD') if payment.currency else None
-                    if rate and rate > 0:
-                        payment.amount_usd = payment.amount / rate
-                payment.save()
+            # ✅ 9. Crear los pagos (único o múltiple)
+            usd_currency = Currency.objects.filter(code='USD').first()
+
+            if has_multi_payment:
+                # ----- MÚLTIPLES PAGOS -----
+                for p in payments_data:
+                    method = multi_methods.get(p.get('method_id'))
+                    if not method:
+                        continue
+
+                    amount = Decimal(str(p.get('amount', 0)))
+                    reference = (p.get('reference') or '').strip() or f"Pago POS {invoice.number}"
+                    customer_bank = (p.get('customer_bank') or '').strip()
+
+                    currency = method.default_currency or usd_currency
+                    amount_usd = _to_usd(amount, currency)
+                    amount = _round2(amount)
+
+                    Payment.objects.create(
+                        sale_invoice=invoice,
+                        method=method,
+                        currency=currency,
+                        amount=amount,
+                        amount_usd=amount_usd,
+                        reference=reference,
+                        customer_bank=customer_bank,
+                        status='COMPLETED',
+                        user=request.user,
+                        company=company,
+                    )
+            else:
+                # ----- PAGO ÚNICO -----
+                amount = Decimal(str(invoice.total))
+                currency = single_method.default_currency or usd_currency
+                amount_usd = _to_usd(amount, currency)
+                amount = _round2(amount)
+
+                Payment.objects.create(
+                    sale_invoice=invoice,
+                    method=single_method,
+                    currency=currency,
+                    amount=amount,
+                    amount_usd=amount_usd,
+                    reference=f"Pago POS {invoice.number}",
+                    status='COMPLETED',
+                    user=request.user,
+                    company=company,
+                )
 
             invoice.refresh_from_db()
 
@@ -364,7 +449,7 @@ def pos_checkout(request):
                 'print_url': f'/admin/sales/saleinvoice/{invoice.id}/change/',
                 'processing_result': {
                     'cash_transaction_created': result.get('cash_transaction_created', False),
-                    'payment_created': result.get('payment_created', False),
+                    'payment_created': True,
                     'inventory_reduced': result.get('inventory_reduced', False),
                     'movements_created': result.get('movements_created', 0),
                     'commission_created': result.get('commission_created') is not None,
