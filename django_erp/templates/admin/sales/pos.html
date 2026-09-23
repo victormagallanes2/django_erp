@@ -50,61 +50,93 @@
                 {% endfor %}
             </div>
             <input type="hidden" id="pos-payment-method-id">
-        <button type="button" id="pos-multi-payment-btn" class="pos-multi-payment-btn">
-            ➕ Múltiples pagos
-        </button>
+
+            <button type="button" id="pos-multi-payment-btn" class="pos-multi-payment-btn">
+                ➕ Múltiples pagos
+            </button>
         </div>
+
     </div>
+    <!-- /.pos-left -->
 
     <!-- ============================================================ -->
-    <!-- COLUMNA DERECHA: Cliente, carrito, totales, acciones         -->
+    <!-- COLUMNA DERECHA: Cliente, vendedor, carrito, totales, acciones -->
     <!-- ============================================================ -->
     <div class="pos-right">
 
-        <!-- Selector de cliente (autocomplete propio) -->
-        <div class="pos-customer-bar">
-            <div class="pos-customer-bar">
-                <label>👤 Cliente</label>
-                <div class="pos-customer-row">
-                    <div class="pos-customer-autocomplete">
-                        <div class="pos-customer-input-wrap">
-                            <input type="text"
-                                   id="pos-customer-input"
-                                   class="pos-customer-select"
-                                   placeholder="🔍 Buscar cliente por nombre o cédula..."
-                                   autocomplete="off">
-                            <button type="button"
-                                    id="pos-customer-lupa-btn"
-                                    class="pos-customer-lupa-btn"
-                                    title="Mostrar todos los clientes">
-                                🔍
-                            </button>
-                        </div>
-                        <input type="hidden" id="pos-customer" value="">
-                        <div id="pos-customer-results" class="pos-customer-results"></div>
+        <!-- ============================================================ -->
+        <!-- CLIENTE                                                       -->
+        <!-- ============================================================ -->
+        <div class="pos-field">
+            <label class="pos-field-label">👤 Cliente</label>
+            <div class="pos-field-row">
+                <div class="pos-autocomplete">
+                    <div class="pos-input-wrap">
+                        <input type="text"
+                               id="pos-customer-input"
+                               class="pos-input"
+                               placeholder="Buscar cliente por nombre o cédula..."
+                               autocomplete="off">
+                        <button type="button"
+                                id="pos-customer-lupa-btn"
+                                class="pos-input-icon-btn"
+                                title="Mostrar todos los clientes">
+                            🔍
+                        </button>
                     </div>
-                    <button type="button"
-                            class="pos-add-customer-btn"
-                            id="pos-open-customer-modal-btn"
-                            data-customer-add-url="{% url 'admin:sales_pos_customer_form' %}">
-                        ➕
-                    </button>
-
+                    <input type="hidden" id="pos-customer" value="">
+                    <div id="pos-customer-results" class="pos-customer-results"></div>
                 </div>
-
+                <button type="button"
+                        class="pos-add-btn"
+                        id="pos-open-customer-modal-btn"
+                        data-customer-add-url="{% url 'admin:sales_pos_customer_form' %}"
+                        title="Agregar nuevo cliente">
+                    ➕
+                </button>
             </div>
-
         </div>
 
-{% if commission_enabled %}
-<div class="pos-salesperson-bar" id="pos-salesperson-bar">
-    <label>🧑‍💼 Vendedor (opcional - para comisión)</label>
-    <select id="pos-salesperson" class="pos-salesperson-select">
-        <option value="">— Sin vendedor (no genera comisión) —</option>
-    </select>
-</div>
-{% endif %}
-        <!-- Lista del carrito -->
+        <!-- ============================================================ -->
+        <!-- VENDEDOR (opcional)                                           -->
+        <!-- ============================================================ -->
+        {% if commission_enabled %}
+        <div class="pos-field">
+            <label class="pos-field-label">
+                🧑‍💼 Vendedor <span class="pos-field-hint">(opcional)</span>
+            </label>
+            <div class="pos-field-row">
+                <div class="pos-autocomplete">
+                    <div class="pos-input-wrap">
+                        <input type="text"
+                               id="pos-salesperson-input"
+                               class="pos-input"
+                               placeholder="Buscar empleado por nombre o código..."
+                               autocomplete="off">
+                        <button type="button"
+                                id="pos-salesperson-lupa-btn"
+                                class="pos-input-icon-btn"
+                                title="Mostrar todos los empleados">
+                            🔍
+                        </button>
+                        <button type="button"
+                                id="pos-salesperson-clear-btn"
+                                class="pos-input-icon-btn pos-input-clear-btn"
+                                title="Quitar vendedor"
+                                style="display:none;">
+                            ✕
+                        </button>
+                    </div>
+                    <input type="hidden" id="pos-salesperson" value="">
+                    <div id="pos-salesperson-results" class="pos-customer-results"></div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ============================================================ -->
+        <!-- CARRITO                                                       -->
+        <!-- ============================================================ -->
         <div class="pos-cart" id="pos-cart">
             <div class="pos-cart-empty" id="pos-cart-empty">
                 <span>🛒</span>
@@ -113,7 +145,9 @@
             <div class="pos-cart-items" id="pos-cart-items"></div>
         </div>
 
-        <!-- Totales -->
+        <!-- ============================================================ -->
+        <!-- TOTALES                                                       -->
+        <!-- ============================================================ -->
         <div class="pos-totals">
             <div class="pos-total-row">
                 <span>Subtotal</span>
@@ -134,10 +168,11 @@
             <div class="pos-rate-info">
                 Tasa: 1 USD = Bs. {{ exchange_rate }}
             </div>
-            
         </div>
 
-        <!-- Acciones -->
+        <!-- ============================================================ -->
+        <!-- ACCIONES                                                      -->
+        <!-- ============================================================ -->
         <div class="pos-actions">
             <button id="pos-clear-btn" class="pos-btn pos-btn-secondary" type="button">
                 🗑️ Limpiar
@@ -148,8 +183,10 @@
         </div>
 
     </div>
+    <!-- /.pos-right -->
 
 </div>
+<!-- /.pos-container -->
 
 <!-- ============================================================ -->
 <!-- MODAL PARA AGREGAR CLIENTE                                    -->
@@ -189,6 +226,7 @@
             <button type="button" class="pos-modal-close" id="pos-multi-payment-close-btn">✕</button>
         </div>
         <div class="pos-modal-body">
+
             <!-- Lista de pagos agregados -->
             <div id="pos-multi-payment-list" class="pos-multi-payment-list">
                 <div class="pos-multi-payment-empty">
@@ -244,8 +282,8 @@
                     <span id="pos-multi-diff">$ 0.00</span>
                 </div>
             </div>
-        </div>
 
+        </div>
         <div class="pos-modal-footer">
             <button type="button" id="pos-multi-cancel-btn"
                     class="pos-btn pos-btn-secondary">
@@ -258,8 +296,6 @@
         </div>
     </div>
 </div>
-
-
 
 <script src="{% static 'admin/js/sale_invoice_pos.js' %}"></script>
 {% endblock %}

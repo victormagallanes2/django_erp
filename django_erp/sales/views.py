@@ -591,17 +591,38 @@ def pos_customer_form(request):
 def pos_salespersons(request):
     """
     Devuelve la lista de empleados elegibles como vendedores para el POS.
-    El modelo Employee NO tiene FK a Company, se filtra por User.is_employee
-    e User.is_active (que es lo que evalúa la property Employee.is_active).
+    Filtra por:
+      - user.is_employee = True
+      - user.is_active = True
+      - user.companies incluye la compañía activa
+      - (opcional) q: busca por nombre, apellido, username o employee_code
     """
     from django_erp.rrhh.models import Employee
+    from django.db.models import Q
+
+    company = getattr(request, 'current_company', None) or Company.get_active()
+    query = (request.GET.get('q') or '').strip()
 
     qs = (
         Employee.objects
         .filter(user__is_employee=True, user__is_active=True)
         .select_related('user')
-        .order_by('user__first_name', 'user__last_name')
     )
+
+    # ✅ Filtrar por compañía activa
+    if company:
+        qs = qs.filter(user__companies=company)
+
+    # ✅ Filtrar por query de búsqueda
+    if query:
+        qs = qs.filter(
+            Q(user__first_name__icontains=query)
+            | Q(user__last_name__icontains=query)
+            | Q(user__username__icontains=query)
+            | Q(employee_code__icontains=query)
+        )
+
+    qs = qs.order_by('user__first_name', 'user__last_name')[:20]
 
     results = []
     for e in qs:

@@ -40,13 +40,12 @@
         const customerResults = document.getElementById('pos-customer-results');
         const customerLupaBtn = document.getElementById('pos-customer-lupa-btn');
 
-        const salespersonSelect = document.getElementById('pos-salesperson');
-        const salespersonBar = document.getElementById('pos-salesperson-bar');
-
-        console.log('[POS] customerInput:', customerInput);
-        console.log('[POS] customerResults:', customerResults);
-        console.log('[POS] customerLupaBtn:', customerLupaBtn);
-        console.log('[POS] salespersonSelect:', salespersonSelect);
+        // Vendedor (autocomplete)
+        const salespersonSelect = document.getElementById('pos-salesperson');   // hidden input
+        const salespersonInput = document.getElementById('pos-salesperson-input');
+        const salespersonResults = document.getElementById('pos-salesperson-results');
+        const salespersonLupaBtn = document.getElementById('pos-salesperson-lupa-btn');
+        const salespersonClearBtn = document.getElementById('pos-salesperson-clear-btn');
 
         const paymentButtons = document.querySelectorAll('.pos-payment-btn');
         const paymentMethodInput = document.getElementById('pos-payment-method-id');
@@ -58,9 +57,7 @@
         const clearBtn = document.getElementById('pos-clear-btn');
         const successModal = document.getElementById('pos-success-modal');
 
-        // ============================================================
-        // REFERENCIAS MÚLTIPLES PAGOS
-        // ============================================================
+        // Múltiples pagos
         const multiPaymentBtn = document.getElementById('pos-multi-payment-btn');
         const multiPaymentModal = document.getElementById('pos-multi-payment-modal');
         const multiPaymentCloseBtn = document.getElementById('pos-multi-payment-close-btn');
@@ -81,9 +78,10 @@
         let productsCache = [];
         let searchTimeout = null;
         let customerTimeout = null;
+        let salespersonTimeout = null;
+        let salespersonsCache = [];
 
-        // Estado de pagos múltiples
-        let multiPayments = [];   // [{ method_id, method_name, amount, reference, customer_bank }]
+        let multiPayments = [];
 
         // ============================================================
         // UTILIDADES
@@ -120,19 +118,20 @@
         // ============================================================
         // AUTOCOMPLETE DE CLIENTE
         // ============================================================
-        function searchCustomers(q) {
+        function searchCustomers(q, options) {
+            options = options || {};
             if (!CUSTOMER_SEARCH_URL) {
                 console.warn('[POS] CUSTOMER_SEARCH_URL no está definida');
                 return;
             }
             const url = CUSTOMER_SEARCH_URL + '?q=' + encodeURIComponent(q || '');
-            console.log('[POS] Buscando clientes en:', url);
-
             fetch(url)
                 .then(r => r.json())
                 .then(data => {
-                    console.log('[POS] Resultados:', data);
-                    renderCustomerResults(data.results || []);
+                    // Solo renderiza si se pide explícitamente
+                    if (options.showResults) {
+                        renderCustomerResults(data.results || []);
+                    }
                 })
                 .catch(err => console.error('[POS] Error buscando clientes:', err));
         }
@@ -171,31 +170,25 @@
             updateCheckoutButton();
         }
 
-        // Evento: clic en la lupa
         if (customerLupaBtn) {
             customerLupaBtn.addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
-                console.log('[POS] Lupa clickeada');
-                searchCustomers('');
+                searchCustomers('', { showResults: true });
                 if (customerInput) customerInput.focus();
             });
-        } else {
-            console.warn('[POS] No se encontró el botón de lupa (#pos-customer-lupa-btn)');
         }
 
-        // Evento: clic en el input → mostrar todos
         if (customerInput) {
             customerInput.addEventListener('focus', function () {
-                console.log('[POS] Input de cliente enfocado');
-                searchCustomers(this.value.trim());
+                searchCustomers(this.value.trim(), { showResults: true });
             });
 
             customerInput.addEventListener('input', function () {
                 clearTimeout(customerTimeout);
                 const q = this.value.trim();
                 if (q.length === 0) {
-                    searchCustomers('');
+                    searchCustomers('', { showResults: true });
                     return;
                 }
                 if (q.length < 2) {
@@ -204,60 +197,166 @@
                     updateCheckoutButton();
                     return;
                 }
-                customerTimeout = setTimeout(() => searchCustomers(q), 250);
+                customerTimeout = setTimeout(
+                    () => searchCustomers(q, { showResults: true }),
+                    250
+                );
             });
 
             customerInput.addEventListener('keydown', function (e) {
-                if (e.key === 'Escape') {
-                    closeCustomerResults();
-                }
+                if (e.key === 'Escape') closeCustomerResults();
             });
         }
 
-        // Evento: clic en un resultado
         if (customerResults) {
             customerResults.addEventListener('click', function (e) {
                 const item = e.target.closest('.pos-customer-result-item');
                 if (!item) return;
-                console.log('[POS] Cliente seleccionado:', item.dataset.id);
                 selectCustomer(item.dataset.id, item.dataset.text);
             });
         }
 
-        // Cerrar resultados al hacer clic fuera
         document.addEventListener('click', function (e) {
-            if (!e.target.closest('.pos-customer-autocomplete')) {
+            if (!e.target.closest('.pos-autocomplete')) {
                 closeCustomerResults();
+                closeSalespersonResults();
             }
         });
 
         // ============================================================
-        // SELECTOR DE VENDEDOR (COMISIÓN)
+        // AUTOCOMPLETE DE VENDEDOR
         // ============================================================
-        function loadSalespersons() {
-            if (!SALESPERSONS_URL || !salespersonSelect) return;
+        function loadSalespersons(q, options) {
+            options = options || {};
+            if (!SALESPERSONS_URL || !salespersonInput) return;
 
-            fetch(SALESPERSONS_URL)
+            const url = SALESPERSONS_URL + (q ? ('?q=' + encodeURIComponent(q)) : '');
+            fetch(url)
                 .then(r => r.json())
                 .then(data => {
-                    const results = data.results || [];
-                    salespersonSelect.innerHTML =
-                        '<option value="">— Selecciona un empleado —</option>' +
-                        results.map(e =>
-                            '<option value="' + e.id + '">' +
-                                escapeHtml(e.text) +
-                                (e.position ? ' — ' + escapeHtml(e.position) : '') +
-                            '</option>'
-                        ).join('');
-                    console.log('[POS] Vendedores cargados:', results.length);
+                    salespersonsCache = data.results || [];
+                    // Solo renderiza/abre el dropdown si se pide explícitamente
+                    if (options.showResults) {
+                        renderSalespersonResults(salespersonsCache);
+                    }
                 })
                 .catch(err => console.error('[POS] Error cargando vendedores:', err));
         }
 
-        if (salespersonSelect) {
-            salespersonSelect.addEventListener('change', function () {
-                console.log('[POS] Vendedor seleccionado:', this.value);
+        function renderSalespersonResults(results) {
+            if (!salespersonResults) return;
+
+            if (results.length === 0) {
+                salespersonResults.innerHTML =
+                    '<div class="pos-customer-result-empty">Sin resultados</div>';
+                salespersonResults.classList.add('open');
+                return;
+            }
+
+            salespersonResults.innerHTML = results.map(e => {
+                const rate = e.commission_rate > 0
+                    ? '<span class="r-tax">' + e.commission_rate + '%</span>'
+                    : '';
+                return (
+                    '<div class="pos-customer-result-item" ' +
+                         'data-id="' + e.id + '" ' +
+                         'data-text="' + escapeHtml(e.text) + '">' +
+                        '<span class="r-name">' + escapeHtml(e.text) +
+                            (e.position ? ' — ' + escapeHtml(e.position) : '') +
+                        '</span>' +
+                        rate +
+                    '</div>'
+                );
+            }).join('');
+            salespersonResults.classList.add('open');
+        }
+
+        function closeSalespersonResults() {
+            if (salespersonResults) {
+                salespersonResults.classList.remove('open');
+                salespersonResults.innerHTML = '';
+            }
+        }
+
+        function selectSalesperson(id, text) {
+            if (salespersonSelect) salespersonSelect.value = id;
+            if (salespersonInput) salespersonInput.value = text;
+            if (salespersonClearBtn) salespersonClearBtn.style.display = 'flex';
+            closeSalespersonResults();
+            updateCheckoutButton();
+        }
+
+        function clearSalesperson() {
+            if (salespersonSelect) salespersonSelect.value = '';
+            if (salespersonInput) salespersonInput.value = '';
+            if (salespersonClearBtn) salespersonClearBtn.style.display = 'none';
+            updateCheckoutButton();
+        }
+
+        if (salespersonLupaBtn) {
+            salespersonLupaBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                loadSalespersons('', { showResults: true });
+                if (salespersonInput) salespersonInput.focus();
+            });
+        }
+
+        if (salespersonInput) {
+            salespersonInput.addEventListener('focus', function () {
+                loadSalespersons(this.value.trim(), { showResults: true });
+            });
+
+            salespersonInput.addEventListener('input', function () {
+                clearTimeout(salespersonTimeout);
+                const q = this.value.trim();
+
+                if (q.length === 0) {
+                    // Al borrar, quitamos la selección actual y mostramos todos
+                    if (salespersonSelect) salespersonSelect.value = '';
+                    if (salespersonClearBtn) salespersonClearBtn.style.display = 'none';
+                    updateCheckoutButton();
+                    loadSalespersons('', { showResults: true });
+                    return;
+                }
+
+                // Al escribir, descartamos la selección previa
+                if (salespersonSelect) salespersonSelect.value = '';
+                if (salespersonClearBtn) salespersonClearBtn.style.display = 'none';
                 updateCheckoutButton();
+
+                if (q.length < 2) {
+                    closeSalespersonResults();
+                    return;
+                }
+                salespersonTimeout = setTimeout(
+                    () => loadSalespersons(q, { showResults: true }),
+                    250
+                );
+            });
+
+            salespersonInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') closeSalespersonResults();
+            });
+        }
+
+        if (salespersonResults) {
+            salespersonResults.addEventListener('click', function (e) {
+                const item = e.target.closest('.pos-customer-result-item');
+                if (!item) return;
+                selectSalesperson(item.dataset.id, item.dataset.text);
+            });
+        }
+
+        if (salespersonClearBtn) {
+            salespersonClearBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                clearSalesperson();
+                if (salespersonInput) {
+                    salespersonInput.focus();
+                    loadSalespersons('', { showResults: true });
+                }
             });
         }
 
@@ -456,7 +555,7 @@
         }
 
         // ============================================================
-        // MÉTODOS DE PAGO (RÁPIDOS - PAGO ÚNICO)
+        // MÉTODOS DE PAGO (RÁPIDOS)
         // ============================================================
         paymentButtons.forEach(btn => {
             btn.addEventListener('click', function () {
@@ -480,11 +579,9 @@
             const hasPayment  = paymentValue !== '';
             const hasItems    = Array.isArray(cart) && cart.length > 0;
 
-            // ✅ El vendedor YA NO es obligatorio
             const shouldEnable = hasCustomer && hasPayment && hasItems;
             checkoutBtn.disabled = !shouldEnable;
 
-            // ✅ Botón "Múltiples pagos": solo cliente + items
             if (multiPaymentBtn) {
                 const multiEnabled = hasCustomer && hasItems;
                 multiPaymentBtn.disabled = !multiEnabled;
@@ -519,9 +616,8 @@
                 if (customerHidden) customerHidden.value = '';
                 if (customerInput) customerInput.value = '';
                 if (paymentMethodInput) paymentMethodInput.value = '';
-                if (salespersonSelect) salespersonSelect.value = '';
+                clearSalesperson();
                 paymentButtons.forEach(b => b.classList.remove('active'));
-                // Limpiar pagos múltiples
                 multiPayments = [];
                 renderMultiPayments();
                 updateCheckoutButton();
@@ -551,7 +647,6 @@
                 return;
             }
 
-            // ✅ Validar cliente
             const customerValue = customerHidden ? String(customerHidden.value || '').trim() : '';
             if (!customerValue) {
                 alert('⚠️ Debes seleccionar un cliente antes de continuar.');
@@ -559,9 +654,6 @@
                 return;
             }
 
-            // ✅ Vendedor es opcional, no se valida
-
-            // Resetear pagos múltiples cada vez que se abre
             multiPayments = [];
             renderMultiPayments();
             updateMultiTotals();
@@ -653,7 +745,6 @@
                 return;
             }
 
-            // Validar que no exceda el total
             const totalInvoice = getCartTotal();
             const totalPaid = multiPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
             if (totalPaid + amount > totalInvoice + 0.01) {
@@ -669,12 +760,10 @@
                 customer_bank: customerBank,
             });
 
-            // Limpiar formulario
             multiMethodSelect.value = '';
             multiReferenceInput.value = '';
             multiCustomerBankInput.value = '';
 
-            // Sugerir el restante
             const newPaid = multiPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
             const remaining = totalInvoice - newPaid;
             multiAmountInput.value = remaining > 0 ? remaining.toFixed(2) : '0.00';
@@ -683,7 +772,6 @@
             updateMultiTotals();
         }
 
-        // Eventos del modal de múltiples pagos
         if (multiPaymentBtn) {
             multiPaymentBtn.addEventListener('click', openMultiPaymentModal);
         }
@@ -709,7 +797,6 @@
                     renderMultiPayments();
                     updateMultiTotals();
 
-                    // Reajustar el monto sugerido
                     const totalInvoice = getCartTotal();
                     const newPaid = multiPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
                     const remaining = totalInvoice - newPaid;
@@ -720,7 +807,6 @@
         if (multiPaymentConfirmBtn) {
             multiPaymentConfirmBtn.addEventListener('click', function () {
                 if (multiPayments.length === 0) return;
-                // Validar diferencia exacta
                 const totalInvoice = getCartTotal();
                 const totalPaid = multiPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
                 if (Math.abs(totalPaid - totalInvoice) > 0.01) {
@@ -728,7 +814,6 @@
                     return;
                 }
                 closeMultiPaymentModal();
-                // Ejecutar checkout con los pagos múltiples
                 performCheckout({ multiPayments: multiPayments.slice() });
             });
         }
@@ -739,7 +824,6 @@
         if (checkoutBtn) {
             checkoutBtn.addEventListener('click', function () {
                 if (checkoutBtn.disabled) return;
-                // Pago único (comportamiento actual)
                 performCheckout();
             });
         }
@@ -826,7 +910,7 @@
                 if (customerHidden) customerHidden.value = '';
                 if (customerInput) customerInput.value = '';
                 if (paymentMethodInput) paymentMethodInput.value = '';
-                if (salespersonSelect) salespersonSelect.value = '';
+                clearSalesperson();
                 paymentButtons.forEach(b => b.classList.remove('active'));
                 resetCheckoutButton();
                 if (searchInput) {
@@ -950,16 +1034,25 @@
                 if (multiPaymentModal && multiPaymentModal.style.display === 'flex') {
                     closeMultiPaymentModal();
                 }
+                closeCustomerResults();
+                closeSalespersonResults();
             }
         });
 
         // ============================================================
         // INICIALIZACIÓN
         // ============================================================
+        // ✅ Asegurar que los dropdowns estén cerrados al cargar
+        if (customerResults) customerResults.classList.remove('open');
+        if (salespersonResults) salespersonResults.classList.remove('open');
+
         renderCart();
         renderMultiPayments();
         updateCheckoutButton();
-        loadSalespersons();
+
+        // ✅ Precarga en memoria SIN abrir el dropdown
+        if (salespersonInput) loadSalespersons('');
+
         doSearch('');
 
         console.log('[POS] Inicializado correctamente');

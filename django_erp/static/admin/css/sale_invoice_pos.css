@@ -1,5 +1,23 @@
 /* ============================================================
-   CONTENEDOR PRINCIPAL
+   SALE INVOICE POS - ESTILOS
+   ============================================================
+   Estructura:
+   1. Layout principal (contenedor, columnas)
+   2. Búsqueda de productos
+   3. Grid de productos
+   4. Métodos de pago rápidos
+   5. Campos del POS (cliente, vendedor) - UNIFICADO
+   6. Autocomplete (dropdown de resultados)
+   7. Carrito
+   8. Totales
+   9. Acciones (botones principales)
+   10. Modales (éxito, cliente, múltiples pagos)
+   11. Formulario de cliente dentro del modal
+   ============================================================ */
+
+
+/* ============================================================
+   1. LAYOUT PRINCIPAL
    ============================================================ */
 .pos-container {
     display: flex;
@@ -10,9 +28,6 @@
     background: #f3f4f6;
 }
 
-/* ============================================================
-   COLUMNA IZQUIERDA
-   ============================================================ */
 .pos-left {
     flex: 1;
     display: flex;
@@ -21,7 +36,22 @@
     min-width: 0;
 }
 
-/* Barra de búsqueda */
+.pos-right {
+    width: 24rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    background: white;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    border: 1px solid #e5e7eb;
+    box-sizing: border-box;
+}
+
+
+/* ============================================================
+   2. BÚSQUEDA DE PRODUCTOS
+   ============================================================ */
 .pos-search-bar {
     position: relative;
 }
@@ -34,6 +64,7 @@
     border-radius: 0.5rem;
     box-sizing: border-box;
     background: white;
+    transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 #pos-search-input:focus {
@@ -53,7 +84,7 @@
     max-height: 320px;
     overflow-y: auto;
     z-index: 100;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
     margin-top: 0.25rem;
 }
 
@@ -77,7 +108,7 @@
 .pos-search-item .code {
     font-weight: 700;
     color: #1f2937;
-    font-family: monospace;
+    font-family: ui-monospace, monospace;
 }
 
 .pos-search-item .name {
@@ -95,8 +126,9 @@
     color: #6b7280;
 }
 
+
 /* ============================================================
-   GRID DE PRODUCTOS
+   3. GRID DE PRODUCTOS
    ============================================================ */
 .pos-products-grid {
     flex: 1;
@@ -125,18 +157,18 @@
     margin-bottom: 0.5rem;
 }
 
-/* Tarjeta de producto (la usará el JS) */
 .pos-product-card {
     background: white;
     border: 2px solid #e5e7eb;
     border-radius: 0.5rem;
-    padding: 0.75rem;
+    padding: 0.5rem;
     cursor: pointer;
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
     transition: all 0.15s;
     min-height: 100px;
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
 }
 
 .pos-product-card:hover {
@@ -145,10 +177,41 @@
     transform: translateY(-2px);
 }
 
+.pos-product-card .card-image-wrap {
+    width: 100%;
+    height: 180px;
+    border-radius: 0.375rem;
+    overflow: hidden;
+    background: #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0.35rem;
+    cursor: pointer;
+}
+
+.pos-product-card .card-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.pos-product-card .card-image-placeholder {
+    font-size: 2rem;
+    color: #9ca3af;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+}
+
 .pos-product-card .card-code {
     font-size: 0.75rem;
     color: #6b7280;
-    font-family: monospace;
+    font-family: ui-monospace, monospace;
     font-weight: 600;
 }
 
@@ -195,8 +258,9 @@
     color: #991b1b;
 }
 
+
 /* ============================================================
-   MÉTODOS DE PAGO (abajo del grid)
+   4. MÉTODOS DE PAGO RÁPIDOS
    ============================================================ */
 .pos-payment-section {
     background: white;
@@ -221,18 +285,17 @@
 }
 
 .pos-payment-btn {
-    padding: 0.75rem 1rem;
+    min-height: 56px;
+    min-width: 100px;
+    padding: 14px 20px;
     background: white;
     border: 2px solid #d1d5db;
     border-radius: 0.5rem;
     cursor: pointer;
     font-weight: 700;
+    font-size: 16px;
     color: #374151;
     transition: all 0.15s;
-    min-height: 56px;
-    min-width: 100px;
-    font-size: 16px;
-    padding: 14px 20px;
 }
 
 .pos-payment-btn:hover {
@@ -253,47 +316,219 @@
     font-size: 0.9rem;
 }
 
+
 /* ============================================================
-   COLUMNA DERECHA
+   5. CAMPOS DEL POS (CLIENTE, VENDEDOR) - SISTEMA UNIFICADO
    ============================================================ */
-.pos-right {
-    width: 24rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    background: white;
-    border-radius: 0.5rem;
-    padding: 1rem;
-    border: 1px solid #e5e7eb;
+.pos-field {
+    margin-bottom: 0.85rem;
 }
 
-/* Cliente */
-.pos-customer-bar label {
+.pos-field-label {
     display: block;
+    font-size: 0.78rem;
     font-weight: 700;
-    margin-bottom: 0.35rem;
     color: #374151;
-    font-size: 0.85rem;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.35rem;
 }
 
-.pos-customer-bar select {
+.pos-field-hint {
+    font-weight: 500;
+    color: #9ca3af;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.75rem;
+    margin-left: 0.25rem;
+}
+
+.pos-field-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: stretch;
+}
+
+.pos-autocomplete {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+
+/* Wrapper del input + botones internos */
+.pos-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+/* Input base (cliente, vendedor) */
+.pos-input {
     width: 100%;
-    padding: 0.7rem;
+    height: 42px;
+    padding: 0 3rem 0 0.85rem;
     border: 2px solid #d1d5db;
     border-radius: 0.5rem;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
+    color: #1f2937;
+    background: #fff;
     box-sizing: border-box;
-    background: white;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    font-family: inherit;
+    line-height: 1;
 }
 
-.pos-customer-bar select:focus {
+.pos-input::placeholder {
+    color: #9ca3af;
+    font-size: 0.875rem;
+}
+
+.pos-input:focus {
     outline: none;
     border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
-/* Carrito */
+/* Botones de icono dentro del input (lupa, ✕) */
+.pos-input-icon-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 30px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+    color: #6b7280;
+    transition: background 0.15s, color 0.15s;
+    padding: 0;
+    line-height: 1;
+}
+
+.pos-input-icon-btn:hover {
+    background: #eff6ff;
+    color: #2563eb;
+}
+
+/* La lupa se ancla a la derecha */
+.pos-input-icon-btn:not(.pos-input-clear-btn) {
+    right: 4px;
+}
+
+/* El ✕ (limpiar) queda a la izquierda de la lupa */
+.pos-input-clear-btn {
+    right: 38px;
+    color: #ef4444;
+    font-size: 0.85rem;
+}
+
+.pos-input-clear-btn:hover {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+/* Botón "+" para agregar cliente */
+.pos-add-btn {
+    width: 42px;
+    height: 42px;
+    border: 2px solid #2563eb;
+    background: #fff;
+    color: #2563eb;
+    border-radius: 0.5rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    padding: 0;
+    line-height: 1;
+}
+
+.pos-add-btn:hover {
+    background: #2563eb;
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+}
+
+.pos-add-btn:active {
+    transform: translateY(0);
+}
+
+
+/* ============================================================
+   6. AUTOCOMPLETE (DROPDOWN DE RESULTADOS)
+   ============================================================ */
+.pos-customer-results {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    max-height: 280px;
+    overflow-y: auto;
+    z-index: 200;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+    display: none;
+}
+
+.pos-customer-results.open {
+    display: block;
+}
+
+.pos-customer-result-item {
+    padding: 0.65rem 0.85rem;
+    cursor: pointer;
+    border-bottom: 1px solid #f3f4f6;
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    transition: background 0.1s;
+}
+
+.pos-customer-result-item:last-child { border-bottom: none; }
+
+.pos-customer-result-item:hover,
+.pos-customer-result-item.active { background: #eff6ff; }
+
+.pos-customer-result-item .r-name {
+    font-weight: 600;
+    color: #1f2937;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pos-customer-result-item .r-tax {
+    color: #6b7280;
+    font-family: ui-monospace, monospace;
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+
+.pos-customer-result-empty {
+    padding: 0.85rem;
+    color: #9ca3af;
+    font-style: italic;
+    font-size: 0.85rem;
+    text-align: center;
+}
+
+
+/* ============================================================
+   7. CARRITO
+   ============================================================ */
 .pos-cart {
     flex: 1;
     overflow-y: auto;
@@ -316,7 +551,6 @@
     margin-bottom: 0.5rem;
 }
 
-/* Ítem del carrito (lo usará el JS) */
 .pos-cart-item {
     background: white;
     border-radius: 0.375rem;
@@ -350,19 +584,16 @@
     border: none;
     color: #ef4444;
     cursor: pointer;
-    padding: 0;
-    line-height: 1;
-    width: 20px;
-    height: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 0.25rem;
     flex-shrink: 0;
-
     min-width: 40px;
     min-height: 40px;
+    padding: 0;
     font-size: 18px;
+    line-height: 1;
 }
 
 .pos-cart-item-remove:hover {
@@ -378,38 +609,60 @@
 
 .pos-cart-item-qty {
     display: inline-flex;
-    align-items: stretch;   /* ✅ Fuerza que los hijos tengan la misma altura */
+    align-items: stretch;
     gap: 6px;
 }
 
-.pos-cart-item-qty button {
-    width: 26px;
-    height: 26px;
+.pos-cart-item-qty button,
+.pos-cart-item-qty .qty-dec,
+.pos-cart-item-qty .qty-inc {
+    min-width: 48px;
+    min-height: 48px;
+    padding: 0;
     border: 1px solid #d1d5db;
     background: white;
-    border-radius: 0.25rem;
+    border-radius: 6px;
     cursor: pointer;
-    font-weight: 700;
-    font-size: 1rem;
+    font-weight: 600;
+    font-size: 22px;
     line-height: 1;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     color: #374151;
+    box-sizing: border-box;
 }
 
 .pos-cart-item-qty button:hover {
     background: #f3f4f6;
 }
 
-.pos-cart-item-qty input {
-    width: 40px;
+.pos-cart-item-qty .qty-input {
+    width: 64px;
+    min-width: 64px;
+    min-height: 48px;
+    padding: 0 8px;
     text-align: center;
-    border: 1px solid #d1d5db;
-    border-radius: 0.25rem;
-    padding: 0.2rem;
-    font-size: 0.85rem;
+    font-size: 18px;
     font-weight: 600;
+    box-sizing: border-box;
+    -moz-appearance: textfield;
+    appearance: textfield;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+}
+
+.pos-cart-item-qty .qty-input::-webkit-outer-spin-button,
+.pos-cart-item-qty .qty-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.pos-cart-item-qty .qty-dec:active,
+.pos-cart-item-qty .qty-inc:active {
+    transform: scale(0.95);
+    background-color: #e5e7eb;
 }
 
 .pos-cart-item-subtotal {
@@ -418,7 +671,10 @@
     font-size: 0.95rem;
 }
 
-/* Totales */
+
+/* ============================================================
+   8. TOTALES
+   ============================================================ */
 .pos-totals {
     background: #f9fafb;
     border-radius: 0.5rem;
@@ -457,7 +713,10 @@
     text-align: right;
 }
 
-/* Acciones */
+
+/* ============================================================
+   9. ACCIONES (BOTONES PRINCIPALES)
+   ============================================================ */
 .pos-actions {
     display: flex;
     gap: 0.5rem;
@@ -465,20 +724,19 @@
 
 .pos-btn {
     flex: 1;
-    padding: 0.9rem;
+    min-height: 48px;
+    min-width: 48px;
+    padding: 12px 20px;
     border: none;
     border-radius: 0.5rem;
     font-weight: 700;
+    font-size: 16px;
     cursor: pointer;
     transition: all 0.15s;
     text-align: center;
     text-decoration: none;
     display: inline-block;
     box-sizing: border-box;
-    min-height: 48px;
-    min-width: 48px;
-    font-size: 16px;
-    padding: 12px 20px;
 }
 
 .pos-btn-primary {
@@ -505,562 +763,9 @@
     background: #d1d5db;
 }
 
-/* ============================================================
-   MODAL DE ÉXITO
-   ============================================================ */
-.pos-modal {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
-
-.pos-modal-content {
-    background: white;
-    padding: 2rem;
-    border-radius: 0.75rem;
-    max-width: 400px;
-    text-align: center;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.3);
-}
-
-.pos-modal-content h2 {
-    margin-top: 0;
-    color: #16a34a;
-}
-
-.pos-modal-actions {
-    display: flex;
-    gap: 0.75rem;
-    margin-top: 1.5rem;
-}
-
-
-
-/* Fila del select + botón */
-.pos-customer-row {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-}
-
-.pos-customer-select {
-    flex: 1;
-    padding: 0.7rem;
-    border: 2px solid #d1d5db;
-    border-radius: 0.5rem;
-    font-size: 0.95rem;
-    box-sizing: border-box;
-    background: white;
-}
-
-.pos-customer-select:focus {
-    outline: none;
-    border-color: #2563eb;
-}
-
-/* Botón agregar cliente */
-.pos-add-customer-btn {
-    width: 42px;
-    height: 42px;
-    border: 2px solid #2563eb;
-    background: white;
-    color: #2563eb;
-    border-radius: 0.5rem;
-    font-size: 1.2rem;
-    font-weight: 700;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.15s;
-    flex-shrink: 0;
-}
-
-.pos-add-customer-btn:hover {
-    background: #2563eb;
-    color: white;
-}
 
 /* ============================================================
-   MODAL CLIENTE — Ocultar elementos del admin
-   ============================================================ */
-
-/* Ocultar breadcrumbs, título, y botones de acción del admin */
-#pos-customer-modal-body .breadcrumbs,
-#pos-customer-modal-body #content > h1,
-#pos-customer-modal-body #content-main > h1,
-#pos-customer-modal-body .object-tools,
-#pos-customer-modal-body .object-tools > li,
-#pos-customer-modal-body .submit-row input[name="_addanother"],
-#pos-customer-modal-body .submit-row input[name="_continue"],
-#pos-customer-modal-body .submit-row input[name="_saveasnew"],
-#pos-customer-modal-body .submit-row a,
-#pos-customer-modal-body a.addlink,
-#pos-customer-modal-body .addlink {
-    display: none !important;
-}
-
-/* Ocultar cualquier botón "+" morado (addlink) que quede suelto */
-#pos-customer-modal-body [class*="addlink"],
-#pos-customer-modal-body a[href*="/add/"] {
-    display: none !important;
-}
-
-/* Ajustar el form al ancho del modal */
-#pos-customer-modal-body form {
-    margin: 0;
-    padding: 0;
-}
-
-#pos-customer-modal-body fieldset {
-    padding: 1rem;
-    border: none;
-    background: transparent;
-}
-
-#pos-customer-modal-body .form-row {
-    padding: 0.5rem 0;
-    border-bottom: none;
-}
-
-#pos-customer-modal-body label {
-    font-weight: 600;
-    color: #374151;
-    margin-bottom: 0.25rem;
-    display: block;
-}
-
-#pos-customer-modal-body input[type="text"],
-#pos-customer-modal-body input[type="email"],
-#pos-customer-modal-body input[type="number"],
-#pos-customer-modal-body textarea,
-#pos-customer-modal-body select {
-    width: 100%;
-    padding: 0.6rem;
-    border: 2px solid #d1d5db;
-    border-radius: 0.375rem;
-    font-size: 0.95rem;
-    box-sizing: border-box;
-}
-
-/* Submit row limpio */
-#pos-customer-modal-body .submit-row {
-    padding: 1rem 0 0;
-    margin: 1rem 0 0;
-    background: transparent;
-    border: none;
-    text-align: right;
-    border-top: 1px solid #e5e7eb;
-}
-
-#pos-customer-modal-body .submit-row input[type="submit"] {
-    background: #2563eb;
-    color: white;
-    padding: 0.7rem 1.5rem;
-    border-radius: 0.5rem;
-    border: none;
-    font-weight: 700;
-    cursor: pointer;
-    font-size: 0.95rem;
-}
-
-#pos-customer-modal-body .submit-row input[type="submit"]:hover {
-    background: #1d4ed8;
-}
-
-#pos-customer-modal-body .submit-row input[type="submit"]:hover {
-    background: #1d4ed8;
-}
-
-
-/* ============================================================
-   FORMULARIO DE CLIENTE (modal POS)
-   ============================================================ */
-#pos-customer-modal-body .pos-form-row {
-    margin-bottom: 1rem;
-}
-
-#pos-customer-modal-body .pos-form-row label {
-    display: block;
-    font-weight: 600;
-    color: #374151;
-    margin-bottom: 0.35rem;
-    font-size: 0.9rem;
-}
-
-#pos-customer-modal-body .pos-form-row input[type="text"],
-#pos-customer-modal-body .pos-form-row input[type="email"],
-#pos-customer-modal-body .pos-form-row input[type="url"],
-#pos-customer-modal-body .pos-form-row input[type="number"],
-#pos-customer-modal-body .pos-form-row textarea,
-#pos-customer-modal-body .pos-form-row select {
-    width: 100%;
-    padding: 0.65rem 0.75rem;
-    border: 2px solid #d1d5db;
-    border-radius: 0.5rem;
-    font-size: 0.95rem;
-    box-sizing: border-box;
-    background: white;
-    font-family: inherit;
-}
-
-#pos-customer-modal-body .pos-form-row input:focus,
-#pos-customer-modal-body .pos-form-row textarea:focus,
-#pos-customer-modal-body .pos-form-row select:focus {
-    outline: none;
-    border-color: #2563eb;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-}
-
-#pos-customer-modal-body .pos-form-row textarea {
-    resize: vertical;
-    min-height: 60px;
-}
-
-#pos-customer-modal-body .pos-form-error {
-    color: #dc2626;
-    font-size: 0.85rem;
-    margin-top: 0.25rem;
-}
-
-#pos-customer-modal-body .pos-form-submit {
-    padding-top: 1rem;
-    margin-top: 1rem;
-    border-top: 1px solid #e5e7eb;
-    text-align: right;
-}
-
-#pos-customer-modal-body .pos-form-submit button {
-    background: #2563eb;
-    color: white;
-    padding: 0.75rem 1.75rem;
-    border-radius: 0.5rem;
-    border: none;
-    font-weight: 700;
-    cursor: pointer;
-    font-size: 0.95rem;
-    transition: background 0.15s;
-}
-
-#pos-customer-modal-body .pos-form-submit button:hover {
-    background: #1d4ed8;
-}
-
-.pos-modal-overlay {
-    position: fixed !important;
-    inset: 0 !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 99999 !important;
-    padding: 1rem;
-    box-sizing: border-box;
-}
-
-
-/* ============================================================
-   CAJA DEL MODAL (fondo blanco, sombra, centrado)
-   ============================================================ */
-#pos-customer-modal .pos-modal-box,
-#pos-customer-modal > div {
-    background: #ffffff !important;
-    border-radius: 12px !important;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
-    max-width: 600px !important;
-    width: 100% !important;
-    max-height: 90vh !important;
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
-    position: relative !important;
-    z-index: 1000000 !important;
-    border: 1px solid #e5e7eb !important;
-}
-
-/* Header del modal */
-#pos-customer-modal .pos-modal-header {
-    padding: 1rem 1.25rem !important;
-    border-bottom: 1px solid #e5e7eb !important;
-    display: flex !important;
-    justify-content: space-between !important;
-    align-items: center !important;
-    background: #f9fafb !important;
-    flex-shrink: 0 !important;
-}
-
-#pos-customer-modal .pos-modal-header h3 {
-    margin: 0 !important;
-    font-size: 1.1rem !important;
-    font-weight: 700 !important;
-    color: #1f2937 !important;
-}
-
-#pos-customer-modal .pos-modal-close {
-    background: none !important;
-    border: none !important;
-    font-size: 1.3rem !important;
-    cursor: pointer !important;
-    color: #6b7280 !important;
-    width: 32px !important;
-    height: 32px !important;
-    border-radius: 0.25rem !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-}
-
-#pos-customer-modal .pos-modal-close:hover {
-    background: #e5e7eb !important;
-    color: #1f2937 !important;
-}
-
-/* Body del modal */
-#pos-customer-modal .pos-modal-body {
-    padding: 1.25rem !important;
-    overflow-y: auto !important;
-    flex: 1 !important;
-    background: #ffffff !important;
-    color: #111827 !important;
-}
-
-/* ============================================================ */
-/* AUTOCOMPLETE DE CLIENTE (propio, sin Select2)                */
-/* ============================================================ */
-.pos-customer-autocomplete {
-    position: relative;
-    flex: 1;
-    min-width: 0;
-}
-
-.pos-customer-results {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: #fff;
-    border: 1px solid #d1d5db;
-    border-radius: 0.5rem;
-    max-height: 280px;
-    overflow-y: auto;
-    z-index: 200;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-    margin-top: 0.25rem;
-    display: none;
-}
-
-.pos-customer-results.open {
-    display: block;
-}
-
-.pos-customer-result-item {
-    padding: 0.6rem 0.85rem;
-    cursor: pointer;
-    border-bottom: 1px solid #f3f4f6;
-    display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
-    font-size: 0.9rem;
-}
-
-.pos-customer-result-item:last-child { border-bottom: none; }
-.pos-customer-result-item:hover,
-.pos-customer-result-item.active { background: #eff6ff; }
-
-.pos-customer-result-item .r-name {
-    font-weight: 600;
-    color: #1f2937;
-}
-
-.pos-customer-result-item .r-tax {
-    color: #6b7280;
-    font-family: monospace;
-    font-size: 0.8rem;
-}
-
-.pos-customer-result-empty {
-    padding: 0.75rem 0.85rem;
-    color: #9ca3af;
-    font-style: italic;
-    font-size: 0.85rem;
-}
-
-
-/* Wrapper input + lupa */
-.pos-customer-input-wrap {
-    position: relative;
-    display: flex;
-    align-items: center;
-}
-
-.pos-customer-input-wrap .pos-customer-select {
-    width: 100%;
-    padding-right: 2.5rem; /* espacio para la lupa */
-}
-
-.pos-customer-lupa-btn {
-    position: absolute;
-    right: 4px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 34px;
-    height: 34px;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    font-size: 1.1rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.375rem;
-    color: #6b7280;
-    transition: background 0.15s, color 0.15s;
-}
-
-.pos-customer-lupa-btn:hover {
-    background: #eff6ff;
-    color: #2563eb;
-}
-
-
-/* ============================================================
-   IMAGEN DE PRODUCTO EN LA TARJETA
-   ============================================================ */
-.pos-product-card .card-image-wrap {
-    width: 100%;
-    height: 90px;
-    border-radius: 0.375rem;
-    overflow: hidden;
-    background: #f3f4f6;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 0.35rem;
-
-    min-height: 180px;
-    cursor: pointer;
-    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
-}
-
-.pos-product-card .card-image {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-}
-
-.pos-product-card .card-image-placeholder {
-    font-size: 2rem;
-    color: #9ca3af;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
-}
-
-/* Ajustar la tarjeta para que la imagen quede arriba */
-.pos-product-card {
-    padding: 0.5rem;
-}
-
-.pos-product-card .card-name {
-    -webkit-line-clamp: 2;
-}
-
-
-.pos-salesperson-bar {
-    padding: 10px 14px;
-    border-bottom: 1px solid #e5e7eb;
-    background: #f9fafb;
-}
-
-.pos-salesperson-bar label {
-    display: block;
-    font-size: 12px;
-    font-weight: 600;
-    color: #374151;
-    margin-bottom: 6px;
-}
-
-.pos-salesperson-select {
-    width: 100%;
-    padding: 8px 10px;
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-    font-size: 14px;
-    background: #fff;
-}
-
-.pos-salesperson-select:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
-}
-
-.qty-inc, .qty-dec {
-    min-width: 48px;
-    min-height: 48px;
-    font-size: 20px;
-}
-
-
-.pos-cart-item-qty .qty-dec,
-.pos-cart-item-qty .qty-inc {
-    min-width: 48px;
-    min-height: 48px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 22px;
-    font-weight: 600;
-    line-height: 1;
-    box-sizing: border-box;
-}
-
-/* Input del medio: mismo alto, ancho cómodo para el dedo */
-.pos-cart-item-qty .qty-input {
-    width: 64px;              /* ✅ Ancho fijo cómodo para táctil */
-    min-width: 64px;
-    min-height: 48px;         /* ✅ Mismo alto que los botones */
-    padding: 0 8px;
-    text-align: center;
-    font-size: 18px;
-    font-weight: 600;
-    box-sizing: border-box;
-    -moz-appearance: textfield;        /* Firefox: quitar spinners */
-    appearance: textfield;
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-    background: #fff;
-}
-
-/* Chrome/Edge/Safari: quitar las flechitas nativas del input number */
-.pos-cart-item-qty .qty-input::-webkit-outer-spin-button,
-.pos-cart-item-qty .qty-input::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-}
-
-/* Feedback visual al tocar (útil en táctil) */
-.pos-cart-item-qty .qty-dec:active,
-.pos-cart-item-qty .qty-inc:active {
-    transform: scale(0.95);
-    background-color: #e5e7eb;
-}
-
-/* ============================================================
-   BOTÓN MÚLTIPLES PAGOS
+   10. BOTÓN Y MODAL DE MÚLTIPLES PAGOS
    ============================================================ */
 .pos-multi-payment-btn {
     width: 100%;
@@ -1079,9 +784,13 @@
     background: #eff6ff;
 }
 
-/* ============================================================
-   MODAL MÚLTIPLES PAGOS
-   ============================================================ */
+.pos-multi-payment-btn:disabled {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+    color: #9ca3af;
+    cursor: not-allowed;
+}
+
 .pos-multi-payment-box {
     max-width: 560px !important;
 }
@@ -1218,6 +927,111 @@
     font-weight: 800;
 }
 
+
+/* ============================================================
+   11. MODALES (OVERLAY + CAJA + HEADER + FOOTER)
+   ============================================================ */
+.pos-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.pos-modal-content {
+    background: white;
+    padding: 2rem;
+    border-radius: 0.75rem;
+    max-width: 400px;
+    text-align: center;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+}
+
+.pos-modal-content h2 {
+    margin-top: 0;
+    color: #16a34a;
+}
+
+.pos-modal-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+.pos-modal-overlay {
+    position: fixed !important;
+    inset: 0 !important;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999 !important;
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+.pos-modal-box {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    max-width: 600px;
+    width: 100%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    z-index: 100000;
+    border: 1px solid #e5e7eb;
+}
+
+.pos-modal-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f9fafb;
+    flex-shrink: 0;
+}
+
+.pos-modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.pos-modal-close {
+    background: none;
+    border: none;
+    font-size: 1.3rem;
+    cursor: pointer;
+    color: #6b7280;
+    width: 32px;
+    height: 32px;
+    border-radius: 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pos-modal-close:hover {
+    background: #e5e7eb;
+    color: #1f2937;
+}
+
+.pos-modal-body {
+    padding: 1.25rem;
+    overflow-y: auto;
+    flex: 1;
+    background: #ffffff;
+    color: #111827;
+}
+
 .pos-modal-footer {
     display: flex;
     gap: 0.5rem;
@@ -1230,9 +1044,174 @@
     flex: 1;
 }
 
-.pos-multi-payment-btn:disabled {
-    background: #f3f4f6;
-    border-color: #d1d5db;
-    color: #9ca3af;
-    cursor: not-allowed;
+
+/* ============================================================
+   12. FORMULARIO DE CLIENTE (DENTRO DEL MODAL)
+   ============================================================ */
+
+/* Ocultar elementos del admin de Django dentro del modal */
+#pos-customer-modal-body .breadcrumbs,
+#pos-customer-modal-body #content > h1,
+#pos-customer-modal-body #content-main > h1,
+#pos-customer-modal-body .object-tools,
+#pos-customer-modal-body .object-tools > li,
+#pos-customer-modal-body .submit-row input[name="_addanother"],
+#pos-customer-modal-body .submit-row input[name="_continue"],
+#pos-customer-modal-body .submit-row input[name="_saveasnew"],
+#pos-customer-modal-body .submit-row a,
+#pos-customer-modal-body a.addlink,
+#pos-customer-modal-body .addlink,
+#pos-customer-modal-body [class*="addlink"],
+#pos-customer-modal-body a[href*="/add/"] {
+    display: none !important;
+}
+
+#pos-customer-modal-body form {
+    margin: 0;
+    padding: 0;
+}
+
+#pos-customer-modal-body fieldset {
+    padding: 1rem;
+    border: none;
+    background: transparent;
+}
+
+#pos-customer-modal-body .form-row {
+    padding: 0.5rem 0;
+    border-bottom: none;
+}
+
+#pos-customer-modal-body label {
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 0.25rem;
+    display: block;
+}
+
+#pos-customer-modal-body input[type="text"],
+#pos-customer-modal-body input[type="email"],
+#pos-customer-modal-body input[type="number"],
+#pos-customer-modal-body textarea,
+#pos-customer-modal-body select {
+    width: 100%;
+    padding: 0.6rem;
+    border: 2px solid #d1d5db;
+    border-radius: 0.375rem;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+}
+
+#pos-customer-modal-body .submit-row {
+    padding: 1rem 0 0;
+    margin: 1rem 0 0;
+    background: transparent;
+    border: none;
+    text-align: right;
+    border-top: 1px solid #e5e7eb;
+}
+
+#pos-customer-modal-body .submit-row input[type="submit"] {
+    background: #2563eb;
+    color: white;
+    padding: 0.7rem 1.5rem;
+    border-radius: 0.5rem;
+    border: none;
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 0.95rem;
+}
+
+#pos-customer-modal-body .submit-row input[type="submit"]:hover {
+    background: #1d4ed8;
+}
+
+/* Formulario custom del POS (sin admin) */
+#pos-customer-modal-body .pos-form-row {
+    margin-bottom: 1rem;
+}
+
+#pos-customer-modal-body .pos-form-row label {
+    display: block;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 0.35rem;
+    font-size: 0.9rem;
+}
+
+#pos-customer-modal-body .pos-form-row input[type="text"],
+#pos-customer-modal-body .pos-form-row input[type="email"],
+#pos-customer-modal-body .pos-form-row input[type="url"],
+#pos-customer-modal-body .pos-form-row input[type="number"],
+#pos-customer-modal-body .pos-form-row textarea,
+#pos-customer-modal-body .pos-form-row select {
+    width: 100%;
+    padding: 0.65rem 0.75rem;
+    border: 2px solid #d1d5db;
+    border-radius: 0.5rem;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+    background: white;
+    font-family: inherit;
+}
+
+#pos-customer-modal-body .pos-form-row input:focus,
+#pos-customer-modal-body .pos-form-row textarea:focus,
+#pos-customer-modal-body .pos-form-row select:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+#pos-customer-modal-body .pos-form-row textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+#pos-customer-modal-body .pos-form-error {
+    color: #dc2626;
+    font-size: 0.85rem;
+    margin-top: 0.25rem;
+}
+
+#pos-customer-modal-body .pos-form-submit {
+    padding-top: 1rem;
+    margin-top: 1rem;
+    border-top: 1px solid #e5e7eb;
+    text-align: right;
+}
+
+#pos-customer-modal-body .pos-form-submit button {
+    background: #2563eb;
+    color: white;
+    padding: 0.75rem 1.75rem;
+    border-radius: 0.5rem;
+    border: none;
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 0.95rem;
+    transition: background 0.15s;
+}
+
+#pos-customer-modal-body .pos-form-submit button:hover {
+    background: #1d4ed8;
+}
+
+
+/* ============================================================
+   13. RESPONSIVE
+   ============================================================ */
+@media (max-width: 900px) {
+    .pos-container {
+        flex-direction: column;
+        height: auto;
+    }
+
+    .pos-right {
+        width: 100%;
+    }
+
+    .pos-products-grid {
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    }
 }
