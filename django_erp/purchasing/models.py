@@ -3,7 +3,6 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from simple_history.models import HistoricalRecords
-from decimal import Decimal
 from decimal import Decimal, ROUND_HALF_UP
 from django_erp.configuration.models import Company, Currency
 from django_erp.accounting.models import ExchangeRate
@@ -410,7 +409,7 @@ class PurchasePayment(models.Model):
         max_digits=20,
         decimal_places=2,
         editable=False,
-        default=0,
+        default=Decimal('0.00'),
         verbose_name="Monto en USD"
     )
 
@@ -581,7 +580,7 @@ class PurchaseInvoice(models.Model):
     )
     
     sync_attempts = models.IntegerField(
-        default=0,
+        default=Decimal('0.00'),
         verbose_name="Intentos de sincronización"
     )
     
@@ -652,7 +651,7 @@ class PurchaseInvoice(models.Model):
     subtotal = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
-        default=0, 
+        default=Decimal('0.00'), 
         verbose_name="Subtotal"
     )
     tax_rate = models.DecimalField(
@@ -664,13 +663,13 @@ class PurchaseInvoice(models.Model):
     tax = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
-        default=0, 
+        default=Decimal('0.00'), 
         verbose_name="IVA"
     )
     total = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
-        default=0, 
+        default=Decimal('0.00'), 
         verbose_name="Total"
     )
     

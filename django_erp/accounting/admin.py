@@ -6,7 +6,7 @@ from simple_history.admin import SimpleHistoryAdmin
 from django.contrib import messages
 from .models import Tax, TaxRate, ExchangeRate
 from django_erp.configuration.mixins import CompanyFilterMixin
-from django_erp.configuration.models import Company
+from django_erp.configuration.models import Company, Currency
 
 
 

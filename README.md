@@ -77,13 +77,6 @@ Datos obligatorios para que el proyecto funcione adecuadamente esto incluye, mon
 
 
 
-## Otros comandos
-
-- Eliminar migraciones:
-
-Get-ChildItem -Path . -Recurse -Include "*.py" -Exclude "__init__.py" | Where-Object { $_.Directory.Name -eq "migrations" } | Remove-Item -Force
-
-
 
 
 

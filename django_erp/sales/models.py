@@ -126,9 +126,9 @@ class SaleOrder(models.Model):
         verbose_name="Estado"
     )
     
-    subtotal = models.DecimalField(max_digits=10, decimal_places=2, default=0, editable=False, verbose_name="Subtotal")
-    tax = models.DecimalField(max_digits=10, decimal_places=2, default=0, editable=False, verbose_name="Impuesto")
-    total = models.DecimalField(max_digits=10, decimal_places=2, default=0, editable=False, verbose_name="Total")
+    subtotal = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), editable=False, verbose_name="Subtotal")
+    tax = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), editable=False, verbose_name="Impuesto")
+    total = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), editable=False, verbose_name="Total")
     
     note = models.TextField(blank=True, verbose_name="Nota")
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="Usuario")
@@ -347,32 +347,32 @@ class CashRegister(models.Model):
     initial_amount = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
-        default=0,
+        default=Decimal('0.00'),
         verbose_name="Dinero inicial"
     )
     
     total_sales = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
-        default=0,
+        default=Decimal('0.00'),
         verbose_name="Total ventas"
     )
     total_expenses = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
-        default=0,
+        default=Decimal('0.00'),
         verbose_name="Total gastos"
     )
     total_withdrawals = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
-        default=0,
+        default=Decimal('0.00'),
         verbose_name="Total retiros"
     )
     expected_total = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
-        default=0,
+        default=Decimal('0.00'),
         verbose_name="Total esperado"
     )
     
@@ -674,7 +674,7 @@ class Payment(models.Model):
         max_digits=20,
         decimal_places=2,
         editable=False,
-        default=0,
+        default=Decimal('0.00'),
         verbose_name="Monto en USD"
     )
 
@@ -816,7 +816,7 @@ class SaleInvoice(models.Model):
     )
     
     sync_attempts = models.IntegerField(
-        default=0,
+        default=Decimal('0.00'),
         verbose_name="Intentos de sincronización"
     )
     
@@ -887,7 +887,7 @@ class SaleInvoice(models.Model):
     subtotal = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
-        default=0, 
+        default=Decimal('0.00'), 
         verbose_name="Subtotal"
     )
     tax_rate = models.DecimalField(
@@ -899,13 +899,13 @@ class SaleInvoice(models.Model):
     tax = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
-        default=0, 
+        default=Decimal('0.00'), 
         verbose_name="IVA"
     )
     total = models.DecimalField(
         max_digits=10, 
         decimal_places=2, 
-        default=0, 
+        default=Decimal('0.00'), 
         verbose_name="Total"
     )
     

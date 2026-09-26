@@ -199,13 +199,9 @@ class ExchangeRate(models.Model):
         verbose_name = "Tasa de Cambio"
         verbose_name_plural = "Tasas de Cambio"
         ordering = ['-date', '-created_at']
-        unique_together = [
-            ['company', 'from_currency', 'to_currency', 'date', 'created_at']
-        ]
         indexes = [
-            models.Index(fields=['company', 'date']),
-            models.Index(fields=['from_currency', 'to_currency']),
-            models.Index(fields=['company', 'from_currency', 'to_currency', '-date']),
+            models.Index(fields=['company', 'from_currency', 'to_currency', '-effective_date']),
+            models.Index(fields=['company', 'effective_date']),
         ]
 
     def __str__(self):

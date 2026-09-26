@@ -67,6 +67,9 @@ class Employee(models.Model):
     
     def save(self, *args, **kwargs):
         # Auto-generar código de empleado si no se proporciona
+        if self.pin == '' or self.pin is None:
+            self.pin = None
+            
         if not self.employee_code:
             # Ejemplo: EMP-0001, EMP-0002, etc.
             last_employee = Employee.objects.order_by('-id').first()
@@ -180,6 +183,7 @@ class Commission(models.Model):
         permissions = [
             ("can_view_commission", "Puede ver comisiones"),
             ("can_pay_commission", "Puede marcar comisiones como pagadas"),
+            ("can_view_all_commissions", "Puede ver todas las comisiones de la empresa"),
         ]
     
     def __str__(self):

@@ -14,48 +14,56 @@ class CompanyService:
 
 
 class BackupService:
-    """Servicio para gestionar respaldos de la base de datos"""
-    
     @staticmethod
     def create_backup(user=None, note=''):
-        """Crear un respaldo de la base de datos"""
-        
+        """Crear un respaldo con pg_dump (PostgreSQL)."""
         backup_dir = os.path.join(settings.BASE_DIR, 'backups')
-        if not os.path.exists(backup_dir):
-            os.makedirs(backup_dir)
-        
+        os.makedirs(backup_dir, exist_ok=True)
+
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f'backup_{timestamp}.sqlite3'
+        filename = f'backup_{timestamp}.sql'
         file_path = os.path.join(backup_dir, filename)
-        
+
+        db_url = os.getenv('DATABASE_URL', '')
+        parsed = urlparse(db_url)
+
+        env = os.environ.copy()
+        env['PGPASSWORD'] = parsed.password or ''
+
+        cmd = [
+            'pg_dump',
+            '-h', parsed.hostname or 'localhost',
+            '-p', str(parsed.port or 5432),
+            '-U', parsed.username or 'postgres',
+            '-d', (parsed.path or '/django_erp').lstrip('/'),
+            '-F', 'c',              # formato custom (comprimido)
+            '-f', file_path,
+        ]
+
         try:
-            db_path = str(settings.DATABASES['default']['NAME'])
-            
-            if db_path.endswith('.sqlite3'):
-                shutil.copy2(db_path, file_path)
-            
+            subprocess.run(cmd, check=True, env=env, capture_output=True)
+
             backup = Backup.objects.create(
                 name=f'Respaldo {timestamp}',
                 file_path=file_path,
                 file_size=os.path.getsize(file_path),
-                database_type='sqlite',
+                database_type='postgresql',
                 status='COMPLETED',
                 completed_at=timezone.now(),
                 user=user,
-                note=note
+                note=note,
             )
-            
             return backup
-            
-        except Exception as e:
+
+        except subprocess.CalledProcessError as e:
             Backup.objects.create(
                 name=f'Respaldo fallido {timestamp}',
                 file_path='',
                 status='FAILED',
                 user=user,
-                note=f'Error: {str(e)}'
+                note=f'Error: {e.stderr.decode() if e.stderr else str(e)}',
             )
-            raise Exception(f'Error al crear respaldo: {str(e)}')
+            raise Exception(f'Error al crear respaldo: {e.stderr.decode() if e.stderr else str(e)}')
     
     @staticmethod
     def get_backups():

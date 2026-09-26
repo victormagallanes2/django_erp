@@ -75,14 +75,22 @@ class CommissionAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     # ✅ FILTRAR POR COMPAÑÍA ACTIVA (ahora con campo directo)
     # ============================================================
     def get_queryset(self, request):
-        """
-        Filtrar las comisiones por la compañía activa.
-        Ahora Commission tiene FK directa a Company → filtro simple.
-        """
         qs = super().get_queryset(request)
+        
+        # Superuser ve todo
+        if request.user.is_superuser:
+            return qs
+        
+        # Filtrar por compañía activa
         company = getattr(request, 'current_company', None)
         if company:
             qs = qs.filter(company=company)
+        
+        # Si el usuario es empleado, ve solo sus propias comisiones
+        # a menos que tenga permiso explícito para ver todas
+        if hasattr(request.user, 'employee') and not request.user.has_perm('rrhh.can_view_all_commissions'):
+            qs = qs.filter(employee=request.user.employee)
+        
         return qs
 
     # ============================================================

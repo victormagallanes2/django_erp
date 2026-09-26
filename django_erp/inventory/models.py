@@ -32,7 +32,7 @@ class Product(models.Model):
     sale_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        default=0,
+        default=Decimal('0.00'),
         verbose_name="Precio de Venta (USD)",
         help_text="Precio al que se vende al cliente"
     )
@@ -41,7 +41,7 @@ class Product(models.Model):
     purchase_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        default=0,
+        default=Decimal('0.00'),
         verbose_name="Precio de Compra (USD)",
         help_text="Precio de compra para referencia. El costo real se calcula desde los movimientos."
     )
@@ -188,13 +188,13 @@ class Movement(models.Model):
     unit_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        default=0,
+        default=Decimal('0.00'),
         verbose_name="Precio unitario"
     )
     total = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        default=0,
+        default=Decimal('0.00'),
         editable=False,
         verbose_name="Total"
     )

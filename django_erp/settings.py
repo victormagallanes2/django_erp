@@ -15,20 +15,20 @@ import os
 from django.urls import reverse_lazy
 from django.utils.translation import gettext_lazy as _
 from dotenv import load_dotenv
+from django.core.exceptions import ImproperlyConfigured
+import dj_database_url
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
+load_dotenv(BASE_DIR / '.env')
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-_0x#w-%2q1lm(-56&*fs&c$y!_qfv&cv$lt_kyf3o_ez8afo@('
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
+ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', '').split(',') if h.strip()]
 
-ALLOWED_HOSTS = []
 
 
 # Application definition
@@ -90,14 +90,20 @@ WSGI_APPLICATION = 'django_erp.wsgi.application'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 # ✅ CONFIGURACIÓN DE BASES DE DATOS
-load_dotenv()
+
+
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    raise ImproperlyConfigured("Falta SECRET_KEY en .env")
 
 DATABASES = {
     # ✅ Base de datos PRINCIPAL (SQLite para desarrollo)
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    },
+    'default': dj_database_url.config(
+        default=os.getenv('DATABASE_URL'),
+        conn_max_age=600,           # reutiliza conexiones 10 min
+        conn_health_checks=True,    # valida que la conexión siga viva
+        # ssl_require=not DEBUG,
+    )
     
     # ✅ Base de datos LOCAL (SQLite - para pruebas offline)
 #     'local': {
@@ -107,7 +113,7 @@ DATABASES = {
  }
 
 # ✅ ROUTER para decidir qué base de datos usar
-DATABASE_ROUTERS = ['django_erp.db_routers.OfflineRouter']
+# DATABASE_ROUTERS = ['django_erp.db_routers.OfflineRouter']
 
 
 # Password validation
@@ -152,6 +158,11 @@ AUTHENTICATION_BACKENDS = [
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+
+LOGIN_URL = '/admin/login/'
+LOGIN_REDIRECT_URL = '/admin/'
+LOGOUT_REDIRECT_URL = '/admin/login/'
 
 SIMPLE_HISTORY_REVERT_DISABLED = False
 
@@ -232,27 +243,28 @@ def get_menu_items(request):
     # ✅ Compras
     if user.has_perm('purchasing.view_supplier') or user.has_perm('purchasing.view_purchaseorder'):
         purchasing_items = []
-        
+
         if user.has_perm('purchasing.view_supplier'):
             purchasing_items.append({
                 "title": "Proveedores",
                 "icon": "business",
                 "link": "/admin/purchasing/supplier/",
             })
-        
+
         if user.has_perm('purchasing.view_purchaseorder'):
             purchasing_items.append({
-                "title": "Ordenes de Compras",
+                "title": "Órdenes de Compras",
                 "icon": "shopping_cart",
                 "link": "/admin/purchasing/purchaseorder/",
             })
-        if user.has_perm('purchasing.view_purchaseorder'):
+
+        if user.has_perm('purchasing.view_purchaseinvoice'):
             purchasing_items.append({
                 "title": "Facturas de Compra",
                 "icon": "receipt",
                 "link": "/admin/purchasing/purchaseinvoice/",
             })
-        
+
         if purchasing_items:
             navigation.append({
                 "title": "Compras",
@@ -265,32 +277,35 @@ def get_menu_items(request):
     # ✅ Ventas
     if user.has_perm('sales.view_saleorder') or user.has_perm('sales.view_customer'):
         sales_items = []
-        
+
         if user.has_perm('sales.view_customer'):
             sales_items.append({
                 "title": "Clientes",
                 "icon": "person",
                 "link": "/admin/sales/customer/",
             })
-        
+
         if user.has_perm('sales.view_saleorder'):
             sales_items.append({
-                "title": "Ordenes de Ventas",
+                "title": "Órdenes de Ventas",
                 "icon": "receipt_long",
                 "link": "/admin/sales/saleorder/",
             })
-        if user.has_perm('sales.view_saleorder'):
+
+        if user.has_perm('sales.view_saleinvoice'):
             sales_items.append({
                 "title": "Facturas de Ventas",
                 "icon": "fact_check",
                 "link": "/admin/sales/saleinvoice/",
             })
-        if user.has_perm('sales.view_saleorder'):
+
+        if user.has_perm('sales.add_saleinvoice'):
             sales_items.append({
                 "title": "Punto de Venta",
-                "icon": "fact_check",
+                "icon": "point_of_sale",
                 "link": "/admin/sales/saleinvoice/pos/",
             })
+
         if user.has_perm('sales.view_cashregister'):
             sales_items.append({
                 "title": "Cajas",
@@ -301,17 +316,10 @@ def get_menu_items(request):
         if user.has_perm('sales.can_view_reports'):
             sales_items.append({
                 "title": "Reporte de Ventas",
-                "icon": "assessment", # Icono de Material Symbols
-                "link": "/admin/sales/saleorder/sales-report/", # URL que definimos en get_urls
+                "icon": "assessment",
+                "link": "/admin/sales/saleorder/sales-report/",
             })
 
-        if user.has_perm('sales.can_view_reports'):
-            sales_items.append({
-                    "title": "Tasas de Cambio",
-                    "icon": "swap_horiz",
-                    "link": "/admin/accounting/exchangerate/",
-               
-            })
         if sales_items:
             navigation.append({
                 "title": "Ventas",
@@ -320,23 +328,34 @@ def get_menu_items(request):
                 "items": sales_items,
             })
 
-    # ✅ CONTABILIDAD (NUEVO MÓDULO)
-    if user.has_perm('accounting.view_tax') or user.has_perm('accounting.view_taxrate'):
+    # ✅ CONTABILIDAD
+    if (user.has_perm('accounting.view_tax')
+        or user.has_perm('accounting.view_taxrate')
+        or user.has_perm('accounting.view_exchangerate')):
+
         accounting_items = []
-        
+
         if user.has_perm('accounting.view_tax'):
             accounting_items.append({
                 "title": "Tipos de Impuestos",
                 "icon": "receipt",
                 "link": "/admin/accounting/tax/",
             })
+
         if user.has_perm('accounting.view_taxrate'):
             accounting_items.append({
                 "title": "Tasas de Impuesto",
                 "icon": "percent",
                 "link": "/admin/accounting/taxrate/",
             })
-        
+
+        if user.has_perm('accounting.view_exchangerate'):
+            accounting_items.append({
+                "title": "Tasas de Cambio",
+                "icon": "swap_horiz",
+                "link": "/admin/accounting/exchangerate/",
+            })
+
         if accounting_items:
             navigation.append({
                 "title": "Contabilidad",
@@ -349,23 +368,21 @@ def get_menu_items(request):
     # ✅ RECURSOS HUMANOS
     if user.has_perm('rrhh.view_employee') or user.has_perm('rrhh.view_commission'):
         rrhh_items = []
-        
-        # ✅ Empleados
+
         if user.has_perm('rrhh.view_employee'):
             rrhh_items.append({
                 "title": "Empleados",
                 "icon": "badge",
                 "link": "/admin/rrhh/employee/",
             })
-        
-        # ✅ Comisiones
+
         if user.has_perm('rrhh.view_commission'):
             rrhh_items.append({
                 "title": "Comisiones",
                 "icon": "payments",
                 "link": "/admin/rrhh/commission/",
             })
-        
+
         if rrhh_items:
             navigation.append({
                 "title": "Recursos Humanos",

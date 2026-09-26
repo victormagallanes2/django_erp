@@ -5,6 +5,7 @@ __pycache__/
 *.so
 .Python
 env/
+.env/
 venv/
 ENV/
 env.bak/
@@ -87,3 +88,13 @@ htmlcov/
 *.key
 *.crt
 secrets/
+
+.env
+*.sqlite3
+db.sqlite3
+__pycache__/
+*.pyc
+staticfiles/
+media/
+backups/
+venv/
