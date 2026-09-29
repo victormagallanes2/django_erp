@@ -60,7 +60,10 @@ def _to_usd(amount, currency):
 @staff_member_required
 @require_GET
 def pos_search_products(request):
-    """Busca productos por código o nombre para el POS"""
+    """Busca productos por código o nombre para el POS.
+    
+    ✅ Los productos son GLOBALES: se buscan en todas las sedes.
+    """
     query = request.GET.get('q', '').strip()
     company = getattr(request, 'current_company', None)
     if not company:
@@ -69,7 +72,8 @@ def pos_search_products(request):
     if not company:
         return JsonResponse({'results': []})
 
-    qs = Product.objects.filter(company=company, is_active=True)
+    # ✅ Sin filtro por company
+    qs = Product.objects.filter(is_active=True)
 
     if query:
         qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query))
@@ -80,6 +84,7 @@ def pos_search_products(request):
 
     results = []
     for p in qs:
+        # ✅ El stock sí se filtra por la company activa
         stock = Inventory.objects.filter(
             product=p, company=company
         ).aggregate(total=Sum('quantity'))['total'] or 0
@@ -87,12 +92,14 @@ def pos_search_products(request):
         inventory_rec = Inventory.objects.filter(
             product=p, company=company, quantity__gt=0
         ).first()
-        location_id = inventory_rec.location_id if inventory_rec and inventory_rec.location else None
+        location_id = (
+            inventory_rec.location_id 
+            if inventory_rec and inventory_rec.location else None
+        )
 
         price_usd = Decimal(str(p.sale_price)) if p.sale_price else Decimal('0')
         price_bs = price_usd * rate
 
-        # ✅ IMPORTANTE: obtener la URL de la imagen
         image_url = ''
         if p.image:
             try:
@@ -119,14 +126,14 @@ def pos_search_products(request):
 @staff_member_required
 @require_GET
 def pos_customer_search(request):
-    """Busca clientes por nombre o cédula/RIF para el POS."""
-    query = request.GET.get('q', '').strip()
-    company = getattr(request, 'current_company', None) or Company.get_active()
+    """Busca clientes por nombre o cédula/RIF para el POS.
     
-    if not company:
-        return JsonResponse({'error': 'No hay compañía activa'}, status=400)
-
-    qs = Customer.objects.filter(company=company, is_active=True)
+    ✅ Los clientes son GLOBALES: se buscan en todas las sedes.
+    """
+    query = request.GET.get('q', '').strip()
+    
+    # ❌ YA NO se filtra por compañía
+    qs = Customer.objects.filter(is_active=True)
 
     if query:
         qs = qs.filter(
@@ -278,7 +285,7 @@ def pos_checkout(request):
 
     try:
         with transaction.atomic():
-            customer = Customer.objects.get(id=customer_id, company=company)
+            customer = Customer.objects.get(id=customer_id, is_active=True)
 
 
             # ✅ 1. Verificar caja abierta ANTES de crear la factura
@@ -351,7 +358,7 @@ def pos_checkout(request):
                 quantity = int(line_data.get('quantity', 1))
                 unit_price = Decimal(str(line_data.get('unit_price', 0)))
 
-                product = Product.objects.get(id=product_id, company=company)
+                product = Product.objects.get(id=product_id, is_active=True)
 
                 SaleInvoiceLine.objects.create(
                     invoice=invoice,
@@ -570,7 +577,8 @@ def pos_customer_form(request):
         if form.is_valid():
             customer = form.save(commit=False)
             company = getattr(request, 'current_company', None) or Company.get_active()
-            customer.company = company
+            # ✅ Solo se registra la sede que lo crea, pero es visible en todas
+            customer.created_in_company = company
             customer.is_active = True
             customer.save()
             return JsonResponse({
@@ -579,7 +587,6 @@ def pos_customer_form(request):
                 'customer_name': customer.name,
                 'customer_tax_id': customer.tax_id,
             })
-        # Si hay errores, devolver el form con errores
         return render(request, 'admin/sales/customer_form.html', {'form': form})
 
     form = POSCustomerForm()

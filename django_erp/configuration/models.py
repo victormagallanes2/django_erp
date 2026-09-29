@@ -30,7 +30,10 @@ class Company(models.Model):
         help_text="Si es una sucursal, selecciona la compañía matriz"
     )
     name = models.CharField(max_length=200, verbose_name="Razón Social")
-    rif = models.CharField(max_length=20, unique=True, verbose_name="RIF")
+    rif = models.CharField(
+    max_length=20,
+    verbose_name="RIF",
+    help_text=("RIF de la empresa. Las sucursales comparten el RIF de su compañía matriz."))
     trade_name = models.CharField(max_length=200, blank=True, verbose_name="Nombre Comercial")
     
     # Contacto
@@ -121,23 +124,67 @@ class Company(models.Model):
             ("can_view_all_companies", "Puede ver todas las compañías"),
             ("can_switch_company", "Puede cambiar de compañía"),
         ]
+        constraints = [
+            # ✅ El RIF es único SOLO entre las compañías principales
+            models.UniqueConstraint(
+                fields=['rif'],
+                condition=models.Q(is_main=True),
+                name='unique_rif_per_main_company',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.code} - {self.name}"
 
     def clean(self):
         """Validaciones personalizadas"""
+        super().clean()
+        
+        # ✅ Ya existente: solo una compañía principal
         if self.is_main:
             existing = Company.objects.filter(is_main=True).exclude(pk=self.pk)
             if existing.exists():
-                raise ValidationError("Ya existe una compañía principal. Desactiva la otra primero.")
+                raise ValidationError({
+                    'is_main': "Ya existe una compañía principal. Desactiva la otra primero."
+                })
         
+        # ✅ Ya existente: la principal no puede tener padre
         if self.is_main and self.parent:
-            raise ValidationError("La compañía principal no puede tener una compañía padre.")
+            raise ValidationError({
+                'parent': "La compañía principal no puede tener una compañía padre."
+            })
         
+        # ✅ Ya existente: no puede ser su propio padre
         if self.parent and self.parent.pk == self.pk:
-            raise ValidationError("Una compañía no puede ser su propio padre.")
-            
+            raise ValidationError({
+                'parent': "Una compañía no puede ser su propio padre."
+            })
+        
+        # ✅ NUEVO: si es sucursal, hereda el RIF del padre
+        if self.parent:
+            if self.rif and self.parent.rif and self.rif != self.parent.rif:
+                raise ValidationError({
+                    'rif': (
+                        f"El RIF de una sucursal debe ser igual al de su compañía matriz "
+                        f"({self.parent.rif}). Ingresaste: {self.rif}."
+                    )
+                })
+        
+        # ✅ NUEVO: si NO es sucursal (es matriz o standalone), el RIF debe ser único
+        if not self.parent:
+            existing_rif = Company.objects.filter(
+                rif=self.rif,
+                parent__isnull=True,
+            ).exclude(pk=self.pk)
+            if existing_rif.exists():
+                raise ValidationError({
+                    'rif': (
+                        f"Ya existe otra compañía principal con el RIF {self.rif}. "
+                        f"Si es una sucursal, asigna una compañía padre."
+                    )
+                })
+        
+        # ✅ Ya existente: comisiones
         if self.commission_by_service_only and not self.commission_enabled:
             raise ValidationError({
                 'commission_by_service_only': (
@@ -148,6 +195,14 @@ class Company(models.Model):
 
 
     def save(self, *args, **kwargs):
+        # ✅ Si es sucursal y no tiene RIF, heredarlo del padre
+        if self.parent and not self.rif:
+            self.rif = self.parent.rif
+        
+        # ✅ Si es sucursal, forzar que el RIF sea el del padre
+        if self.parent:
+            self.rif = self.parent.rif
+        
         self.full_clean()
         super().save(*args, **kwargs)
 

@@ -17,12 +17,18 @@ User = get_user_model()
 
 
 class Customer(models.Model):
-    """Cliente - Independiente"""
+    """
+    Cliente GLOBAL - Compartido entre todas las sedes.
+    
+    El campo `created_in_company` es solo informativo: registra en qué sede
+    se dio de alta al cliente, pero no restringe su visibilidad.
+    Las ventas (SaleOrder/SaleInvoice) sí tienen su propia FK a Company.
+    """
     
     name = models.CharField(max_length=200, verbose_name="Nombre")
     tax_id = models.CharField(
         max_length=20,
-        unique=True,
+        unique=True,        # ✅ Único GLOBAL (ya lo tenías)
         verbose_name="RIF / Cédula",
         help_text="Persona Natural: V-12345678 | Empresa: J-12345678-9"
     )
@@ -30,20 +36,27 @@ class Customer(models.Model):
     phone = models.CharField(max_length=20, blank=True, verbose_name="Teléfono")
     address = models.TextField(blank=True, verbose_name="Dirección")
     is_active = models.BooleanField(default=True, verbose_name="Activo")
+
+    # ✅ NUEVO: registro informativo de la sede que lo creó
+    created_in_company = models.ForeignKey(
+        Company,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Sede donde se registró",
+        related_name='customers_created_here',
+        help_text="Solo informativo. El cliente es visible en todas las sedes."
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
-    company = models.ForeignKey(
-        Company,
-        on_delete=models.CASCADE,
-        verbose_name="Compañía/Sucursal",
-        related_name='customer'
-    )
     history = HistoricalRecords()
 
     class Meta:
         verbose_name = "Cliente"
         verbose_name_plural = "Clientes"
         ordering = ['name']
+        # ❌ ELIMINAR: unique_together con company (no aplica)
         permissions = [
             ("can_view_customer", "Puede ver clientes"),
             ("can_edit_customer", "Puede editar clientes"),
@@ -52,6 +65,43 @@ class Customer(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.tax_id})"
+
+    # ============================================================
+    # MÉTODOS ÚTILES PARA EL HISTORIAL POR SEDE
+    # ============================================================
+    
+    def get_purchases_by_company(self):
+        """Devuelve un resumen de compras agrupadas por sede."""
+        from django.db.models import Count, Sum
+        return (
+            self.saleinvoice_set
+            .filter(status__in=['ISSUED', 'PAID'])
+            .values('company__code', 'company__name')
+            .annotate(
+                total_invoices=Count('id'),
+                total_amount=Sum('total'),
+            )
+            .order_by('-total_amount')
+        )
+
+    def get_total_purchases(self):
+        """Devuelve el total histórico de compras del cliente (en USD)."""
+        from django.db.models import Sum
+        result = (
+            self.saleinvoice_set
+            .filter(status__in=['ISSUED', 'PAID'])
+            .aggregate(total=Sum('total'))
+        )
+        return result['total'] or Decimal('0.00')
+
+    def get_last_purchase(self):
+        """Devuelve la última factura del cliente."""
+        return (
+            self.saleinvoice_set
+            .filter(status__in=['ISSUED', 'PAID'])
+            .order_by('-date_issued', '-created_at')
+            .first()
+        )
 
 
 class SaleOrder(models.Model):

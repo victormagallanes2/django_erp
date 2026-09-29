@@ -15,12 +15,17 @@ User = get_user_model()
 
 
 class Supplier(models.Model):
-    """Proveedor - Similar a Customer"""
+    """
+    Proveedor GLOBAL - Compartido entre todas las sedes.
+    
+    El campo `created_in_company` es solo informativo.
+    Las compras (PurchaseOrder/PurchaseInvoice) sí tienen su propia FK a Company.
+    """
     
     name = models.CharField(max_length=200, verbose_name="Nombre")
     tax_id = models.CharField(
         max_length=20,
-        unique=True,
+        unique=True,        # ✅ Único GLOBAL
         verbose_name="RIF / Cédula",
         help_text="Persona Natural: V-12345678 | Empresa: J-12345678-9"
     )
@@ -28,12 +33,18 @@ class Supplier(models.Model):
     phone = models.CharField(max_length=20, blank=True, verbose_name="Teléfono")
     address = models.TextField(blank=True, verbose_name="Dirección")
     is_active = models.BooleanField(default=True, verbose_name="Activo")
-    company = models.ForeignKey(
+
+    # ✅ NUEVO: registro informativo de la sede que lo creó
+    created_in_company = models.ForeignKey(
         Company,
-        on_delete=models.CASCADE,
-        verbose_name="Compañía/Sucursal",
-        related_name='supplier'
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Sede donde se registró",
+        related_name='suppliers_created_here',
+        help_text="Solo informativo. El proveedor es visible en todas las sedes."
     )
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Creado")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Actualizado")
     history = HistoricalRecords()
@@ -50,6 +61,20 @@ class Supplier(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.tax_id})"
+
+    def get_purchases_by_company(self):
+        """Resumen de compras agrupadas por sede."""
+        from django.db.models import Count, Sum
+        return (
+            self.purchaseinvoice_set
+            .filter(status__in=['ISSUED', 'PAID'])
+            .values('company__code', 'company__name')
+            .annotate(
+                total_invoices=Count('id'),
+                total_amount=Sum('total'),
+            )
+            .order_by('-total_amount')
+        )
 
 
 class PurchaseOrder(models.Model):

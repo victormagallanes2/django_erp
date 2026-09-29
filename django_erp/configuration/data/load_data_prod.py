@@ -439,6 +439,11 @@ def load_groups():
         _perms("sales", "Customer", ["view", "add", "change"]),
         _perms("sales", "SaleOrder", ["view", "add", "change"]),
         _perms("sales", "SaleInvoice", ["view", "add", "change"]),
+
+        _perms("sales", "SaleLine", ["view", "add", "change", "delete"]),
+        _perms("sales", "SaleInvoiceLine", ["view", "add", "change", "delete"]),
+
+
         _perms("sales", "Payment", ["view", "add"]),
         _perms("sales", "CashRegister", ["view", "add", "change"]),
         _perms("sales", "CashTransaction", ["view"]),

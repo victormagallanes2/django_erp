@@ -59,6 +59,25 @@ class CompanyAdmin(UnfoldModelAdmin):
             return False
         return super().has_delete_permission(request, obj)
 
+    # ✅ NUEVO: el RIF se vuelve readonly si es sucursal
+    def get_readonly_fields(self, request, obj=None):
+        readonly = list(self.readonly_fields)
+        if obj and obj.parent:
+            readonly.append('rif')
+        return readonly
+    
+    # ✅ NUEVO: help text dinámico
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+
+        # ✅ Solo modificar el help_text si el campo está en el form
+        if obj and obj.parent and 'rif' in form.base_fields:
+            form.base_fields['rif'].help_text = (
+                f"El RIF se hereda automáticamente de la compañía matriz "
+                f"({obj.parent.rif}). No se puede modificar."
+            )
+        return form
+    
     def save_model(self, request, obj, form, change):
         """Al guardar, verificar que la compañía principal tenga su propio código"""
         if obj.is_main and not obj.code:

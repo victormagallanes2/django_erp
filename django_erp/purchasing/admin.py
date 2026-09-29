@@ -16,6 +16,8 @@ from django_erp.configuration.mixins import CompanyFilterMixin
 import logging
 from django_erp.accounting.services import TaxService
 from decimal import Decimal, ROUND_HALF_UP
+from simple_history.admin import SimpleHistoryAdmin
+from django.utils.safestring import mark_safe
 
 logger = logging.getLogger(__name__)
 
@@ -25,22 +27,77 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 @admin.register(Supplier)
-class SupplierAdmin(CompanyFilterMixin, UnfoldModelAdmin):
-    """Admin de proveedores con multicompañía"""
-
-    list_display = ['name', 'tax_id', 'email', 'phone', 'is_active']
-    list_filter = ['is_active']
+class SupplierAdmin(UnfoldModelAdmin, SimpleHistoryAdmin):
+    """
+    Admin del proveedor GLOBAL.
+    
+    ⚠️ NO usa CompanyFilterMixin: el proveedor es visible en todas las sedes.
+    """
+    
+    list_display = [
+        'name',
+        'tax_id',
+        'phone',
+        'email',
+        'created_in_company_display',
+        'purchases_summary',
+        'is_active',
+    ]
+    list_filter = ['is_active', 'created_in_company']
     search_fields = ['name', 'tax_id', 'email', 'phone']
-
+    ordering = ['name']
+    
     fieldsets = (
-        ('Información', {
+        ('Información del Proveedor', {
             'fields': ('name', 'tax_id', 'email', 'phone', 'address')
         }),
-        ('Estado', {
-            'fields': ('is_active',)
+        ('Registro', {
+            'fields': ('created_in_company', 'is_active'),
+            'description': (
+                'El proveedor es visible en TODAS las sedes. '
+                '"Sede donde se registró" es solo informativo.'
+            )
         }),
     )
+    
     readonly_fields = ['created_at', 'updated_at']
+    
+    @admin.display(description='Registrado en', ordering='created_in_company__code')
+    def created_in_company_display(self, obj):
+        if obj.created_in_company:
+            return format_html(
+                '<span style="color: #6b7280; font-size: 12px;">{}</span>',
+                obj.created_in_company.code
+            )
+        return '—'
+    
+    @admin.display(description='Compras por sede')
+    def purchases_summary(self, obj):
+        data = obj.get_purchases_by_company()
+        
+        if not data:
+            return mark_safe(
+                '<span style="color: #9ca3af; font-size: 12px;">Sin compras</span>'
+            )
+        
+        parts = []
+        for item in data:
+            parts.append(
+                f"{item['company__code']}: {item['total_invoices']} "
+                f"(${item['total_amount']:.2f})"
+            )
+        
+        return format_html(
+            '<span style="font-size: 12px;">{}</span>',
+            ' | '.join(parts)
+        )
+    
+    def save_model(self, request, obj, form, change):
+        if not obj.pk and not obj.created_in_company_id:
+            company = getattr(request, 'current_company', None)
+            if company:
+                obj.created_in_company = company
+        super().save_model(request, obj, form, change)
 
 
 # ============================================================
@@ -61,10 +118,7 @@ class PurchaseLineInline(UnfoldTabularInline):
         
         company = getattr(request, 'current_company', None)
         if company:
-            formset.form.base_fields['product'].queryset = Product.objects.filter(
-                company=company,
-                is_active=True
-            )
+            formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
             if 'location' in formset.form.base_fields:
                 formset.form.base_fields['location'].queryset = Location.objects.filter(
                     company=company,
@@ -810,10 +864,7 @@ class PurchaseInvoiceLineInline(UnfoldTabularInline):
         
         company = getattr(request, 'current_company', None)
         if company:
-            formset.form.base_fields['product'].queryset = Product.objects.filter(
-                company=company,
-                is_active=True
-            )
+            formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
         else:
             formset.form.base_fields['product'].queryset = Product.objects.filter(is_active=True)
         return formset

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 @admin.register(Product)
-class ProductAdmin(CompanyFilterMixin, SimpleHistoryAdmin, UnfoldModelAdmin):
+class ProductAdmin(SimpleHistoryAdmin, UnfoldModelAdmin):
     """Admin de productos con precios en USD y BS"""
     
     list_display = [
