@@ -86,37 +86,37 @@ def get_menu_items(request):
     # ============================================================
     # COMPRAS
     # ============================================================
-    if (user.has_perm('purchasing.view_supplier') 
-        or user.has_perm('purchasing.view_purchaseorder')):
+    # if (user.has_perm('purchasing.view_supplier') 
+    #     or user.has_perm('purchasing.view_purchaseorder')):
         
-        purchasing_items = []
+    #     purchasing_items = []
         
-        if user.has_perm('purchasing.view_supplier'):
-            purchasing_items.append({
-                "title": "Proveedores",
-                "icon": "business",
-                "link": "/admin/purchasing/supplier/",
-            })
-        if user.has_perm('purchasing.view_purchaseorder'):
-            purchasing_items.append({
-                "title": "Órdenes de Compras",
-                "icon": "shopping_cart",
-                "link": "/admin/purchasing/purchaseorder/",
-            })
-        if user.has_perm('purchasing.view_purchaseinvoice'):
-            purchasing_items.append({
-                "title": "Facturas de Compra",
-                "icon": "receipt",
-                "link": "/admin/purchasing/purchaseinvoice/",
-            })
+    #     if user.has_perm('purchasing.view_supplier'):
+    #         purchasing_items.append({
+    #             "title": "Proveedores",
+    #             "icon": "business",
+    #             "link": "/admin/purchasing/supplier/",
+    #         })
+    #     if user.has_perm('purchasing.view_purchaseorder'):
+    #         purchasing_items.append({
+    #             "title": "Órdenes de Compras",
+    #             "icon": "shopping_cart",
+    #             "link": "/admin/purchasing/purchaseorder/",
+    #         })
+    #     if user.has_perm('purchasing.view_purchaseinvoice'):
+    #         purchasing_items.append({
+    #             "title": "Facturas de Compra",
+    #             "icon": "receipt",
+    #             "link": "/admin/purchasing/purchaseinvoice/",
+    #         })
         
-        if purchasing_items:
-            navigation.append({
-                "title": "Compras",
-                "separator": True,
-                "collapsible": True,
-                "items": purchasing_items,
-            })
+    #     if purchasing_items:
+    #         navigation.append({
+    #             "title": "Compras",
+    #             "separator": True,
+    #             "collapsible": True,
+    #             "items": purchasing_items,
+    #         })
     
     # ============================================================
     # VENTAS
@@ -132,12 +132,12 @@ def get_menu_items(request):
                 "icon": "person",
                 "link": "/admin/sales/customer/",
             })
-        if user.has_perm('sales.view_saleorder'):
-            sales_items.append({
-                "title": "Órdenes de Ventas",
-                "icon": "receipt_long",
-                "link": "/admin/sales/saleorder/",
-            })
+        # if user.has_perm('sales.view_saleorder'):
+        #     sales_items.append({
+        #         "title": "Órdenes de Ventas",
+        #         "icon": "receipt_long",
+        #         "link": "/admin/sales/saleorder/",
+        #     })
         if user.has_perm('sales.view_saleinvoice'):
             sales_items.append({
                 "title": "Facturas de Ventas",
