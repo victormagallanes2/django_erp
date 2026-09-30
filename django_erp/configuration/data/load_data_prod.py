@@ -489,6 +489,7 @@ def load_groups():
         _perms("purchasing", "PurchaseOrder", ["view", "add", "change"]),
         _custom_perm("purchasing", "PurchaseOrder", "can_confirm_order"),
         _custom_perm("purchasing", "PurchaseOrder", "can_cancel_order"),
+        _custom_perm("inventory", "Product", "can_view_purchase_price"),
         _perms("purchasing", "PurchaseInvoice", ["view", "add", "change"]),
         _perms("purchasing", "PurchasePayment", ["view", "add"]),
         _perms("inventory", "Product", ["view"]),
@@ -496,6 +497,7 @@ def load_groups():
         _perms("accounting", "ExchangeRate", ["view"]),
         _perms("configuration", "CompanyBankAccount", ["view"]),
         _perms("configuration", "PaymentMethod", ["view"]),
+
     )
     print(f"   ✅ Grupo 'Compras' → {compras.permissions.count()} permisos")
 
@@ -518,6 +520,7 @@ def load_groups():
         _perms("inventory", "Inventory", ["view"]),
         _perms("configuration", "Currency", ["view"]),
         _perms("configuration", "Company", ["view"]),
+        _custom_perm("inventory", "Product", "can_view_purchase_price"),
     )
     print(f"   ✅ Grupo 'Contabilidad' → {contab.permissions.count()} permisos")
 
@@ -560,6 +563,7 @@ def load_groups():
         admin_grp,
         _perms("rrhh", "Commission", ["view", "change"]),
         _custom_perm("rrhh", "Commission", "can_pay_commission"),
+        _custom_perm("inventory", "Product", "can_view_purchase_price"),
         _perms("rrhh", "Employee", ["view", "change"]),
         _perms("configuration", "Currency", ["view"]),
         _perms("configuration", "PaymentMethod", ["view"]),
@@ -595,6 +599,7 @@ def load_groups():
         _perms("inventory", "PhysicalCount", ["delete"]),
         _custom_perm("inventory", "DeliveryNote", "can_cancel_deliverynote"),
         _custom_perm("inventory", "ReceiptNote", "can_cancel_receiptnote"),
+        _custom_perm("inventory", "Product", "can_view_purchase_price"),
     )
     print(f"   ✅ Grupo 'Almacén Supervisor' → {almacen_sup.permissions.count()} permisos")
 

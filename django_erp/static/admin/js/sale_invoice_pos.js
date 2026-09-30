@@ -254,9 +254,7 @@
             }
 
             salespersonResults.innerHTML = results.map(e => {
-                const rate = e.commission_rate > 0
-                    ? '<span class="r-tax">' + e.commission_rate + '%</span>'
-                    : '';
+                // ✅ Sin porcentaje de comisión
                 return (
                     '<div class="pos-customer-result-item" ' +
                          'data-id="' + e.id + '" ' +
@@ -264,7 +262,6 @@
                         '<span class="r-name">' + escapeHtml(e.text) +
                             (e.position ? ' — ' + escapeHtml(e.position) : '') +
                         '</span>' +
-                        rate +
                     '</div>'
                 );
             }).join('');

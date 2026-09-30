@@ -120,9 +120,9 @@ class CommissionAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     @admin.display(description=_('Estado'), ordering='status')
     def status_badge(self, obj):
         colors = {
-            'PENDING': ('#ffc107', '⏳ Pendiente'),
-            'PAID': ('#28a745', '✅ Pagada'),
-            'CANCELLED': ('#dc3545', '❌ Cancelada'),
+            'PENDING': ('#ffc107', 'Pendiente'),
+            'PAID': ('#28a745', 'Pagada'),
+            'CANCELLED': ('#dc3545', 'Cancelada'),
         }
         color, label = colors.get(obj.status, ('#6c757d', obj.status))
         return format_html(

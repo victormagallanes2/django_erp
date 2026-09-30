@@ -128,10 +128,10 @@ class BackupAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
     @admin.display(description='Estado')
     def status_badge(self, obj):
         colors = {
-            'PENDING': ('#ffc107', '⏳ Pendiente'),
-            'PROCESSING': ('#17a2b8', '🔄 Procesando'),
-            'COMPLETED': ('#28a745', '✅ Completado'),
-            'FAILED': ('#dc3545', '❌ Fallido'),
+            'PENDING': ('#ffc107', 'Pendiente'),
+            'PROCESSING': ('#17a2b8', 'Procesando'),
+            'COMPLETED': ('#28a745', 'Completado'),
+            'FAILED': ('#dc3545', 'Fallido'),
         }
         color, label = colors.get(obj.status, ('#6c757d', obj.status))
         return format_html(

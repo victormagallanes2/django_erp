@@ -726,10 +726,10 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     @admin.display(description='Estado', ordering='status')
     def status_badge(self, obj):
         colors = {
-            'DRAFT': ('#6c757d', '📝 Borrador'),
-            'ISSUED': ('#17a2b8', '📄 Emitida'),
-            'PAID': ('#28a745', '✅ Pagada'),
-            'CANCELLED': ('#dc3545', '❌ Anulada'),
+            'DRAFT': ('#6c757d', 'Borrador'),
+            'ISSUED': ('#17a2b8', 'Emitida'),
+            'PAID': ('#28a745', 'Pagada'),
+            'CANCELLED': ('#dc3545', 'Anulada'),
         }
         color, label = colors.get(obj.status, ('#6c757d', obj.status))
         return format_html(
@@ -775,6 +775,46 @@ class SaleInvoiceAdmin(CompanyFilterMixin, UnfoldModelAdmin):
             path('pos/salespersons/', salespersons_view, name='sales_pos_salespersons'),
         ]
         return custom_urls + urls
+
+
+    def sales_report_view(self, request):
+        """Vista del reporte de ventas basado en facturas pagadas."""
+        # ✅ Verificar permiso
+        if not request.user.has_perm('sales.can_view_reports'):
+            raise PermissionDenied("No tienes permiso para ver reportes de ventas.")
+        
+        company = getattr(request, 'current_company', None)
+        
+        # Datos del reporte
+        labels_day, totals_day = SaleReportService.get_totals_by_period(
+            period_type='day', days_back=30, company=company
+        )
+        labels_month, totals_month = SaleReportService.get_totals_by_period(
+            period_type='month', days_back=365, company=company
+        )
+        grand_totals = SaleReportService.get_grand_totals(company=company)
+        top_products = list(SaleReportService.get_top_products(
+            limit=10, company=company, days_back=30
+        ))
+        top_customers = list(SaleReportService.get_top_customers(
+            limit=10, company=company, days_back=30
+        ))
+        
+        context = {
+            **self.admin_site.each_context(request),
+            'title': 'Reporte de Ventas',
+            'subtitle': f'Facturas pagadas - {company.name if company else "Sin compañía"}',
+            'chart_labels_day': json.dumps(labels_day),
+            'chart_totals_day': json.dumps(totals_day),
+            'chart_labels_month': json.dumps(labels_month),
+            'chart_totals_month': json.dumps(totals_month),
+            'grand_totals': grand_totals,
+            'top_products': top_products,
+            'top_customers': top_customers,
+            'company': company,
+        }
+        
+        return render(request, 'admin/sales/sales_report.html', context)
 
     def save_model(self, request, obj, form, change):
         """

@@ -598,11 +598,11 @@ class PurchaseOrderAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     def status_badge(self, obj):
         """Mostrar badge de estado con colores y emojis"""
         colors = {
-            'DRAFT': ('#6c757d', '📝 Borrador'),
-            'SENT': ('#ffc107', '📤 Enviado'),
-            'CONFIRMED': ('#17a2b8', '✅ Confirmado'),
-            'RECEIVED': ('#28a745', '📦 Recibido'),
-            'CANCELLED': ('#dc3545', '❌ Cancelado'),
+            'DRAFT': ('#6c757d', 'Borrador'),
+            'SENT': ('#ffc107', 'Enviado'),
+            'CONFIRMED': ('#17a2b8', 'Confirmado'),
+            'RECEIVED': ('#28a745', 'Recibido'),
+            'CANCELLED': ('#dc3545', 'Cancelado'),
         }
         color, label = colors.get(obj.status, ('#6c757d', obj.status))
         return format_html(

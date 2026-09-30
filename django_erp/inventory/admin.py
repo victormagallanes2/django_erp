@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 @admin.register(Product)
 class ProductAdmin(SimpleHistoryAdmin, UnfoldModelAdmin):
-    """Admin de productos con precios en USD y BS"""
+    """Admin de productos con precios en USD y Bs."""
     
     list_display = [
         'image_preview', 'code', 'name',
@@ -46,7 +46,7 @@ class ProductAdmin(SimpleHistoryAdmin, UnfoldModelAdmin):
         ('Tipo de Producto', {
             'fields': ('is_service',),
         }),
-        ('Precio en USD (Moneda Base)', {
+        ('Precios (USD)', {
             'fields': ('purchase_price', 'sale_price'),
             'description': 'Precio en dólares americanos (USD)'
         }),
@@ -60,11 +60,58 @@ class ProductAdmin(SimpleHistoryAdmin, UnfoldModelAdmin):
     
     readonly_fields = ['created_at', 'updated_at', 'sale_price_bs_info']
     
-    @admin.display(description='Precio (USD)')
+    # ============================================================
+    # PERMISOS DINÁMICOS: ocultar purchase_price si no tiene permiso
+    # ============================================================
+    
+    def _can_view_purchase_price(self, request):
+        """Verifica si el usuario puede ver el precio de compra."""
+        return request.user.has_perm('inventory.can_view_purchase_price')
+    
+    def get_list_display(self, request):
+        """Oculta 'purchase_price' del listado si no tiene permiso."""
+        display = list(super().get_list_display(request))
+        if not self._can_view_purchase_price(request):
+            display = [f for f in display if f != 'purchase_price']
+        return display
+    
+    def get_fieldsets(self, request, obj=None):
+        """
+        Oculta 'purchase_price' del formulario si no tiene permiso.
+        Si el fieldset queda vacío, lo elimina.
+        """
+        if self._can_view_purchase_price(request):
+            return super().get_fieldsets(request, obj)
+        
+        new_fieldsets = []
+        for title, opts in super().get_fieldsets(request, obj):
+            opts = dict(opts)   # copia para no mutar
+            fields = opts.get('fields', ())
+            if fields:
+                opts['fields'] = tuple(
+                    f for f in fields if f != 'purchase_price'
+                )
+            
+            # Cambiar el título si es el fieldset de precios
+            if title == 'Precios (USD)' and opts.get('fields'):
+                title = 'Precio de Venta (USD)'
+                opts['description'] = 'Precio al que se vende al cliente (USD)'
+            
+            # Solo agregar el fieldset si quedó con campos
+            if opts.get('fields'):
+                new_fieldsets.append((title, opts))
+        
+        return new_fieldsets
+    
+    # ============================================================
+    # DISPLAYS
+    # ============================================================
+    
+    @admin.display(description='Precio Venta (USD)', ordering='sale_price')
     def sale_price_usd_display(self, obj):
         return f"$ {obj.sale_price:.2f}"
     
-    @admin.display(description='Precio (Bs.)')
+    @admin.display(description='Precio Venta (Bs.)', ordering='sale_price')
     def sale_price_bs_display(self, obj):
         try:
             rate = ExchangeRate.get_today_rate('USD', 'BS')
@@ -72,7 +119,7 @@ class ProductAdmin(SimpleHistoryAdmin, UnfoldModelAdmin):
                 sale_price_bs = obj.sale_price * rate
                 return f"Bs. {sale_price_bs:.2f}"
             return "Sin tasa"
-        except:
+        except Exception:
             return "Error"
     
     @admin.display(description='Precio en Bs. (hoy)')
@@ -103,14 +150,15 @@ class ProductAdmin(SimpleHistoryAdmin, UnfoldModelAdmin):
     @admin.display(description='Tipo')
     def is_service_badge(self, obj):
         if obj.is_service:
-            return "🛋️ Servicio"
-        return "📦 Producto"
+            return "Servicio"
+        return "Producto"
     
     @admin.display(description='Imagen')
     def image_preview(self, obj):
         if obj.image:
             return format_html(
-                '<img src="{}" width="50" height="50" style="object-fit: cover; border-radius: 4px;" />',
+                '<img src="{}" width="50" height="50" '
+                'style="object-fit: cover; border-radius: 4px;" />',
                 obj.image.url
             )
         return "Sin imagen"

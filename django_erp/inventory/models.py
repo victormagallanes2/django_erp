@@ -70,6 +70,7 @@ class Product(models.Model):
             ("can_view_product", "Puede ver productos"),
             ("can_edit_product", "Puede editar productos"),
             ("can_delete_product", "Puede eliminar productos"),
+            ("can_view_purchase_price", "Puede ver el precio de compra"),
         ]
 
     def __str__(self):

@@ -317,7 +317,7 @@ def get_menu_items(request):
             sales_items.append({
                 "title": "Reporte de Ventas",
                 "icon": "assessment",
-                "link": "/admin/sales/saleorder/sales-report/",
+                "link": "/admin/sales/saleinvoice/sales-report/",   # ← factura
             })
 
         if sales_items:
