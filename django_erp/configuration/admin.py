@@ -94,14 +94,19 @@ class CompanyAdmin(UnfoldModelAdmin):
 
 @admin.register(Backup)
 class BackupAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
-    """Admin de respaldos - Solo crear"""
+    """
+    Admin de respaldos.
     
-    change_list_template = "admin/configuration/backup_changelist.html"
+    ✅ El botón "+" crea un respaldo directamente (sin formulario).
+    """
+    
+    # ❌ Ya no usa change_list_template custom
+    # change_list_template = "admin/configuration/backup_changelist.html"
     
     list_display = ['name', 'file_size_display', 'status_badge', 'created_at', 'user']
     list_filter = ['status', 'created_at']
     search_fields = ['name', 'note']
-    readonly_fields = ['created_at', 'completed_at', 'user', 'name', 'file_path', 'status']
+    readonly_fields = ['created_at', 'completed_at', 'user', 'name', 'file_path', 'status', 'note']
     
     fieldsets = (
         ('Información', {
@@ -115,11 +120,78 @@ class BackupAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
         }),
     )
     
+    # ============================================================
+    # ✅ PERMISOS: habilitar el botón "+"
+    # ============================================================
+    
     def has_add_permission(self, request):
+        """✅ Habilitar el botón '+' (solo para superuser)."""
+        return request.user.is_superuser
+    
+    def has_change_permission(self, request, obj=None):
+        """✅ No se puede editar un respaldo (solo ver)."""
         return False
     
     def has_delete_permission(self, request, obj=None):
+        """❌ No se puede borrar un respaldo."""
         return False
+    
+    # ============================================================
+    # ✅ ADD_VIEW: en lugar de formulario, crea el respaldo y redirige
+    # ============================================================
+    
+    def add_view(self, request, form_url='', extra_context=None):
+        """
+        Sobrescribe la vista de agregar.
+        
+        En lugar de mostrar un formulario, ejecuta la creación del respaldo
+        y redirige a la lista con un mensaje de éxito o error.
+        """
+        # ✅ Solo POST ejecuta la creación
+        # Si es GET, redirigimos inmediatamente (sin mostrar formulario)
+        if request.method == 'GET':
+            # Ejecutar la creación directamente
+            return self._create_backup(request)
+        
+        # Si es POST (raro), también la ejecutamos
+        return self._create_backup(request)
+    
+    def _create_backup(self, request):
+        """Lógica compartida para crear el respaldo."""
+        try:
+            backup = BackupService.create_backup(user=request.user)
+            
+            # ✅ Mensaje de éxito con la ruta
+            file_path = backup.file_path
+            file_name = os.path.basename(file_path)
+            size_display = backup.file_size_display
+            
+            self.message_user(
+                request,
+                f'✅ Respaldo creado exitosamente: {file_name} ({size_display})',
+                messages.SUCCESS,
+            )
+            
+            # ℹ️ Mensaje adicional con la ubicación
+            self.message_user(
+                request,
+                f'📁 Guardado en: {file_path}',
+                messages.INFO,
+            )
+            
+        except Exception as e:
+            self.message_user(
+                request,
+                f'❌ Error al crear respaldo: {str(e)}',
+                messages.ERROR,
+            )
+        
+        # ✅ Redirigir SIEMPRE a la lista
+        return redirect('admin:configuration_backup_changelist')
+    
+    # ============================================================
+    # DISPLAYS
+    # ============================================================
     
     @admin.display(description='Tamaño')
     def file_size_display(self, obj):
@@ -128,35 +200,28 @@ class BackupAdmin(CompanyFilterMixin, UnfoldModelAdmin, SimpleHistoryAdmin):
     @admin.display(description='Estado')
     def status_badge(self, obj):
         colors = {
-            'PENDING': ('#ffc107', 'Pendiente'),
-            'PROCESSING': ('#17a2b8', 'Procesando'),
-            'COMPLETED': ('#28a745', 'Completado'),
-            'FAILED': ('#dc3545', 'Fallido'),
+            'PENDING': ('#f59e0b', 'Pendiente'),      # ámbar
+            'PROCESSING': ('#3b82f6', 'Procesando'),  # azul
+            'COMPLETED': ('#10b981', 'Completado'),   # verde
+            'FAILED': ('#ef4444', 'Fallido'),         # rojo
         }
-        color, label = colors.get(obj.status, ('#6c757d', obj.status))
+        color, label = colors.get(obj.status, ('#6b7280', obj.status))
         return format_html(
-            '<span style="background: {}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 12px;">{}</span>',
+            '<span style="'
+                'display: inline-block;'
+                'background: {};'
+                'color: white;'
+                'padding: 4px 12px;'
+                'border-radius: 9999px;'
+                'font-size: 11px;'
+                'font-weight: 600;'
+                'letter-spacing: 0.025em;'
+                'text-transform: uppercase;'
+                'white-space: nowrap;'
+            '">{}</span>',
             color,
             label
         )
-    
-    def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path('create/', self.admin_site.admin_view(self.create_backup_view), name='backup_create'),
-        ]
-        return custom_urls + urls
-    
-    def create_backup_view(self, request):
-        try:
-            backup = BackupService.create_backup(user=request.user)
-            file_path = backup.file_path
-            response = FileResponse(open(file_path, 'rb'))
-            response['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
-            return response
-        except Exception as e:
-            self.message_user(request, f'❌ Error: {str(e)}', messages.ERROR)
-            return redirect('admin:configuration_backup_changelist')
     
     def get_actions(self, request):
         return {}
