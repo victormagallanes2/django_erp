@@ -14,7 +14,21 @@ class User(AbstractUser):
         verbose_name="Compañías asignadas",
         help_text="Compañías a las que el usuario tiene acceso"
     )
-    
+
+
+    preferred_company = models.ForeignKey(
+        'configuration.Company',        # ✅ String, no import directo
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='users_who_prefer_this',
+        verbose_name="Compañía preferida",
+        help_text=(
+            "Compañía que el usuario verá por defecto al iniciar sesión. "
+            "Se actualiza automáticamente cada vez que cambia de compañía."
+        )
+    )
+
     is_employee = models.BooleanField(
         default=False,
         verbose_name="¿Es empleado?",

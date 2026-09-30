@@ -1,0 +1,63 @@
+{% load i18n static unfold %}
+
+<div class="flex flex-row gap-4 items-center ml-auto">
+
+    {# ✅ Selector de compañía #}
+    {% if available_companies|length > 1 %}
+    <form method="get" action="" style="margin: 0;">
+        <select name="company_id"
+                onchange="this.form.submit()"
+                title="Cambiar de compañía"
+                style="
+                    appearance: none;
+                    -webkit-appearance: none;
+                    -moz-appearance: none;
+
+                    /* Fondo y borde bien visibles */
+                    background-color: #ffffff;
+                    color: #1f2937;
+                    border: 2px solid #6366f1;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.25);
+
+                    /* Espaciado */
+                    padding: 8px 38px 8px 14px;
+                    font-size: 13px;
+                    font-weight: 700;
+                    cursor: pointer;
+                    outline: none;
+                    min-width: 220px;
+                    font-family: inherit;
+
+                    /* Flecha SVG morada */
+                    background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2214%22 height=%2214%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%236366f1%22 stroke-width=%223%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><polyline points=%226 9 12 15 18 9%22></polyline></svg>');
+                    background-repeat: no-repeat;
+                    background-position: right 12px center;
+
+                    transition: all 0.15s ease;
+                "
+                onmouseover="this.style.background='#f9fafb'; this.style.borderColor='#4f46e5';"
+                onmouseout="this.style.background='#ffffff'; this.style.borderColor='#6366f1';"
+                onfocus="this.style.borderColor='#4f46e5'; this.style.boxShadow='0 0 0 3px rgba(99, 102, 241, 0.35)';"
+                onblur="this.style.borderColor='#6366f1'; this.style.boxShadow='0 2px 6px rgba(99, 102, 241, 0.25)';">
+            {% for company in available_companies %}
+                <option value="{{ company.id }}"
+                        {% if company.id == current_company.id %}selected{% endif %}
+                        style="color: #1f2937; background: #ffffff; padding: 8px; font-weight: 500;">
+                    {{ company.code }} · {{ company.name }}
+                </option>
+            {% endfor %}
+        </select>
+    </form>
+    {% endif %}
+
+    {% if environment %}
+        {% include "unfold/helpers/label.html" with text=environment.0 type=environment.1 %}
+    {% endif %}
+
+    {% action_list %}
+
+    {% if nav_global_side %}
+        {{ nav_global_side }}
+    {% endif %}
+</div>

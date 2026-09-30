@@ -21,7 +21,7 @@ class UserAdmin(UnfoldModelAdmin, BaseUserAdmin):
 
     list_display = [
         'username', 'email', 'first_name', 'last_name',
-        'is_employee', 'is_staff', 'is_active', 'companies_display',
+        'is_employee', 'preferred_company', 'is_staff', 'is_active', 'companies_display',
     ]
     list_filter = ['is_staff', 'is_active', 'is_employee', 'groups', 'companies']
     search_fields = ['username', 'email', 'first_name', 'last_name']
@@ -29,6 +29,7 @@ class UserAdmin(UnfoldModelAdmin, BaseUserAdmin):
 
     # ✅ Filtro horizontal para M2M (más cómodo que el select múltiple por defecto)
     filter_horizontal = ['companies', 'groups', 'user_permissions']
+    autocomplete_fields = ['preferred_company']
 
     fieldsets = (
         (None, {'fields': ('username', 'password')}),
@@ -37,7 +38,7 @@ class UserAdmin(UnfoldModelAdmin, BaseUserAdmin):
         (_('Empleado'), {'fields': ('is_employee',)}),
         # ✅ NUEVO: bloque de compañías asignadas
         (_('Compañías asignadas'), {
-            'fields': ('companies',),
+            'fields': ('companies', 'preferred_company'),
             'description': (
                 'Selecciona las compañías a las que este usuario tiene acceso. '
                 'Si es empleado, su compañía activa será la primera de esta lista.'
