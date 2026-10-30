@@ -371,55 +371,85 @@ class PhysicalCount(models.Model):
         return f"{self.product.name} - {self.location.code}: {self.available_quantity} → {self.adjustment_quantity}"
     
     def save(self, *args, **kwargs):
-        # Calcular la diferencia automáticamente
+        """
+        Guardar el ajuste y aplicarlo al inventario en una sola transacción.
+
+        - Al crear (is_new=True): calcula `difference` y aplica el ajuste.
+        - Al actualizar: NO se vuelve a aplicar (el ajuste es inmutable).
+        """
+        from django.db import transaction
+        
+        is_new = self.pk is None
         self.difference = self.adjustment_quantity - self.available_quantity
         
-        # Guardar el ajuste
-        is_new = self.pk is None
-        super().save(*args, **kwargs)
-        
-        # Si es nuevo, aplicar el ajuste inmediatamente
-        if is_new and self.difference != 0:
-            self._apply_adjustment()
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            
+            if is_new and self.difference != 0:
+                self._apply_adjustment()
     
     def _apply_adjustment(self):
-        """Aplicar el ajuste al inventario"""
+        """
+        Aplicar el ajuste al inventario.
+        
+        - Fija `Inventory.quantity` al valor `adjustment_quantity`.
+        - Crea un `Movement` de tipo ADJUSTMENT SOLO para auditoría
+          (no modifica stock por sí mismo; ver InventoryService).
+        
+        ⚠️ Debe ejecutarse dentro de una transacción atómica.
+        """
+        from decimal import Decimal
+        from django.core.exceptions import ValidationError
+        from django.utils import timezone
         from .models import Inventory, Movement
         
-        try:
-            # Obtener o crear el registro de inventario
-            inventory, created = Inventory.objects.get_or_create(
-                product=self.product,
-                location=self.location,
-                company=self.company,
-                defaults={
-                    'quantity': 0,
-                    'total_value': 0,
-                }
+        # ✅ Validación: coherencia de compañía
+        if not self.company_id:
+            raise ValidationError(
+                "El ajuste debe tener una compañía asignada."
             )
-            
-            # Actualizar la cantidad
-            inventory.quantity = self.adjustment_quantity
-            inventory.save()
-            
-            # Crear un movimiento de ajuste para auditoría (solo si hay cambio)
-            if self.difference != 0:
-                Movement.objects.create(
-                    product=self.product,
-                    type='ADJUSTMENT',
-                    quantity=abs(self.difference),
-                    unit_price=0,
-                    location_from=self.location if self.difference < 0 else None,
-                    location_to=self.location if self.difference > 0 else None,
-                    source_type='MANUAL',
-                    source_reference=f"AJUSTE-{self.id}",
-                    note=f"Ajuste de inventario: {self.available_quantity} → {self.adjustment_quantity}. {self.note}",
-                    user=self.user,
-                    company=self.company,
-                )
-                
-        except Exception as e:
-            raise Exception(f"Error al aplicar ajuste: {str(e)}")
+        if self.location_id and self.location.company_id != self.company_id:
+            raise ValidationError(
+                f"La ubicación '{self.location.code}' no pertenece a la "
+                f"compañía '{self.company.code}'."
+            )
+        
+        # ✅ Obtener o crear el registro de inventario
+        inventory, _created = Inventory.objects.get_or_create(
+            product=self.product,
+            location=self.location,
+            company=self.company,
+            defaults={
+                'quantity': 0,
+                'total_value': Decimal('0.00'),
+            },
+        )
+        
+        # ✅ Fijar el stock ABSOLUTAMENTE al valor final (no sumar/restar).
+        #    Usar QuerySet.update() para evitar señales post_save de Inventory.
+        Inventory.objects.filter(pk=inventory.pk).update(
+            quantity=self.adjustment_quantity,
+            updated_at=timezone.now(),
+        )
+        
+        # ✅ Registrar el movimiento SOLO como auditoría (no modifica stock)
+        if self.difference != 0:
+            Movement.objects.create(
+                product=self.product,
+                type='ADJUSTMENT',
+                quantity=abs(self.difference),
+                unit_price=Decimal('0.00'),
+                location_from=self.location if self.difference < 0 else None,
+                location_to=self.location if self.difference > 0 else None,
+                source_type='MANUAL',
+                source_reference=f"AJUSTE-{self.id}",
+                note=(
+                    f"Ajuste de inventario: {self.available_quantity} → "
+                    f"{self.adjustment_quantity}. {self.note}"
+                ).strip(),
+                user=self.user,
+                company=self.company,
+            )
 
 
 class DeliveryNote(models.Model):

@@ -1,9 +1,12 @@
 # django_erp/accounting/services.py
+import logging
 from decimal import Decimal
 from datetime import date
 from django.core.exceptions import ValidationError
-from django_erp.configuration.models import Company
-from .models import Tax, TaxRate
+from django_erp.configuration.models import Company, Currency 
+from .models import Tax, TaxRate, ExchangeRate
+
+logger = logging.getLogger(__name__)
 
 
 class TaxService:
@@ -161,106 +164,120 @@ class TaxService:
 
 
 class CurrencyService:
-    """Servicio de conversión de monedas"""
-    
+    """Servicio de conversión de monedas."""
+
+    # ============================================================
+    # MONEDAS
+    # ============================================================
     @staticmethod
     def get_base_currency():
-        """Obtener moneda base del sistema"""
+        """Obtener moneda base del sistema."""
         return Currency.get_base()
-    
+
     @staticmethod
     def get_base_symbol():
-        """Obtener símbolo de la moneda base"""
+        """Obtener símbolo de la moneda base."""
         base = Currency.get_base()
         return base.symbol if base else '$'
-    
+
     @staticmethod
     def get_local_currency():
-        """Obtener moneda local (BS para Venezuela)"""
+        """Obtener moneda local (BS para Venezuela)."""
         try:
             return Currency.objects.get(code='BS')
         except Currency.DoesNotExist:
             return None
-    
+
     @staticmethod
     def get_local_symbol():
-        """Obtener símbolo de la moneda local"""
+        """Obtener símbolo de la moneda local."""
         local = CurrencyService.get_local_currency()
         return local.symbol if local else 'Bs.'
-    
+
+    # ============================================================
+    # CONVERSIÓN
+    # ============================================================
     @staticmethod
     def convert_to_local(amount_usd):
-        """Convertir USD a moneda local"""
+        """Convertir USD a moneda local."""
         try:
             rate = ExchangeRate.get_today_rate('USD', 'BS')
             return amount_usd * rate
-        except:
+        except Exception as e:
+            logger.warning(
+                "No se pudo convertir USD a BS: %s. Devolviendo monto original.",
+                e,
+            )
             return amount_usd
-    
+
     @staticmethod
     def get_today_rate():
-        """Obtener tasa del día"""
+        """Obtener tasa del día USD→BS."""
         try:
             return ExchangeRate.get_today_rate('USD', 'BS')
-        except:
+        except Exception as e:
+            logger.warning("No se pudo obtener la tasa del día: %s", e)
             return None
-    
+
     @staticmethod
     def format_price(price, currency_code=None):
-        """Formatear precio con símbolo de moneda"""
+        """Formatear precio con símbolo de moneda."""
         if currency_code is None:
             base = Currency.get_base()
             currency_code = base.code if base else 'USD'
-        
+
         try:
             currency = Currency.objects.get(code=currency_code)
             return f"{currency.symbol} {price:.{currency.decimal_places}f}"
         except Currency.DoesNotExist:
             return f"${price:.2f}"
 
+    # ============================================================
+    # TASAS HISTÓRICAS
+    # ============================================================
     @staticmethod
     def get_historical_rate(from_code, to_code, date, company=None):
         """
-        Obtener la tasa de cambio vigente en una fecha específica
-        Útil para reportes contables de fechas pasadas
+        Obtener la tasa de cambio vigente en una fecha específica.
+        Útil para reportes contables de fechas pasadas.
         """
         return ExchangeRate.get_rate(from_code, to_code, company, date)
-    
+
     @staticmethod
     def get_rate_history(from_code, to_code, company=None, days=30):
         """
-        Obtener el historial de tasas de cambio
-        Útil para gráficos y reportes
+        Obtener el historial de tasas de cambio.
+        Útil para gráficos y reportes.
         """
         return ExchangeRate.get_historical_rates(from_code, to_code, company, days)
-    
+
     @staticmethod
     def get_rate_change_summary(from_code, to_code, company=None, days=30):
         """
-        Obtener resumen de cambios de tasa
-        Útil para auditoría
+        Obtener resumen de cambios de tasa.
+        Útil para auditoría.
         """
         if company is None:
             company = Company.get_active()
-        
+
         if not company:
             return None
-        
+
         from_currency = Currency.objects.get(code=from_code)
         to_currency = Currency.objects.get(code=to_code)
-        
+
         rates = ExchangeRate.objects.filter(
             company=company,
             from_currency=from_currency,
-            to_currency=to_currency
+            to_currency=to_currency,
         ).order_by('effective_date')
-        
+
         if not rates.exists():
             return None
-        
+
         first = rates.first()
         last = rates.last()
-        
+
         return {
             'first_rate': first.rate,
             'first_date': first.effective_date,
@@ -270,5 +287,5 @@ class CurrencyService:
             'change_percent': ((last.rate - first.rate) / first.rate) * 100,
             'total_changes': rates.count(),
             'last_change': last,
-            'history': rates
+            'history': rates,
         }

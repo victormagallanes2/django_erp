@@ -605,7 +605,7 @@ class PurchaseInvoice(models.Model):
     )
     
     sync_attempts = models.IntegerField(
-        default=Decimal('0.00'),
+        default=0,   # ✅ int, no Decimal
         verbose_name="Intentos de sincronización"
     )
     
@@ -682,8 +682,12 @@ class PurchaseInvoice(models.Model):
     tax_rate = models.DecimalField(
         max_digits=5, 
         decimal_places=2, 
-        default=16.00, 
-        verbose_name="Tasa IVA (%)"
+        default=Decimal('0.00'),   # ✅
+        verbose_name="Tasa IVA (%)",
+        help_text=(
+            "Tasa de IVA aplicada al momento de emitir la factura. "
+            "Se calcula automáticamente desde la configuración de la compañía."
+        ),
     )
     tax = models.DecimalField(
         max_digits=10, 
@@ -733,15 +737,22 @@ class PurchaseInvoice(models.Model):
         return f"{self.number} - {self.supplier_name}"
 
     def calculate_totals(self):
-        """Calcular totales usando el IVA de la empresa"""
+        """Calcular totales usando el IVA de la compañía de la factura."""
         from decimal import Decimal, ROUND_HALF_UP
-        from django_erp.configuration.models import Company
-        
-        subtotal = sum(line.subtotal for line in self.lines.all())
-        
-        company = Company.get_active()
         from django_erp.accounting.services import TaxService
-        tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
+        
+        subtotal = sum(
+            (Decimal(str(line.subtotal)) for line in self.lines.all()),
+            Decimal('0.00'),
+        )
+        
+        company = self.company if self.company_id else None
+        
+        if company:
+            computed_rate = TaxService.get_current_vat_rate(company)
+            tax_rate = computed_rate if computed_rate is not None else Decimal('0.00')
+        else:
+            tax_rate = Decimal('0.00')
         
         tax = subtotal * (tax_rate / Decimal('100'))
         total = subtotal + tax
@@ -749,37 +760,40 @@ class PurchaseInvoice(models.Model):
         self.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         self.tax = tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         self.total = total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        self.tax_rate = Decimal(str(tax_rate)).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
         
         return self.subtotal, self.tax, self.total
 
     def save(self, *args, **kwargs):
-        # ✅ Asignar UUID si no existe
         if not self.uuid:
             self.uuid = uuid.uuid4()
-
-        # ✅ RED DE SEGURIDAD: Asignar la compañía activa si no tiene una.
+        
         if not self.company_id:
-            from django_erp.configuration.models import Company
             company = Company.get_active()
             if company:
                 self.company = company
-            # Si aún no hay compañía, se lanzará un error de integridad más abajo.
-
-        # ✅ Si la factura está asociada a una orden de compra, copiar datos del proveedor.
+        
         if self.purchase_order and self.purchase_order.supplier:
             self.supplier = self.purchase_order.supplier
             self.supplier_name = self.purchase_order.supplier.name
             self.supplier_rif = self.purchase_order.supplier.tax_id
             self.supplier_address = self.purchase_order.supplier.address
-
-        # ✅ Guardar la instancia para obtener un ID si es nuevo.
+        
+        # ✅ Calcular tax_rate desde la compañía
+        if self.company_id and (not self.pk or not self.tax_rate):
+            from django_erp.accounting.services import TaxService
+            if self.company:
+                computed_rate = TaxService.get_current_vat_rate(self.company)
+                if computed_rate is not None:
+                    self.tax_rate = computed_rate
+        
         super().save(*args, **kwargs)
         
-        # ✅ Recalcular totales si es una factura existente con líneas.
         if self.pk and hasattr(self, 'lines') and self.lines.exists():
             self.calculate_totals()
-            # Guardar solo los campos de totales para evitar recursión.
-            super().save(update_fields=['subtotal', 'tax', 'total'])
+            super().save(update_fields=['subtotal', 'tax', 'total', 'tax_rate'])
 
 
 class PurchaseInvoiceLine(models.Model):

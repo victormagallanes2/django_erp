@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from simple_history.models import HistoricalRecords
 from decimal import Decimal, ROUND_HALF_UP
+from django.db import models, transaction 
 from django.apps import apps
 import uuid
 from django.conf import settings
@@ -789,34 +790,120 @@ class Payment(models.Model):
         else:
             return f"Pago #{self.id} - {self.method.name} - {self.amount}"
 
-    def save(self, *args, **kwargs):
-        from django_erp.configuration.models import Currency
-        from django_erp.accounting.models import ExchangeRate
+@transaction.atomic
+def save(self, *args, **kwargs):
+    from decimal import Decimal, ROUND_HALF_UP
+    from django.core.exceptions import ValidationError
+    from django_erp.configuration.models import Currency
+    from django_erp.accounting.models import ExchangeRate
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    # ============================================================
+    # 1. Determinar la moneda del pago
+    # ============================================================
+    if not self.currency_id:
+        self.currency = self._resolve_currency(logger)
+    
+    if not self.currency_id:
+        raise ValidationError(
+            "No se pudo determinar la moneda del pago. "
+            "Verifica que exista la moneda USD o una moneda base."
+        )
+    
+    # ============================================================
+    # 2. Calcular amount_usd
+    # ============================================================
+    self.amount_usd = self._calculate_amount_usd(logger)
+    
+    # ============================================================
+    # 3. Guardar
+    # ============================================================
+    super().save(*args, **kwargs)
+
+
+def _resolve_currency(self, logger):
+    """
+    Resolver la moneda del pago con fallbacks seguros.
+    
+    Orden:
+        1. Moneda por defecto del método de pago (si está activa)
+        2. Moneda USD (si está activa)
+        3. Moneda base del sistema
+        4. None (el caller lanzará ValidationError)
+    """
+    from django_erp.configuration.models import Currency
+    
+    # 1. Método de pago
+    if self.method_id and self.method.default_currency_id:
+        if self.method.default_currency.is_active:
+            return self.method.default_currency
+        logger.warning(
+            "Payment.save: moneda %s del método %s está inactiva, "
+            "buscando alternativa.",
+            self.method.default_currency.code,
+            self.method.name,
+        )
+    
+    # 2. USD
+    usd = Currency.objects.filter(code='USD', is_active=True).first()
+    if usd:
+        return usd
+    
+    # 3. Moneda base
+    base = Currency.get_base()
+    if base:
+        logger.warning(
+            "Payment.save: no hay USD activo, usando moneda base %s.",
+            base.code,
+        )
+        return base
+    
+    # 4. Nada
+    logger.error("Payment.save: no hay moneda USD ni base activa.")
+    return None
+
+
+    def _calculate_amount_usd(self, logger):
+        """
+        Calcular `amount_usd` desde `amount` y `currency`.
+        
+        Si falla la conversión, devolver el `amount` sin convertir
+        (con warning). Nunca lanzar excepción aquí: el pago debe
+        poder registrarse aunque falte la tasa.
+        """
         from decimal import Decimal, ROUND_HALF_UP
+        from django_erp.accounting.models import ExchangeRate
         
-        if not self.currency_id and self.method_id:
-            if self.method.default_currency:
-                self.currency = self.method.default_currency
-            else:
-                usd = Currency.objects.get(code='USD')
-                self.currency = usd
+        amount = Decimal(str(self.amount or 0))
         
-        if not self.currency_id:
-            usd = Currency.objects.get(code='USD')
-            self.currency = usd
-        
+        # Si ya es USD, nada que convertir
         if self.currency.code == 'USD':
-            self.amount_usd = self.amount
-        else:
+            return amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        
+        try:
             rate = ExchangeRate.get_today_rate(self.currency.code, 'USD')
+            
             if rate and rate > 0:
-                self.amount_usd = (self.amount / Decimal(str(rate))).quantize(
+                converted = (amount / Decimal(str(rate))).quantize(
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
-            else:
-                self.amount_usd = self.amount
+                return converted
+            
+            logger.warning(
+                "Payment.save: no hay tasa %s→USD. Guardando amount_usd = amount.",
+                self.currency.code,
+            )
+            return amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         
-        super().save(*args, **kwargs)
+        except Exception as e:
+            logger.error(
+                "Payment.save: error convirtiendo %s→USD: %s. "
+                "Guardando amount_usd = amount.",
+                self.currency.code, e,
+            )
+            return amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
 
 class SaleInvoice(models.Model):
@@ -866,7 +953,7 @@ class SaleInvoice(models.Model):
     )
     
     sync_attempts = models.IntegerField(
-        default=Decimal('0.00'),
+        default=0,   # ✅ int, no Decimal
         verbose_name="Intentos de sincronización"
     )
     
@@ -943,8 +1030,12 @@ class SaleInvoice(models.Model):
     tax_rate = models.DecimalField(
         max_digits=5, 
         decimal_places=2, 
-        default=16.00, 
-        verbose_name="Tasa IVA (%)"
+        default=Decimal('0.00'),   # ✅ Sin hardcode
+        verbose_name="Tasa IVA (%)",
+        help_text=(
+            "Tasa de IVA aplicada al momento de emitir la factura. "
+            "Se calcula automáticamente desde la configuración de la compañía."
+        ),
     )
     tax = models.DecimalField(
         max_digits=10, 
@@ -1008,15 +1099,33 @@ class SaleInvoice(models.Model):
         return f"{self.number} - {self.customer_name if self.customer_name else self.customer.name if self.customer else 'Sin cliente'}"
 
     def calculate_totals(self):
-        """Calcular totales usando el IVA de la empresa"""
+        """
+        Calcular subtotal, IVA y total de la factura.
+
+        - Usa `self.company` (no Company.get_active()) para respetar la
+          compañía real de la factura.
+        - Usa la tasa de IVA vigente configurada en la compañía.
+        - Si la compañía no tiene tasa configurada, usa 0 (sin fallback
+          hardcodeado).
+        - Asigna `self.tax_rate` para que el campo refleje el valor real.
+        """
         from decimal import Decimal, ROUND_HALF_UP
-        from django_erp.configuration.models import Company
-        
-        subtotal = sum(line.subtotal for line in self.lines.all())
-        
-        company = Company.get_active()
         from django_erp.accounting.services import TaxService
-        tax_rate = TaxService.get_current_vat_rate(company) if company else Decimal('16.00')
+        
+        subtotal = sum(
+            (Decimal(str(line.subtotal)) for line in self.lines.all()),
+            Decimal('0.00'),
+        )
+        
+        # ✅ Usar self.company (no Company.get_active())
+        company = self.company if self.company_id else None
+        
+        # ✅ Sin fallback hardcodeado
+        if company:
+            computed_rate = TaxService.get_current_vat_rate(company)
+            tax_rate = computed_rate if computed_rate is not None else Decimal('0.00')
+        else:
+            tax_rate = Decimal('0.00')
         
         tax = subtotal * (tax_rate / Decimal('100'))
         total = subtotal + tax
@@ -1024,6 +1133,9 @@ class SaleInvoice(models.Model):
         self.subtotal = subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         self.tax = tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         self.total = total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        self.tax_rate = Decimal(str(tax_rate)).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
         
         return self.subtotal, self.tax, self.total
 
@@ -1037,11 +1149,21 @@ class SaleInvoice(models.Model):
             self.customer_tax_id = self.sale_order.customer.tax_id
             self.customer_address = self.sale_order.customer.address
         
+        # ✅ Calcular tax_rate desde la compañía (si es nueva o no tiene)
+        if self.company_id and (not self.pk or not self.tax_rate):
+            from django_erp.accounting.services import TaxService
+            company = self.company
+            if company:
+                computed_rate = TaxService.get_current_vat_rate(company)
+                if computed_rate is not None:
+                    self.tax_rate = computed_rate
+        
         super().save(*args, **kwargs)
         
         if self.pk and self.lines.exists():
             self.calculate_totals()
-            super().save(update_fields=['subtotal', 'tax', 'total'])
+            # ✅ Incluir tax_rate en update_fields
+            super().save(update_fields=['subtotal', 'tax', 'total', 'tax_rate'])
 
 
 class SaleInvoiceLine(models.Model):

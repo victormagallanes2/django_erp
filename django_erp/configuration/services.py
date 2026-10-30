@@ -9,11 +9,6 @@ from django.utils import timezone
 from .models import Backup, Company
 
 
-class CompanyService:
-    @staticmethod
-    def get_active_company():
-        return Company.get_active()
-
 
 def _get_documents_folder():
     """

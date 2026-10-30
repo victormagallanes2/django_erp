@@ -17,7 +17,7 @@ class User(AbstractUser):
 
 
     preferred_company = models.ForeignKey(
-        'configuration.Company',        # ✅ String, no import directo
+        'configuration.Company',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -34,7 +34,18 @@ class User(AbstractUser):
         verbose_name="¿Es empleado?",
         help_text="Indica si el usuario es un empleado de la empresa"
     )
-    
+
+
+    is_staff = models.BooleanField(
+        default=True,
+        verbose_name="¿Acceso al admin?",
+        help_text=(
+            "Marcar para permitir el acceso a la interfaz del ERP "
+            "(/admin/). Desmarcar solo para usuarios que NO deben "
+            "entrar al sistema (ej: portales externos, cuentas API)."
+        ),
+    )
+
     class Meta:
         verbose_name = "Usuario"
         verbose_name_plural = "Usuarios"
@@ -47,9 +58,4 @@ class User(AbstractUser):
         if self.is_superuser:
             return Company.get_active_companies()
         return self.companies.filter(is_active=True)
-
-    def save(self, *args, **kwargs):
-        if not self.pk:
-            self.is_staff = True
-        super().save(*args, **kwargs)
 

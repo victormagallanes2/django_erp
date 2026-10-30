@@ -476,21 +476,29 @@ class SaleReportService:
     PAID_STATUSES = ['PAID']
 
     @staticmethod
+    def _resolve_company(company=None):
+        """
+        Resolver la compañía a usar en el reporte.
+
+        Orden:
+            1. La pasada como argumento
+            2. La compañía activa (Company.get_active())
+            3. None (reporte global)
+
+        Returns:
+            Company | None
+        """
+        return company or Company.get_active()
+
+    @staticmethod
     def get_totals_by_period(period_type='day', days_back=30, company=None):
         """
-        Obtiene el total de ventas agrupadas por un período específico.
+        Obtiene el total de ventas agrupadas por período.
+
         ✅ Solo cuenta facturas con status='PAID'.
         """
-        queryset = SaleInvoice.objects.filter(status__in=SaleReportService.PAID_STATUSES)
-        
-        # Filtrar por compañía
-        if company:
-            queryset = queryset.filter(company=company)
-        else:
-            company = Company.get_active()
-            if company:
-                queryset = queryset.filter(company=company)
-        
+        queryset = SaleReportService._get_invoices_queryset(company)
+
         # Truncar por período
         if period_type == 'day':
             start_date = timezone.now() - timedelta(days=days_back)
@@ -520,7 +528,6 @@ class SaleReportService:
 
         labels = []
         totals = []
-
         for entry in report_data:
             if entry['period']:
                 labels.append(entry['period'].strftime(label_format))
@@ -535,62 +542,55 @@ class SaleReportService:
     def get_grand_totals(company=None):
         """
         Calcula los totales de ventas de hoy, este mes y este año.
+
         ✅ Solo cuenta facturas con status='PAID'.
         """
         today = timezone.now().date()
         first_day_of_month = today.replace(day=1)
         first_day_of_year = today.replace(month=1, day=1)
 
-        # ✅ Base queryset: solo facturas pagadas
-        queryset = SaleInvoice.objects.filter(status__in=SaleReportService.PAID_STATUSES)
-
-        if company:
-            queryset = queryset.filter(company=company)
-        else:
-            company = Company.get_active()
-            if company:
-                queryset = queryset.filter(company=company)
+        queryset = SaleReportService._get_invoices_queryset(company)
 
         sales_today = queryset.filter(
             date_issued=today
         ).aggregate(Sum('total'))['total__sum'] or Decimal('0.00')
-        
+
         sales_this_month = queryset.filter(
             date_issued__gte=first_day_of_month
         ).aggregate(Sum('total'))['total__sum'] or Decimal('0.00')
-        
+
         sales_this_year = queryset.filter(
             date_issued__gte=first_day_of_year
         ).aggregate(Sum('total'))['total__sum'] or Decimal('0.00')
 
-        # ✅ Extras útiles para el dashboard
-        total_invoices = queryset.count()
-        
         return {
             'today': float(sales_today),
             'this_month': float(sales_this_month),
             'this_year': float(sales_this_year),
-            'total_invoices': total_invoices,
+            'total_invoices': queryset.count(),
         }
     
     @staticmethod
     def get_top_products(limit=10, company=None, days_back=30):
         """
         Productos más vendidos en los últimos N días.
+
         ✅ Solo cuenta facturas pagadas.
+        ✅ Ahora resuelve company de la misma forma que los otros métodos.
         """
         from django_erp.sales.models import SaleInvoiceLine
-        
+
         start_date = timezone.now() - timedelta(days=days_back)
-        
+
         queryset = SaleInvoiceLine.objects.filter(
             invoice__status__in=SaleReportService.PAID_STATUSES,
             invoice__date_issued__gte=start_date,
         )
-        
-        if company:
-            queryset = queryset.filter(invoice__company=company)
-        
+
+        resolved_company = SaleReportService._resolve_company(company)
+        if resolved_company:
+            queryset = queryset.filter(invoice__company=resolved_company)
+
         return (
             queryset
             .values('product_name')
@@ -605,18 +605,16 @@ class SaleReportService:
     def get_top_customers(limit=10, company=None, days_back=30):
         """
         Mejores clientes en los últimos N días.
+
         ✅ Solo cuenta facturas pagadas.
+        ✅ Ahora resuelve company de la misma forma que los otros métodos.
         """
         start_date = timezone.now() - timedelta(days=days_back)
-        
-        queryset = SaleInvoice.objects.filter(
-            status__in=SaleReportService.PAID_STATUSES,
+
+        queryset = SaleReportService._get_invoices_queryset(company).filter(
             date_issued__gte=start_date,
         )
-        
-        if company:
-            queryset = queryset.filter(company=company)
-        
+
         return (
             queryset
             .values('customer_name')

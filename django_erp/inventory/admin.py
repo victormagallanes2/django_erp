@@ -17,6 +17,8 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 import logging
 from django.db import models
+from django.db.models import Sum, Q, Value, IntegerField, F
+from django.db.models.functions import Coalesce
 
 logger = logging.getLogger(__name__)
 
@@ -318,7 +320,7 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
         'product_display',
         'total_entries_display',
         'total_exits_display',
-        'quantity_display',
+        'quantity',
         'purchase_price_usd_display',
         'purchase_price_bs_display',
         'sale_price_usd_display',
@@ -333,13 +335,22 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     
     
     def get_exchange_rate(self, request=None):
-        """Obtener la tasa de cambio del día"""
+        """
+        Obtener la tasa de cambio del día (con cache por request).
+        
+        Evita 1 query por fila: se calcula 1 vez y se reutiliza.
+        """
+        if hasattr(self, '_cached_rate'):
+            return self._cached_rate
+
         try:
             rate = ExchangeRate.get_today_rate('USD', 'BS')
-            return float(rate) if rate else 0
+            self._cached_rate = float(rate) if rate else 0
         except Exception as e:
             logger.error(f"Error obteniendo tasa de cambio: {e}")
-            return 0
+            self._cached_rate = 0
+
+        return self._cached_rate
     
     # ============================================================
     # MÉTODOS PARA MOSTRAR LOS DATOS
@@ -355,25 +366,15 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     
     @admin.display(description='Entradas')
     def total_entries_display(self, obj):
-        total = Movement.objects.filter(
-            product=obj.product,
-            company=obj.company,
-            type='ENTRY'
-        ).aggregate(total=models.Sum('quantity'))['total'] or 0
-        return total
-    
+        return obj._total_entries
+
     @admin.display(description='Salidas')
     def total_exits_display(self, obj):
-        total = Movement.objects.filter(
-            product=obj.product,
-            company=obj.company,
-            type='EXIT'
-        ).aggregate(total=models.Sum('quantity'))['total'] or 0
-        return total
-    
-    @admin.display(description='Stock', ordering='quantity')
-    def quantity_display(self, obj):
-        return obj.quantity
+        return obj._total_exits
+        
+        @admin.display(description='Stock', ordering='quantity')
+        def quantity_display(self, obj):
+            return obj.quantity
     
     # ============================================================
     # PRECIO DE COMPRA (USD y Bs.)
@@ -409,22 +410,27 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
-        
+
+        # ✅ Inicializar cache (se rellena la primera vez que se llame a get_exchange_rate)
+        self._cached_rate = None
+
         queryset = self.get_queryset(request)
-        
+
         # Estadísticas básicas
         extra_context['total_products'] = queryset.count()
         extra_context['total_stock'] = sum(inv.quantity for inv in queryset)
         extra_context['products_without_stock'] = queryset.filter(quantity=0).count()
-        
-        # ✅ Tasa de cambio para mostrar en el template
+
+        # ✅ Tasa de cambio (con cache)
         rate = self.get_exchange_rate()
         extra_context['exchange_rate'] = rate
-        extra_context['exchange_rate_display'] = f"1 USD = Bs. {rate:.2f}" if rate > 0 else "Sin tasa configurada"
-        
+        extra_context['exchange_rate_display'] = (
+            f"1 USD = Bs. {rate:.2f}" if rate > 0 else "Sin tasa configurada"
+        )
+
         company = getattr(request, 'current_company', None)
         extra_context['company_name'] = company.name if company else 'Sistema'
-        
+
         return super().changelist_view(request, extra_context=extra_context)
     
     # ============================================================
@@ -436,6 +442,46 @@ class InventoryAdmin(CompanyFilterMixin, UnfoldModelAdmin):
     
     def has_delete_permission(self, request, obj=None):
         return False
+
+    def get_queryset(self, request):
+        """
+        Optimizar consultas del listado.
+
+        - select_related: evita N+1 en product, location y company.
+        - annotate: precalcula entradas y salidas en la misma query.
+        """
+        qs = super().get_queryset(request)
+
+        # ✅ Evitar N+1
+        qs = qs.select_related('product', 'location', 'company')
+
+        # ✅ Precalcular entradas/salidas (filtradas por la misma compañía)
+        qs = qs.annotate(
+            _total_entries=Coalesce(
+                Sum(
+                    'product__movements__quantity',
+                    filter=Q(
+                        product__movements__type='ENTRY',
+                        product__movements__company=F('company'),
+                    ),
+                ),
+                Value(0),
+                output_field=IntegerField(),
+            ),
+            _total_exits=Coalesce(
+                Sum(
+                    'product__movements__quantity',
+                    filter=Q(
+                        product__movements__type='EXIT',
+                        product__movements__company=F('company'),
+                    ),
+                ),
+                Value(0),
+                output_field=IntegerField(),
+            ),
+        )
+
+        return qs
 
 
 
